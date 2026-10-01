@@ -59,10 +59,11 @@ MCP surface layered on.
 - **Frontend:** the full office UI, tested (Vitest, strict TypeScript, runtime
   validation of every backend payload in `src/api/wire.ts`).
 - **Backend (Rust, `src-tauri/`):** discovers real **Claude Code** sessions from
-  Claude's own files (`~/.claude/sessions/<pid>.json` for liveness,
-  `~/.claude/projects/**.jsonl` for transcripts), groups them into floors by git
-  root, derives each desk's state, queues open `AskUserQuestion` calls and
-  plain-prose asks, and pushes live updates to the webview. Clicking a running
+  Claude's own files (`~/.claude/sessions/<pid>.json` for liveness and a
+  session blocked on you, `~/.claude/projects/**.jsonl` for transcripts), groups
+  them into floors by git root, derives each desk's state, queues open
+  questions, permission prompts and plain-prose asks, and pushes live updates to
+  the webview. Clicking a running
   desk focuses its exact iTerm2 or Terminal.app tab. Hiring starts the agent
   with the chosen model and effort in an in-app terminal: a pseudo-terminal
   (through your login shell, in the floor's folder) streamed to xterm.js, with

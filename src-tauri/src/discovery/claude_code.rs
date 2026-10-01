@@ -27,6 +27,10 @@ pub struct LiveEntry {
     pub session_id: String,
     pub cwd: String,
     pub busy: bool,
+    /// Blocked on the human (`status: "waiting"`). Claude Code writes an open
+    /// `AskUserQuestion` or permission prompt to the transcript only once it is
+    /// answered, so this is the only sign of one.
+    pub waiting: bool,
     pub name: Option<String>,
 }
 
@@ -85,6 +89,7 @@ pub fn parse_registry_entry(text: &str) -> Option<LiveEntry> {
         session_id: v.get("sessionId")?.as_str()?.to_string(),
         cwd: v.get("cwd")?.as_str()?.to_string(),
         busy: v.get("status").and_then(Value::as_str) == Some("busy"),
+        waiting: v.get("status").and_then(Value::as_str) == Some("waiting"),
         name: v.get("name").and_then(Value::as_str).map(str::to_string),
     })
 }
@@ -371,7 +376,7 @@ pub fn signals(t: &Transcript, live: Option<&LiveEntry>) -> Signals {
     Signals {
         live: live.is_some(),
         busy: live.is_some_and(|l| l.busy),
-        question_waiting: t.question.is_some(),
+        question_waiting: t.question.is_some() || live.is_some_and(|l| l.waiting),
         pending_tool: t.open_tools > 0,
         human_spoke_last: t.human_spoke_last,
         api_error: t.api_error,

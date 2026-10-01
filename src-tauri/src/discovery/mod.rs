@@ -141,12 +141,23 @@ fn from_claude(f: claude_code::Found) -> Option<SessionInput> {
         .title
         .clone()
         .or_else(|| f.live.as_ref().and_then(|l| l.name.clone()));
-    let formal_question = f.transcript.question.as_ref().map(|q| FormalQuestionInput {
-        id_suffix: q.tool_use_id.clone(),
-        prompt: q.prompt.clone(),
-        options: q.options.clone(),
-        asked_at: q.asked_at.clone(),
-    });
+    let last_activity = f.transcript.last_activity.clone().unwrap_or_default();
+    let formal_question = match (&f.transcript.question, &f.live) {
+        (Some(q), _) => Some(FormalQuestionInput {
+            id_suffix: q.tool_use_id.clone(),
+            prompt: q.prompt.clone(),
+            options: q.options.clone(),
+            asked_at: q.asked_at.clone(),
+        }),
+        // An open question or permission prompt reaches the transcript only once answered.
+        (None, Some(live)) if live.waiting => Some(FormalQuestionInput {
+            id_suffix: "waiting".to_string(),
+            prompt: "Waiting for you in its terminal".to_string(),
+            options: Vec::new(),
+            asked_at: last_activity.clone(),
+        }),
+        _ => None,
+    };
     Some(SessionInput {
         session_id: f.session_id,
         tool: ToolKind::ClaudeCode,
@@ -155,7 +166,7 @@ fn from_claude(f: claude_code::Found) -> Option<SessionInput> {
         live: f.live.is_some(),
         model: f.transcript.model.clone(),
         effort: f.transcript.effort.clone(),
-        last_activity: f.transcript.last_activity.clone().unwrap_or_default(),
+        last_activity,
         spend: f.transcript.spend,
         signals,
         formal_question,
@@ -324,6 +335,7 @@ mod tests {
                 session_id: id.to_string(),
                 cwd: cwd.to_string(),
                 busy: false,
+                waiting: false,
                 name: None,
             }),
         }
@@ -385,6 +397,27 @@ mod tests {
         let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
         assert_eq!(s1.pending_question_ids, vec!["s1:toolu_1".to_string()]);
         assert_eq!(s1.control, ControlMode::RaiseWindow);
+    }
+
+    #[test]
+    fn a_question_only_the_registry_knows_about_still_waits() {
+        // Claude Code writes an open AskUserQuestion to the transcript only once it is answered.
+        let mut asking = found("s1", "/home/me/code/app", &[DONE], true);
+        if let Some(live) = asking.live.as_mut() {
+            live.waiting = true;
+        }
+        let d = assemble(
+            Path::new("/home/me"),
+            claude_inputs(vec![asking]),
+            Path::to_path_buf,
+        );
+        let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
+        assert_eq!(s1.state, SessionState::WaitingHuman);
+        assert_eq!(s1.pending_question_ids, vec!["s1:waiting".to_string()]);
+        let q = &d.questions[0];
+        assert_eq!(q.prompt, "Waiting for you in its terminal");
+        assert!(q.options.is_empty());
+        assert_eq!(q.answer_via, AnswerVia::Terminal);
     }
 
     #[test]

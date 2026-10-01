@@ -152,9 +152,16 @@ fn registry_entries_parse_and_filter_by_liveness() {
             session_id: "abc".into(),
             cwd: "/code/app".into(),
             busy: true,
+            waiting: false,
             name: Some("fix".into())
         }
     );
+    let waiting = parse_registry_entry(
+        r#"{"pid":42,"sessionId":"abc","cwd":"/code/app","status":"waiting","waitingFor":"dialog open"}"#,
+    )
+    .expect("waiting entry");
+    assert!(!waiting.busy);
+    assert!(waiting.waiting);
     assert!(parse_registry_entry(r#"{"pid":"x"}"#).is_none());
 
     let dir = std::env::temp_dir().join(format!("ob-registry-{}", std::process::id()));
