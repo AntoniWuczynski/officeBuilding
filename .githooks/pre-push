@@ -1,0 +1,3 @@
+#!/bin/sh
+# Block a push whose commits add secrets or private details, including ones made with --no-verify.
+exec node --no-warnings scripts/check-sensitive.ts --push

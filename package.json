@@ -20,7 +20,9 @@
     "test:coverage": "vitest run --coverage",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "app:install": "tauri build --bundles app && rm -rf \"$HOME/Applications/Office Building.app\" && mkdir -p \"$HOME/Applications\" && cp -R \"src-tauri/target/release/bundle/macos/Office Building.app\" \"$HOME/Applications/\""
+    "app:install": "tauri build --bundles app && rm -rf \"$HOME/Applications/Office Building.app\" && mkdir -p \"$HOME/Applications\" && cp -R \"src-tauri/target/release/bundle/macos/Office Building.app\" \"$HOME/Applications/\"",
+    "prepare": "git config core.hooksPath .githooks",
+    "check:sensitive": "node --no-warnings scripts/check-sensitive.ts --all"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

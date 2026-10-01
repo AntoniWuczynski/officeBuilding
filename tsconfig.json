@@ -31,12 +31,13 @@
 
     "incremental": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "types": ["vitest/globals", "node"],
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "vite.config.ts", "vitest.setup.ts"],
+  "include": ["src", "scripts", "vite.config.ts", "vitest.setup.ts"],
   "exclude": ["node_modules", "dist", "src-tauri"]
 }

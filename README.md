@@ -124,6 +124,17 @@ Launchpad and the Dock can find it (to pin it, open the app and choose Options â
 Keep in Dock). Run it again after pulling changes. The installed app does not
 rebuild itself.
 
+### Sensitive-information hooks
+
+`pnpm install` points git at `.githooks/`. The pre-commit hook refuses a commit
+that adds a secret (API keys, tokens, private keys, credential assignments, a
+real `/Users/<name>/` path) or a file such as `.env` or `*.pem`. The pre-push
+hook checks every commit being pushed, including ones made with `--no-verify`.
+Private words, such as names of unpublished projects, go one per line in
+`.githooks/sensitive.local.txt`, which is gitignored because committing it would
+publish them. For a reviewed false positive, put `sensitive-ok` on the line.
+`pnpm check:sensitive` sweeps the whole history.
+
 `pnpm tauri:dev` starts its own Vite server on :5183, so stop `pnpm dev` first.
 The Tauri crates are pinned to the 2.11 line to match `@tauri-apps/api`; move
 both together. The app icon is generated from `src-tauri/icons/icon-source.svg`

@@ -7,3 +7,6 @@ coverage/
 !.env.example
 .DS_Store
 .claude/worktrees/
+
+# Private terms for the sensitive-information hooks (scripts/check-sensitive.ts)
+.githooks/*.local.txt
