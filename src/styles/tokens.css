@@ -1,0 +1,55 @@
+/* Tokens recorded in DESIGN.md. Change them there first. */
+:root {
+  --sky-top: #cfe3ee;
+  --sky-bottom: #eef4f1;
+
+  --plaster: #f1ece2;
+  --plaster-shade: #e2dacb;
+  --boards: #d9bd93;
+  --concrete: #bdb6a8;
+  --concrete-shade: #a39c8e;
+  --roof: #8e887c;
+  --timber: #9b7753;
+  --timber-front: #7a5a3c;
+  --timber-side: #634831;
+  --window: #afd3e6;
+  --glass: rgba(200, 228, 240, 0.36);
+  --glass-edge: rgba(70, 110, 130, 0.55);
+  --window-wall:
+    linear-gradient(90deg, var(--plaster) 0 14px, transparent 14px) 0 0 / 44px 100% repeat-x,
+    linear-gradient(var(--plaster) 0 20%, var(--window) 20% 68%, var(--plaster) 68%);
+
+  /* props */
+  --monitor: #2b2e33;
+  --monitor-top: #40444c;
+  --monitor-side: #1f2226;
+  --note-yellow: #f7e27a;
+  --note-blue: #9fd8f2;
+  --note-pink: #f6b5c8;
+  --cork: #c99a5b;
+  --cork-edge: #8c6436;
+  --brass: #c9a45c;
+  --brass-edge: #8a6d2e;
+  --terminal: #16181c;
+  --terminal-text: #e8e6e1;
+
+  /* signage and chrome */
+  --ink: #1c1f24;
+  --ink-soft: #4b4f57;
+  --paper: #fffdf8;
+  --paper-hover: #f3eee3;
+  --rule: #cfc7b6;
+  --signage: #b5532b;
+  --signage-edge: #8e3f1f;
+
+  /* status: semantic only */
+  --ok: #2fbf71;
+  --wait: #f2b33d;
+  --fault: #e5484d;
+  --off: #7c8088;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-sign: "DIN Condensed", "Arial Narrow", sans-serif;
+  --font-num: "DIN Alternate", "SF Mono", Menlo, monospace;
+  --font-mono: "SF Mono", Menlo, Consolas, monospace;
+}

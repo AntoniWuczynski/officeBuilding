@@ -1,0 +1,22 @@
+allowBuilds:
+  esbuild: true
+
+# Dependency cooldown: refuse to resolve any release younger than 7 days
+# (10080 minutes), so a compromised publish has a week to be caught and
+# yanked before it can enter the lockfile.
+minimumReleaseAge: 10080
+
+overrides:
+  postcss: ">=8.5.10"
+  # Pin rollup to Vite 6.4.3's declared floor. Vite bundles its own copy of
+  # rollup's `Plugin` types yet declares `rollup: ^4.34.9`, which pnpm otherwise
+  # resolves to a newer 4.x whose `load` hook grew an `attributes` field. Under
+  # `skipLibCheck: false` + `exactOptionalPropertyTypes` that mismatch makes
+  # Vite's `Plugin<A> extends rollup.Plugin<A>` fail to type-check.
+  rollup: "4.34.9"
+  # Force patched Vite (>=6.4.3) through Vitest and @vitejs/plugin-react:
+  #   - GHSA-fx2h-pf6j-xcff  server.fs.deny bypass         (patched 6.4.3)
+  #   - GHSA-4w7w-66w2-5vf9  path traversal in .map        (patched 6.4.2)
+  #   - GHSA-v6wh-96g9-6wx3  launch-editor UNC disclosure  (patched 6.4.3)
+  #   - GHSA-67mh-4wv8-2f99  esbuild dev-server CORS       (patched via vite deps)
+  vite: "^6.4.3"

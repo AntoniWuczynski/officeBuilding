@@ -1,0 +1,3 @@
+# Mirrors pnpm's 7-day minimumReleaseAge. Enforced from Rust 1.100, ignored before.
+[registry]
+global-min-publish-age = "7 days"

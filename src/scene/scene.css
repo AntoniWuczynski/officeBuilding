@@ -1,0 +1,789 @@
+/* The CSS 3D doll's-house rig (DESIGN.md, implementation constraints). */
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.stage[data-fit="width"] {
+  overflow-y: auto;
+}
+.stage-sizer {
+  position: relative;
+  width: 100%;
+}
+.stage-camera {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.world,
+.storey,
+.storey-slide,
+.iso-box,
+.billboard,
+.group,
+.walk {
+  transform-style: preserve-3d;
+}
+.world {
+  position: absolute;
+}
+.group {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.group > * {
+  pointer-events: auto;
+}
+
+/* ---- boxes, walls, billboards ---- */
+.iso-box {
+  position: absolute;
+}
+.iso-box > i {
+  position: absolute;
+  display: block;
+}
+.iso-top {
+  inset: 0;
+  transform: translateZ(var(--h));
+}
+.iso-front {
+  left: 0;
+  width: 100%;
+  top: calc(100% - var(--h));
+  height: var(--h);
+  transform-origin: 50% 100%;
+  transform: rotateX(-90deg);
+}
+.iso-side {
+  top: 0;
+  height: 100%;
+  left: calc(100% - var(--h));
+  width: var(--h);
+  transform-origin: 100% 50%;
+  transform: rotateY(90deg);
+}
+.iso-wall {
+  position: absolute;
+}
+.glass {
+  border: 1.5px solid var(--glass-edge);
+}
+.billboard {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+/* ---- building storeys ---- */
+.storey {
+  position: absolute;
+  inset: 0;
+  transform: translateZ(var(--z));
+  cursor: pointer;
+}
+.storey.lobby {
+  cursor: default;
+}
+.storey-hit > i {
+  background: transparent;
+}
+/* Only the room slides out like a drawer; the nameplate stays put so it is a stable target. */
+.storey-slide {
+  position: absolute;
+  inset: 0;
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.storey:not(.is-dim):hover .storey-slide,
+.storey:focus-within .storey-slide {
+  transform: translate(10px, 12px);
+}
+.storey.is-dim .iso-box > i,
+.storey.is-dim .iso-wall {
+  filter: saturate(0.15) brightness(0.9);
+}
+.storey.is-dim .person,
+.storey.is-dim .nameplate,
+.storey.is-dim .memo-badge {
+  opacity: 0.35;
+}
+.storey.light-off .wall-windows {
+  filter: brightness(0.86);
+}
+
+.status-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 36%;
+  height: 3px;
+  background: var(--off);
+}
+.light-green .status-strip {
+  background: var(--ok);
+}
+.light-yellow .status-strip {
+  background: var(--wait);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.light-red .status-strip {
+  background: var(--fault);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.nameplate {
+  position: absolute;
+  right: 16px;
+  bottom: 0;
+  transform: translateY(50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 6px 10px 4px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 120ms linear;
+}
+.nameplate-static {
+  cursor: default;
+  border-color: var(--rule);
+}
+.nameplate-name {
+  font: 700 17px/1 var(--font-sign);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.nameplate-count {
+  font: 700 15px/1 var(--font-num);
+  color: var(--ink-soft);
+}
+.storey:hover .nameplate {
+  background: var(--paper-hover);
+}
+.lamp {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink);
+  background: var(--off);
+  margin-top: -2px;
+}
+.light-green .lamp {
+  background: var(--ok);
+}
+.light-yellow .lamp {
+  background: var(--wait);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.light-red .lamp {
+  background: var(--fault);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.roof-sign {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--signage);
+  color: var(--paper);
+  border: 2px solid var(--signage-edge);
+  padding: 7px 14px 4px;
+  font: 700 24px/1 var(--font-sign);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.memo-badge,
+.overflow-sign {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  font: 700 12px/17px var(--font-num);
+  text-align: center;
+}
+.memo-badge {
+  background: var(--wait);
+  animation: bob 1.2s ease-in-out infinite;
+}
+.overflow-sign {
+  background: var(--paper);
+}
+
+/* ---- desks ---- */
+.led {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--off);
+}
+.led-running,
+.led-thinking {
+  background: var(--ok);
+}
+.led-waiting-human {
+  background: var(--wait);
+  animation: blink 1s steps(1) infinite;
+}
+.led-error {
+  background: var(--fault);
+  animation: blink 0.6s steps(1) infinite;
+}
+
+/* ---- people ---- */
+.person {
+  position: absolute;
+  left: -10px;
+  bottom: 0;
+  width: 20px;
+  height: 30px;
+  display: block;
+  transition: transform 120ms linear;
+}
+.person svg {
+  display: block;
+  overflow: visible;
+}
+.p-arm,
+.p-body,
+.p-wave,
+.w-leg,
+.w-flip {
+  transform-box: fill-box;
+}
+.pose-typing .p-arm {
+  animation: tap 0.22s ease-in-out infinite alternate;
+}
+.pose-typing .p-arm-r {
+  animation-delay: 0.11s;
+}
+.pose-hand-up .p-wave {
+  transform-origin: 50% 100%;
+  animation: wave 0.9s ease-in-out infinite;
+}
+.person.pose-stuck {
+  left: -17px;
+  width: 34px;
+  height: 14px;
+}
+.pose-stuck .bubble {
+  left: -12px;
+  bottom: 10px;
+}
+.pose-idle .p-body {
+  transform-origin: 50% 100%;
+  animation: breathe 3.2s ease-in-out infinite;
+}
+.pose-thinking .p-body {
+  transform-origin: 50% 100%;
+  animation: breathe 2s ease-in-out infinite;
+}
+.pose-finished {
+  opacity: 0.45;
+}
+.pose-finished .p-body {
+  transform-origin: 50% 100%;
+  transform: rotate(-8deg) translateY(1px);
+}
+
+.bubble {
+  position: absolute;
+  left: 17px;
+  bottom: 15px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font: 800 11px/16px var(--font-num);
+  text-align: center;
+  white-space: nowrap;
+}
+.bubble-ask {
+  background: var(--wait);
+  color: var(--ink);
+  animation: bob 1s ease-in-out infinite;
+}
+.bubble-stuck {
+  background: var(--fault);
+  color: var(--paper);
+  animation: blink 0.7s steps(1) infinite;
+}
+.bubble-think {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  line-height: 12px;
+}
+.bubble-think i {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--ink);
+  margin: 0 1px;
+  animation: dot 1.2s infinite;
+}
+.bubble-think i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.bubble-think i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+.bubble-note {
+  left: -18px;
+  bottom: 18px;
+  padding: 2px;
+  height: auto;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  animation: note-pop 6s both;
+}
+.bubble-note svg {
+  display: block;
+}
+
+.worker {
+  position: absolute;
+  left: -12px;
+  bottom: 0;
+  width: 24px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.worker .person {
+  left: 2px;
+}
+.worker.is-down {
+  left: -18px;
+  width: 36px;
+  height: 16px;
+}
+.worker.is-down .name-tag {
+  bottom: 22px;
+}
+.worker:hover .person,
+.worker:focus-visible .person {
+  transform: translateY(-2px);
+}
+.group.is-dim .person,
+.group.is-dim .name-tag {
+  opacity: 0.25;
+}
+
+.name-tag {
+  position: absolute;
+  left: 50%;
+  bottom: 38px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 1px 4px;
+  font: 600 9px/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.name-tag::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--off);
+}
+.name-tag.state-running::before,
+.name-tag.state-thinking::before {
+  background: var(--ok);
+}
+.name-tag.state-waiting-human::before {
+  background: var(--wait);
+}
+.name-tag.state-error::before {
+  background: var(--fault);
+}
+
+/* ---- walking ---- */
+.walk {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.walk-note {
+  animation: walk-note 6s ease-in-out forwards;
+}
+.walk-arrive {
+  animation: walk-arrive 2.6s ease-in-out forwards;
+}
+.walker {
+  position: absolute;
+  left: -11px;
+  bottom: 0;
+  display: block;
+  width: 22px;
+  height: 38px;
+}
+.walker svg {
+  display: block;
+  overflow: visible;
+}
+.w-leg {
+  transform-origin: 50% 0;
+}
+.w-leg-a {
+  animation: leg 0.42s ease-in-out infinite alternate;
+}
+.w-leg-b {
+  animation: leg 0.42s ease-in-out infinite alternate-reverse;
+}
+.w-flip {
+  transform-origin: 50% 50%;
+}
+.walk-note .w-flip {
+  animation: face-out-and-back 6s steps(1) forwards;
+}
+.walk-note.heads-left .w-flip {
+  animation-name: face-left-out-and-back;
+}
+.walk-arrive.heads-left .w-flip {
+  transform: scaleX(-1);
+}
+
+/* ---- room objects ---- */
+.whiteboard,
+.corkboard,
+.plaque {
+  position: absolute;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 120ms linear;
+}
+.whiteboard:hover,
+.corkboard:hover,
+.plaque:hover {
+  transform: translateY(-2px);
+}
+.whiteboard {
+  left: 24px;
+  width: 170px;
+  height: 64px;
+  gap: 1px;
+  padding: 5px 8px;
+  background: #fbfbf8;
+  border: 2px solid #9aa0a8;
+  overflow: hidden;
+  font: 500 9px/1.35 var(--font-ui);
+  color: #2a3a5a;
+}
+.whiteboard b {
+  font: 700 12px/1 var(--font-sign);
+  letter-spacing: 0.06em;
+  color: var(--signage);
+  margin-bottom: 2px;
+}
+.whiteboard-line {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.whiteboard-line::before {
+  content: "\2610  ";
+}
+.whiteboard-line.is-done {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.whiteboard-line.is-done::before {
+  content: "\2611  ";
+}
+.whiteboard-more {
+  opacity: 0.7;
+}
+.corkboard {
+  left: 16px;
+  width: 128px;
+  height: 66px;
+  padding: 4px 6px;
+  background: var(--cork);
+  border: 3px solid var(--cork-edge);
+  gap: 3px;
+  overflow: hidden;
+}
+.corkboard b {
+  font: 700 11px/1 var(--font-sign);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #3a2a14;
+}
+.corkboard-empty {
+  font: 500 9px var(--font-ui);
+  color: #3a2a14;
+}
+.sticky {
+  max-width: 100%;
+  padding: 2px 4px;
+  font: 600 8px/1.2 var(--font-ui);
+  color: #2a2410;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.18);
+}
+.plaque {
+  top: 16px;
+  gap: 2px;
+  padding: 5px 9px;
+  background: var(--brass);
+  border: 2px solid var(--brass-edge);
+  color: #2a200c;
+  white-space: nowrap;
+}
+.plaque b {
+  font: 700 13px/1 var(--font-sign);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.plaque span {
+  font: 500 9px var(--font-ui);
+}
+.glass-label {
+  position: absolute;
+  left: 8px;
+  top: 6px;
+  font: 700 9px/1 var(--font-sign);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(40, 70, 90, 0.8);
+}
+.memo-tag,
+.hire-sign,
+.add-floor-sign {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.memo-tag {
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 4px 7px;
+  font: 600 11px/1.2 var(--font-ui);
+  color: var(--ink);
+}
+.memo-tag.has-waiting {
+  background: var(--wait);
+  animation: bob-x 1.2s ease-in-out infinite;
+}
+.memo-tag b {
+  font-family: var(--font-num);
+}
+.hire-sign,
+.add-floor-sign {
+  background: var(--paper);
+  border: 2px dashed var(--ink);
+  border-radius: 2px;
+  padding: 5px 8px 3px;
+  font: 700 12px/1 var(--font-sign);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.hire-sign:hover,
+.add-floor-sign:hover {
+  border-style: solid;
+}
+.hire-sign:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.meter {
+  position: absolute;
+  left: 210px;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 72px;
+  background: var(--monitor);
+  border: 2px solid #5a5f68;
+  padding: 5px 7px;
+  color: var(--paper);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 120ms linear;
+}
+.meter:hover {
+  transform: translateY(-2px);
+}
+.meter-label {
+  font: 700 10px/1 var(--font-sign);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #aeb4bd;
+}
+.meter b {
+  font: 700 15px/1.1 var(--font-num);
+}
+.meter-tokens {
+  font: 500 9px var(--font-ui);
+  color: #aeb4bd;
+}
+
+/* ---- keyframes ---- */
+@keyframes tap {
+  to {
+    transform: translateY(-1.8px);
+  }
+}
+@keyframes wave {
+  0%,
+  100% {
+    transform: rotate(-12deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+@keyframes breathe {
+  50% {
+    transform: scaleY(1.04);
+  }
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes bob {
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes bob-x {
+  0%,
+  100% {
+    transform: translateX(-50%);
+  }
+  50% {
+    transform: translate(-50%, -3px);
+  }
+}
+@keyframes dot {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes leg {
+  from {
+    transform: rotate(-16deg);
+  }
+  to {
+    transform: rotate(16deg);
+  }
+}
+@keyframes walk-note {
+  0% {
+    transform: translateZ(var(--z)) translate(var(--fx), var(--fy));
+  }
+  42%,
+  58% {
+    transform: translateZ(var(--z)) translate(var(--tx), var(--ty));
+  }
+  100% {
+    transform: translateZ(var(--z)) translate(var(--fx), var(--fy));
+  }
+}
+@keyframes walk-arrive {
+  from {
+    transform: translateZ(var(--z)) translate(var(--fx), var(--fy));
+  }
+  to {
+    transform: translateZ(var(--z)) translate(var(--tx), var(--ty));
+  }
+}
+@keyframes face-out-and-back {
+  0% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(-1);
+  }
+}
+@keyframes face-left-out-and-back {
+  0% {
+    transform: scaleX(-1);
+  }
+  50% {
+    transform: scaleX(1);
+  }
+}
+@keyframes note-pop {
+  0%,
+  44% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  50%,
+  88% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world *,
+  .world *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}

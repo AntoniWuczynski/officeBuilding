@@ -1,0 +1,53 @@
+[package]
+name = "office-building"
+version = "0.1.0"
+description = "Office Building: coding-agent control for macOS"
+license = "MIT"
+repository = "https://github.com/AntoniWuczynski/officeBuilding"
+edition = "2024"
+rust-version = "1.98"
+
+[lib]
+name = "office_building_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "~2.6", features = [] }
+
+[dependencies]
+tauri = { version = "~2.11", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Live updates: file-watch the tools' session stores.
+notify = "6"
+# Timestamps for the app's own records.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# Resolve ~ (the tools keep their files under the home folder).
+dirs = "5"
+# kill(pid, 0) to tell a running session from a finished one.
+libc = "0.2"
+# Pseudo-terminals for agents hired from the app.
+portable-pty = "0.9"
+
+[features]
+# by default Tauri v2 apps enable no extra features here
+default = []
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Errors here are user-facing strings shown as-is; an `# Errors` section on every
+# command and store call would only restate them. Revisit if this becomes a library.
+missing_errors_doc = "allow"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+as_conversions = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"

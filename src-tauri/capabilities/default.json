@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Base capability set for the Office Building main window. Phase 2 widens this as PTY, filesystem-watch, and MCP features land.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
