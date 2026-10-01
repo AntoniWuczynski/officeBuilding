@@ -191,6 +191,12 @@ export function sessionById(
 }
 
 /** "claude-opus-5-5, high effort", or null when the tool does not report its model. */
+/** "3 helpers working", or null when the session has none. */
+export function helpersLine(session: Session): string | null {
+  const n = session.helpers.length;
+  return n === 0 ? null : `${n} ${n === 1 ? "helper" : "helpers"} working`;
+}
+
 export function modelLine(session: Session): string | null {
   if (session.model === null) return null;
   return session.effort === null ? session.model : `${session.model}, ${session.effort} effort`;

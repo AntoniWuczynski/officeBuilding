@@ -112,6 +112,14 @@ export interface Session {
   readonly lastActivityAt: string;
   readonly pendingQuestionIds: readonly string[];
   readonly spend: Spend;
+  /** Sub-agents (plain or in a workflow) still working for this session. */
+  readonly helpers: readonly Helper[];
+}
+
+/** A sub-agent at work for a session: it gets a tiny desk beside its session's. */
+export interface Helper {
+  readonly id: string;
+  readonly state: SessionState;
 }
 
 export interface Project {

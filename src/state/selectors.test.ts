@@ -8,6 +8,7 @@ import {
   formatTokens,
   formatUsd,
   isActive,
+  helpersLine,
   modelLine,
   matchesQuery,
   openCount,
@@ -39,6 +40,7 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
     lastActivityAt: over.lastActivityAt ?? "2026-09-28T00:00:00Z",
     pendingQuestionIds: over.pendingQuestionIds ?? [],
     spend: over.spend ?? { usd: 0, tokens: 0, unpricedTokens: 0 },
+    helpers: over.helpers ?? [],
   };
 }
 
@@ -154,6 +156,14 @@ describe("per-floor manager data", () => {
   it("sessionById finds or misses", () => {
     expect(sessionById(snap, "s-3")?.title).toBe("map-tiles mirror");
     expect(sessionById(snap, "ghost")).toBeUndefined();
+  });
+});
+
+describe("helpersLine", () => {
+  it("counts a session's working helpers, and says nothing when it has none", () => {
+    expect(helpersLine(session("running"))).toBeNull();
+    expect(helpersLine(session("running", { helpers: [{ id: "a", state: "running" }] }))).toBe("1 helper working");
+    expect(helpersLine(session("idle", { helpers: [{ id: "a", state: "running" }, { id: "b", state: "thinking" }] }))).toBe("2 helpers working");
   });
 });
 

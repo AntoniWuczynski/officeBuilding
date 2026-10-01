@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import type { Session } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, modelLine } from "../../state/selectors";
+import { STATE_LABEL, TOOL_LABEL, helpersLine, modelLine } from "../../state/selectors";
 import { relativeTime } from "../../lib/time";
 
 interface Props {
@@ -18,6 +18,7 @@ interface Props {
  */
 export function WorkerCard({ session, x, y, now }: Props): React.ReactElement {
   const model = modelLine(session);
+  const helpers = helpersLine(session);
   return createPortal(
     <div className="worker-card" data-testid="worker-card" role="tooltip" style={{ left: x, top: y }}>
       <b>{session.title}</b>
@@ -26,6 +27,7 @@ export function WorkerCard({ session, x, y, now }: Props): React.ReactElement {
       <span>
         {STATE_LABEL[session.state]}, active {relativeTime(session.lastActivityAt, now)}
       </span>
+      {helpers === null ? null : <span>{helpers}</span>}
     </div>,
     document.body,
   );

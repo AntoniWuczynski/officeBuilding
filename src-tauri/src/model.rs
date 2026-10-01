@@ -75,6 +75,16 @@ pub struct Session {
     pub last_activity_at: String,
     pub pending_question_ids: Vec<String>,
     pub spend: Spend,
+    /// Sub-agents (plain or in a workflow) still working for this session.
+    pub helpers: Vec<Helper>,
+}
+
+/// A sub-agent at work for a session: it gets a tiny desk beside its session's.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Helper {
+    pub id: String,
+    pub state: SessionState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

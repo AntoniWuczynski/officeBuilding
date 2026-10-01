@@ -1,7 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 import type { AgentMessage, Session } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, sessionMatches } from "../../state/selectors";
+import { STATE_LABEL, TOOL_LABEL, helpersLine, sessionMatches } from "../../state/selectors";
 import { poseForState } from "../../lib/animation";
 import { headsLeft } from "../../lib/iso";
 import type { PlanPoint } from "../../lib/iso";
@@ -14,6 +14,7 @@ import { Person, Walker } from "../../scene/Person";
 import { BackWall, LeftWall, ManagerOffice } from "./RoomObjects";
 import type { RoomObjectsModel } from "./RoomObjects";
 import type { Section } from "./sections";
+import { Pod } from "./Pod";
 import { WorkerCard } from "./WorkerCard";
 
 interface Walk {
@@ -107,6 +108,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
         return (
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
             <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} />
+            <Pod desk={desk} z={ROOM.slab} helpers={s.helpers} />
             {walking.has(s.id) ? null : (
               <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
                 <button
@@ -115,7 +117,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
                   data-testid="worker"
                   data-session={s.id}
                   data-state={s.state}
-                  aria-label={`${s.title}, ${TOOL_LABEL[s.tool]}, ${STATE_LABEL[s.state]}. ${ACTION_WORDS[s.control]}`}
+                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s)].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
                   onClick={() => onOpenSession(s)}
                   onMouseEnter={(e) => showCard(s.id, e.currentTarget)}
                   onMouseLeave={hideCard}

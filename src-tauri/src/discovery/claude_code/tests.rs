@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::{Helper, SessionState};
 use std::io::{Cursor, Write};
 
 fn parse(lines: &[&str]) -> Transcript {
@@ -52,6 +53,74 @@ fn a_session_spends_what_its_sub_agents_spend() {
     assert!((found[0].transcript.spend.usd - 3.0).abs() < 1e-9);
     // The session's own state still ignores the helpers' records.
     assert_eq!(found[0].transcript.reply_to_human, "ok");
+    fs::remove_dir_all(&home).expect("cleanup");
+}
+
+#[test]
+fn a_sub_agent_is_finished_once_it_signs_off() {
+    let ask = r#"{"type":"assistant","timestamp":"t","message":{"id":"m1","stop_reason":"tool_use","content":[{"type":"tool_use","id":"b1","name":"Bash","input":{}}]}}"#;
+    let ran = r#"{"type":"user","timestamp":"t","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"ok"}]}}"#;
+    let done = r#"{"type":"assistant","timestamp":"t","message":{"id":"m2","stop_reason":"end_turn","content":[{"type":"text","text":"Done."}]}}"#;
+    let report = r#"{"type":"assistant","timestamp":"t","message":{"id":"m3","stop_reason":"tool_use","content":[{"type":"tool_use","id":"s1","name":"StructuredOutput","input":{}}]}}"#;
+    let reported = r#"{"type":"user","timestamp":"t","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"s1","content":"ok"}]}}"#;
+    assert!(!parse(&[ask]).finished);
+    assert!(!parse(&[ask, ran]).finished);
+    assert!(parse(&[ask, ran, done]).finished);
+    // A workflow agent signs off by returning its structured result.
+    assert!(!parse(&[ask, ran, report]).finished);
+    assert!(parse(&[ask, ran, report, reported]).finished);
+    // Messaged again after signing off, it is back at work.
+    assert!(!parse(&[ask, ran, done, USER]).finished);
+}
+
+#[test]
+fn running_sub_agents_are_the_sessions_helpers() {
+    let home = temp_dir("helpers");
+    let project = home.join(".claude/projects/-code-app");
+    let helpers = project.join("s1/subagents");
+    fs::create_dir_all(helpers.join("workflows/w1")).expect("dirs");
+    let record = |stop: &str, block: &str| {
+        format!(
+            r#"{{"type":"assistant","isSidechain":true,"timestamp":"t","message":{{"id":"m","stop_reason":{stop},"content":[{block}]}}}}"#
+        )
+    };
+    fs::write(project.join("s1.jsonl"), format!("{USER}\n")).expect("write");
+    let tool = r#"{"type":"tool_use","id":"b1","name":"Bash","input":{}}"#;
+    fs::write(
+        helpers.join("agent-b.jsonl"),
+        record("\"tool_use\"", tool) + "\n",
+    )
+    .expect("write");
+    fs::write(
+        helpers.join("agent-done.jsonl"),
+        record("\"end_turn\"", r#"{"type":"text","text":"ok"}"#) + "\n",
+    )
+    .expect("write");
+    fs::write(
+        helpers.join("workflows/w1/agent-a.jsonl"),
+        record("null", r#"{"type":"thinking","thinking":""}"#) + "\n",
+    )
+    .expect("write");
+
+    let now = SystemTime::now();
+    let mut source = ClaudeSource::new(home.clone());
+    let found = source.scan(now);
+    assert_eq!(
+        found[0].helpers,
+        vec![
+            Helper {
+                id: "agent-a".into(),
+                state: SessionState::Thinking
+            },
+            Helper {
+                id: "agent-b".into(),
+                state: SessionState::Running
+            },
+        ]
+    );
+    // An agent that stopped writing long ago was killed, not left working.
+    let later = now + Duration::from_mins(11);
+    assert!(source.scan(later)[0].helpers.is_empty());
     fs::remove_dir_all(&home).expect("cleanup");
 }
 

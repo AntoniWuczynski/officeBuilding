@@ -1,4 +1,9 @@
-import type { OfficeSnapshot } from "../types";
+import type { Helper, OfficeSnapshot } from "../types";
+
+/** `count` demo helpers (sub-agents) for one session, a few of them thinking. */
+function helpers(sessionId: string, count: number): Helper[] {
+  return Array.from({ length: count }, (_, i) => ({ id: `${sessionId}-h${i}`, state: i % 7 === 3 ? "thinking" : "running" }));
+}
 
 /**
  * Deterministic seed snapshot for Phase 1 (demo data, not real sessions). A few
@@ -15,12 +20,12 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "p-notes", name: "notes", path: "~/code/notes", sessionIds: [] },
     ],
     sessions: [
-      { id: "s-1", tool: "claude-code", projectId: "p-shop", title: "audit checkout", state: "running", control: "full", model: "claude-opus-5-5", effort: "high", lastActivityAt: "2026-09-28T15:40:00Z", pendingQuestionIds: [], spend: { usd: 1.82, tokens: 412_000, unpricedTokens: 0 } },
-      { id: "s-2", tool: "codex", projectId: "p-shop", title: "orders ingest fix", state: "waiting-human", control: "full", model: "gpt-6-astra", effort: "xhigh", lastActivityAt: "2026-09-28T15:38:00Z", pendingQuestionIds: ["q-1"], spend: { usd: 0.44, tokens: 96_000, unpricedTokens: 0 } },
-      { id: "s-3", tool: "opencode", projectId: "p-shop", title: "map-tiles mirror", state: "error", control: "raise-window", model: null, effort: null, lastActivityAt: "2026-09-28T15:20:00Z", pendingQuestionIds: ["q-2"], spend: { usd: 0.12, tokens: 22_000, unpricedTokens: 0 } },
-      { id: "s-4", tool: "claude-code", projectId: "p-office", title: "isometric floors", state: "thinking", control: "full", model: "claude-fable-5-1", effort: "max", lastActivityAt: "2026-09-28T15:41:00Z", pendingQuestionIds: [], spend: { usd: 2.05, tokens: 508_000, unpricedTokens: 0 } },
-      { id: "s-5", tool: "antigravity", projectId: "p-office", title: "character sprites", state: "idle", control: "read-only", model: null, effort: null, lastActivityAt: "2026-09-28T14:55:00Z", pendingQuestionIds: [], spend: { usd: 0.0, tokens: 0, unpricedTokens: 0 } },
-      { id: "s-6", tool: "codex", projectId: "p-arcade", title: "netcode prototype", state: "idle", control: "full", model: "gpt-5.6-terra", effort: "medium", lastActivityAt: "2026-09-28T13:10:00Z", pendingQuestionIds: [], spend: { usd: 3.7, tokens: 910_000, unpricedTokens: 0 } },
+      { id: "s-1", tool: "claude-code", projectId: "p-shop", title: "audit checkout", state: "running", control: "full", model: "claude-opus-5-5", effort: "high", lastActivityAt: "2026-09-28T15:40:00Z", pendingQuestionIds: [], spend: { usd: 1.82, tokens: 412_000, unpricedTokens: 0 }, helpers: helpers("s-1", 3) },
+      { id: "s-2", tool: "codex", projectId: "p-shop", title: "orders ingest fix", state: "waiting-human", control: "full", model: "gpt-6-astra", effort: "xhigh", lastActivityAt: "2026-09-28T15:38:00Z", pendingQuestionIds: ["q-1"], spend: { usd: 0.44, tokens: 96_000, unpricedTokens: 0 }, helpers: [] },
+      { id: "s-3", tool: "opencode", projectId: "p-shop", title: "map-tiles mirror", state: "error", control: "raise-window", model: null, effort: null, lastActivityAt: "2026-09-28T15:20:00Z", pendingQuestionIds: ["q-2"], spend: { usd: 0.12, tokens: 22_000, unpricedTokens: 0 }, helpers: [] },
+      { id: "s-4", tool: "claude-code", projectId: "p-office", title: "isometric floors", state: "thinking", control: "full", model: "claude-fable-5-1", effort: "max", lastActivityAt: "2026-09-28T15:41:00Z", pendingQuestionIds: [], spend: { usd: 2.05, tokens: 508_000, unpricedTokens: 0 }, helpers: helpers("s-4", 250) },
+      { id: "s-5", tool: "antigravity", projectId: "p-office", title: "character sprites", state: "idle", control: "read-only", model: null, effort: null, lastActivityAt: "2026-09-28T14:55:00Z", pendingQuestionIds: [], spend: { usd: 0.0, tokens: 0, unpricedTokens: 0 }, helpers: [] },
+      { id: "s-6", tool: "codex", projectId: "p-arcade", title: "netcode prototype", state: "idle", control: "full", model: "gpt-5.6-terra", effort: "medium", lastActivityAt: "2026-09-28T13:10:00Z", pendingQuestionIds: [], spend: { usd: 3.7, tokens: 910_000, unpricedTokens: 0 }, helpers: [] },
     ],
     questions: [
       { id: "q-2", projectId: "p-shop", sessionId: "s-3", prompt: "The tile mirror keeps returning 429. Switch to the paid endpoint or back off?", options: [ { id: "o-1", label: "Use the paid endpoint (TILE_ENDPOINTS)" }, { id: "o-2", label: "Exponential back-off, keep the free mirrors" } ], allowOther: true, answerVia: "terminal", priority: 0, askedAt: "2026-09-28T15:21:00Z", context: "", sourceFile: null },

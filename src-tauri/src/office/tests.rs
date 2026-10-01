@@ -75,6 +75,7 @@ fn session(id: &str, control: ControlMode) -> Session {
         last_activity_at: String::new(),
         pending_question_ids: Vec::new(),
         spend: Spend::default(),
+        helpers: Vec::new(),
     }
 }
 

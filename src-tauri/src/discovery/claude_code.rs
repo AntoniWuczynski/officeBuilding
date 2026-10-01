@@ -10,7 +10,7 @@
 use super::collect_jsonl;
 use super::pricing;
 use super::rules::{LastBlock, Signals};
-use crate::model::Spend;
+use crate::model::{Helper, SessionState, Spend};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -63,6 +63,9 @@ pub struct Transcript {
     pub api_error: bool,
     pub open_tools: usize,
     pub question: Option<PendingQuestion>,
+    /// The agent signed off: its last reply ended the turn, or (a workflow
+    /// agent) its `StructuredOutput` result came back.
+    pub finished: bool,
 }
 
 /// Whether a process exists (signal 0 probes without sending anything).
@@ -139,6 +142,8 @@ struct ParserState {
     open: HashSet<String>,
     usage_by_message: HashMap<String, Spend>,
     reply_message: Option<String>,
+    /// The latest `StructuredOutput` call: its result is a workflow agent signing off.
+    structured_output: Option<String>,
     in_human_turn: bool,
     /// A sub-agent's own transcript is all sidechain records; read it for its spend.
     keep_sidechains: bool,
@@ -160,10 +165,12 @@ impl ParserState {
                 api_error: false,
                 open_tools: 0,
                 question: None,
+                finished: false,
             },
             open: HashSet::new(),
             usage_by_message: HashMap::new(),
             reply_message: None,
+            structured_output: None,
             // Transcripts from before prompts carried an origin count every prompt as human.
             in_human_turn: true,
             keep_sidechains: false,
@@ -252,6 +259,10 @@ impl ParserState {
                 self.t.human_spoke_last = false;
             }
             self.t.api_error = rec.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true);
+            self.t.finished = matches!(
+                message.get("stop_reason").and_then(Value::as_str),
+                Some("end_turn" | "stop_sequence")
+            );
             if let Some(model) = message.get("model").and_then(Value::as_str)
                 && !model.starts_with('<')
             {
@@ -301,10 +312,16 @@ impl ParserState {
                         self.t.last_block = LastBlock::ToolUse;
                         let tool_id = block.get("id").and_then(Value::as_str).unwrap_or_default();
                         self.open.insert(tool_id.to_string());
-                        if block.get("name").and_then(Value::as_str) == Some("AskUserQuestion")
-                            && let Some(input) = block.get("input")
-                        {
-                            self.t.question = ask_user_question(input, tool_id, &at);
+                        match block.get("name").and_then(Value::as_str) {
+                            Some("AskUserQuestion") => {
+                                if let Some(input) = block.get("input") {
+                                    self.t.question = ask_user_question(input, tool_id, &at);
+                                }
+                            }
+                            Some("StructuredOutput") => {
+                                self.structured_output = Some(tool_id.to_string());
+                            }
+                            _ => {}
                         }
                     }
                     _ => {}
@@ -320,6 +337,7 @@ impl ParserState {
                     && let Some(id) = block.get("tool_use_id").and_then(Value::as_str)
                 {
                     self.open.remove(id);
+                    self.t.finished = self.structured_output.as_deref() == Some(id);
                     if self
                         .t
                         .question
@@ -342,6 +360,7 @@ impl ParserState {
                     .and_then(|o| o.get("kind"))
                     .and_then(Value::as_str);
                 self.in_human_turn = matches!(origin, None | Some("human"));
+                self.t.finished = false;
                 if self.in_human_turn {
                     self.t.human_spoke_last = true;
                     self.t.reply_to_human.clear();
@@ -391,6 +410,30 @@ pub struct Found {
     pub session_id: String,
     pub transcript: Transcript,
     pub live: Option<LiveEntry>,
+    pub helpers: Vec<Helper>,
+}
+
+/// A sub-agent silent this long was killed or lost, not left working: tool
+/// calls time out well before it (Bash allows at most 10 minutes).
+const HELPER_SILENCE: Duration = Duration::from_mins(10);
+
+/// Whether `path` was written within `max` of `now`.
+fn written_within(path: &Path, now: SystemTime, max: Duration) -> bool {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|m| now.duration_since(m).ok())
+        .is_some_and(|age| age <= max)
+}
+
+fn helper_state(t: &Transcript) -> SessionState {
+    if t.api_error {
+        SessionState::Error
+    } else if t.last_block == LastBlock::Thinking {
+        SessionState::Thinking
+    } else {
+        SessionState::Running
+    }
 }
 
 /// A cached parser state for one transcript, plus enough to tell whether the
@@ -576,29 +619,36 @@ impl ClaudeSource {
                     continue;
                 };
                 let entry = live.get(&session_id).cloned();
-                if entry.is_none() {
-                    let recent = fs::metadata(&path)
-                        .and_then(|m| m.modified())
-                        .ok()
-                        .and_then(|m| now.duration_since(m).ok())
-                        .is_some_and(|age| age <= self.keep_finished);
-                    if !recent {
-                        continue;
-                    }
+                if entry.is_none() && !written_within(&path, now, self.keep_finished) {
+                    continue;
                 }
                 if let Some(mut transcript) = self.transcript(&path) {
                     // Sub-agents write `<session>/subagents/**/*.jsonl`; what they spend is the session's.
+                    let mut paths = Vec::new();
+                    collect_jsonl(&dir.join(&session_id).join("subagents"), &mut paths);
                     let mut helpers = Vec::new();
-                    collect_jsonl(&dir.join(&session_id).join("subagents"), &mut helpers);
-                    for helper in helpers {
-                        if let Some(t) = self.transcript(&helper) {
-                            transcript.spend = transcript.spend + t.spend;
+                    for path in paths {
+                        let Some(t) = self.transcript(&path) else {
+                            continue;
+                        };
+                        transcript.spend = transcript.spend + t.spend;
+                        if !t.finished
+                            && written_within(&path, now, HELPER_SILENCE)
+                            && let Some(id) = path.file_stem().and_then(|s| s.to_str())
+                        {
+                            helpers.push(Helper {
+                                id: id.to_string(),
+                                state: helper_state(&t),
+                            });
                         }
                     }
+                    // Stable desk order, whatever order the directory lists in.
+                    helpers.sort_by(|a, b| a.id.cmp(&b.id));
                     found.push(Found {
                         session_id,
                         transcript,
                         live: entry,
+                        helpers,
                     });
                 }
             }

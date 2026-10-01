@@ -222,6 +222,24 @@ describe("floor", () => {
     expect(screen.getByTestId("worker-card")).toHaveTextContent("audit checkout");
   });
 
+  it("seats a session's helpers at tiny desks beside its own, folding a big team into a count", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await enter("p-shop");
+    const pod = screen.getByTestId("pod");
+    expect(within(pod).getAllByTestId("pod-desk")).toHaveLength(3);
+    expect(within(pod).queryByTestId("pod-more")).toBeNull();
+    const worker = screen.getByRole("button", { name: /audit checkout, Claude Code, Working, 3 helpers working/ });
+    await user.hover(worker);
+    expect(screen.getByTestId("worker-card")).toHaveTextContent("3 helpers working");
+
+    await user.click(screen.getByTestId("back-button"));
+    await enter("p-office");
+    const team = screen.getByTestId("pod");
+    expect(within(team).getAllByTestId("pod-desk")).toHaveLength(64);
+    expect(within(team).getByTestId("pod-more")).toHaveTextContent("+186");
+  });
+
   it("a stuck agent lies on the floor", async () => {
     renderApp();
     await enter("p-shop");

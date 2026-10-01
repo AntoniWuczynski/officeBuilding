@@ -7,8 +7,8 @@ pub mod pricing;
 pub mod rules;
 
 use crate::model::{
-    AnswerVia, ControlMode, Project, Question, QuestionOption, Session, SessionState, Spend,
-    ToolKind,
+    AnswerVia, ControlMode, Helper, Project, Question, QuestionOption, Session, SessionState,
+    Spend, ToolKind,
 };
 use rules::Signals;
 use std::collections::BTreeMap;
@@ -127,6 +127,7 @@ struct SessionInput {
     /// A formal question (e.g. Claude Code's `AskUserQuestion`), when the tool has one.
     /// Otherwise a waiting state falls back to the plain-prose scorer.
     formal_question: Option<FormalQuestionInput>,
+    helpers: Vec<Helper>,
 }
 
 fn from_claude(f: claude_code::Found) -> Option<SessionInput> {
@@ -170,6 +171,7 @@ fn from_claude(f: claude_code::Found) -> Option<SessionInput> {
         spend: f.transcript.spend,
         signals,
         formal_question,
+        helpers: f.helpers,
     })
 }
 
@@ -191,6 +193,7 @@ fn from_codex(f: codex::Found) -> Option<SessionInput> {
         // (checked 2026-09-29): no `approval`- or `input-request`-shaped event exists. A
         // waiting Codex session always falls back to the plain-prose scorer.
         formal_question: None,
+        helpers: Vec::new(),
     })
 }
 
@@ -274,6 +277,7 @@ fn assemble(
             last_activity_at: input.last_activity,
             pending_question_ids: pending,
             spend: input.spend,
+            helpers: input.helpers,
         });
     }
 
@@ -338,6 +342,7 @@ mod tests {
                 waiting: false,
                 name: None,
             }),
+            helpers: Vec::new(),
         }
     }
 

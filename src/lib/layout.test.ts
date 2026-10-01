@@ -4,7 +4,9 @@ import {
   ROOM,
   STOREY,
   doorOf,
+  POD,
   floorSpotOf,
+  podFor,
   roomDepth,
   roomDeskSlot,
   seatOf,
@@ -56,5 +58,40 @@ describe("storey layout", () => {
   });
   it("spaces desks evenly", () => {
     expect(storeyDeskX(1) - storeyDeskX(0)).toBe(STOREY.deskGap);
+  });
+});
+
+describe("helper pods", () => {
+  it("sit beside their desk, clear of the next desk and the manager's office", () => {
+    for (let i = 0; i < 9; i++) {
+      const desk = roomDeskSlot(i);
+      const { region } = podFor(desk, 1);
+      expect(region.x).toBeGreaterThanOrEqual(desk.x + DESK.w);
+      expect(region.x + region.w).toBeLessThanOrEqual(desk.x + ROOM.colGap);
+      expect(region.w).toBeGreaterThan(0);
+      expect(region.x + region.w > ROOM.managerX && region.y < ROOM.managerDepth).toBe(false);
+    }
+  });
+
+  it("shrink the desks as the team grows, up to the cap, then fold the rest into a count", () => {
+    const desk = roomDeskSlot(0);
+    const one = podFor(desk, 1);
+    const full = podFor(desk, POD.cap);
+    const huge = podFor(desk, 250);
+    expect(one.slots).toHaveLength(1);
+    expect(one.cell).toBe(POD.maxCell);
+    expect(full.cell).toBeLessThan(one.cell);
+    expect(full.hidden).toBe(0);
+    expect(huge.slots).toHaveLength(POD.cap);
+    expect(huge.hidden).toBe(250 - POD.cap);
+    expect(huge.cell).toBe(full.cell);
+    for (const pod of [one, full, huge, podFor(roomDeskSlot(2), 40)]) {
+      for (const s of pod.slots) {
+        expect(s.x).toBeGreaterThanOrEqual(pod.region.x);
+        expect(s.y).toBeGreaterThanOrEqual(pod.region.y);
+        expect(s.x + pod.cell).toBeLessThanOrEqual(pod.region.x + pod.region.w + 1e-9);
+        expect(s.y + pod.cell).toBeLessThanOrEqual(pod.region.y + pod.region.h + 1e-9);
+      }
+    }
   });
 });

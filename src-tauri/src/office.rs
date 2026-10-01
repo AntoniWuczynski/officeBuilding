@@ -433,6 +433,7 @@ impl Office {
             last_activity_at: now_iso(),
             pending_question_ids: Vec::new(),
             spend: Spend::default(),
+            helpers: Vec::new(),
         })
     }
 

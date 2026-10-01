@@ -100,6 +100,7 @@ export class MockApi implements DiscoveryApi {
       lastActivityAt: this.stamp(),
       pendingQuestionIds: [],
       spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
+      helpers: [],
     };
     const projects = this.snapshot.projects.map((p) =>
       p.id === projectId ? { ...p, sessionIds: [...p.sessionIds, id] } : p,
