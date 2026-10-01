@@ -116,6 +116,18 @@ export interface Session {
   readonly helpers: readonly Helper[];
 }
 
+/** A session whose agent has left: listed on its floor's sign-out sheet to resume. */
+export interface EndedSession {
+  readonly id: string;
+  readonly tool: ToolKind;
+  readonly projectId: string;
+  readonly title: string;
+  /** Its last activity. */
+  readonly endedAt: string;
+  readonly model: string | null;
+  readonly effort: string | null;
+}
+
 /** A sub-agent at work for a session: it gets a tiny desk beside its session's. */
 export interface Helper {
   readonly id: string;
@@ -155,6 +167,8 @@ export interface ToolOptions {
 export interface OfficeSnapshot {
   readonly projects: readonly Project[];
   readonly sessions: readonly Session[];
+  /** Sessions that ended recently, newest first: each floor's sign-out sheet. */
+  readonly ended: readonly EndedSession[];
   readonly questions: readonly Question[];
   readonly decisions: readonly Decision[];
   readonly todos: readonly TodoItem[];

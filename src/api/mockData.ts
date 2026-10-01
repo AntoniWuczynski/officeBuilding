@@ -27,6 +27,10 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "s-5", tool: "antigravity", projectId: "p-office", title: "character sprites", state: "idle", control: "read-only", model: null, effort: null, lastActivityAt: "2026-09-28T14:55:00Z", pendingQuestionIds: [], spend: { usd: 0.0, tokens: 0, unpricedTokens: 0 }, helpers: [] },
       { id: "s-6", tool: "codex", projectId: "p-arcade", title: "netcode prototype", state: "idle", control: "full", model: "gpt-5.6-terra", effort: "medium", lastActivityAt: "2026-09-28T13:10:00Z", pendingQuestionIds: [], spend: { usd: 3.7, tokens: 910_000, unpricedTokens: 0 }, helpers: [] },
     ],
+    ended: [
+      { id: "e-1", tool: "claude-code", projectId: "p-shop", title: "refund emails", endedAt: "2026-09-28T15:10:00Z", model: "claude-sonnet-5-5", effort: "medium" },
+      { id: "e-2", tool: "codex", projectId: "p-shop", title: "price import", endedAt: "2026-09-28T12:00:00Z", model: "gpt-6-astra", effort: "high" },
+    ],
     questions: [
       { id: "q-2", projectId: "p-shop", sessionId: "s-3", prompt: "The tile mirror keeps returning 429. Switch to the paid endpoint or back off?", options: [ { id: "o-1", label: "Use the paid endpoint (TILE_ENDPOINTS)" }, { id: "o-2", label: "Exponential back-off, keep the free mirrors" } ], allowOther: true, answerVia: "terminal", priority: 0, askedAt: "2026-09-28T15:21:00Z", context: "", sourceFile: null },
       { id: "q-1", projectId: "p-shop", sessionId: "s-2", prompt: "Persist EventType onto entries (schema bump) or keep it prefill-only?", options: [ { id: "o-3", label: "Schema bump (Zod, Pydantic and parity)" }, { id: "o-4", label: "Prefill-only, no persist" } ], allowOther: true, answerVia: "app", priority: 1, askedAt: "2026-09-28T15:39:00Z", context: "", sourceFile: null },

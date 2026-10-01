@@ -113,6 +113,37 @@ export class MockApi implements DiscoveryApi {
     return Promise.resolve(session);
   }
 
+  /** The agent walks back in at once, thinking, in its own (fake) terminal. */
+  resumeSession(sessionId: string): Promise<void> {
+    const ended = this.snapshot.ended.find((e) => e.id === sessionId);
+    if (ended === undefined) {
+      return Promise.reject(new Error(`${sessionId} has not signed out, so there is nothing to resume`));
+    }
+    const session: Session = {
+      id: ended.id,
+      tool: ended.tool,
+      projectId: ended.projectId,
+      title: ended.title,
+      state: "thinking",
+      control: "full",
+      model: ended.model,
+      effort: ended.effort,
+      lastActivityAt: this.stamp(),
+      pendingQuestionIds: [],
+      spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
+      helpers: [],
+    };
+    this.commit({
+      ...this.snapshot,
+      projects: this.snapshot.projects.map((p) =>
+        p.id === ended.projectId ? { ...p, sessionIds: [...p.sessionIds, ended.id] } : p,
+      ),
+      sessions: [...this.snapshot.sessions, session],
+      ended: this.snapshot.ended.filter((e) => e.id !== sessionId),
+    });
+    return Promise.resolve();
+  }
+
   answerQuestion(questionId: string, answer: QuestionAnswer): Promise<void> {
     const question = this.snapshot.questions.find((q) => q.id === questionId);
     if (question === undefined) {

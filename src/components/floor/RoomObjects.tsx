@@ -17,6 +17,8 @@ export interface RoomObjectsModel {
   readonly humanTodos: readonly TodoItem[];
   readonly aiTodos: readonly TodoItem[];
   readonly spend: Spend;
+  /** Agents that left recently: lines on the sign-out sheet. */
+  readonly signedOut: number;
 }
 
 interface ObjectsProps {
@@ -104,6 +106,36 @@ export function LeftWall({ model, depth, onOpen }: ObjectsProps): React.ReactEle
         </span>
       </button>
     </Wall>
+  );
+}
+
+/** By the door: the sign-out sheet on a stand, listing agents that left recently. */
+export function SignOutStand({ model, depth, onOpen }: ObjectsProps): React.ReactElement {
+  const x = ROOM.width - 58;
+  const y = depth - 34;
+  const n = model.signedOut;
+  return (
+    <>
+      <IsoBox x={x} y={y} z={ROOM.slab} w={4} d={4} h={26} top="var(--timber-side)" front="var(--timber-front)" side="var(--timber-side)" />
+      <IsoBox x={x - 4} y={y - 1} z={ROOM.slab + 26} w={12} d={6} h={2} top="var(--paper)" front="var(--rule)" side="var(--concrete)" />
+      <Billboard x={x + 2} y={y} z={ROOM.slab + 34}>
+        <button
+          type="button"
+          className="memo-tag"
+          data-testid="object-signed-out"
+          aria-label={`Sign-out sheet: ${n === 0 ? "nobody" : plural(n, "agent", "agents")} signed out. Open Signed out.`}
+          onClick={() => onOpen("signed-out")}
+        >
+          {n === 0 ? (
+            "Nobody signed out"
+          ) : (
+            <>
+              <b>{n}</b> signed out
+            </>
+          )}
+        </button>
+      </Billboard>
+    </>
   );
 }
 

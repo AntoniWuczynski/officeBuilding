@@ -1,5 +1,6 @@
 import type {
   Decision,
+  EndedSession,
   FloorLight,
   OfficeSnapshot,
   Project,
@@ -143,6 +144,11 @@ export function questionsForProject(
   projectId: string,
 ): Question[] {
   return snapshot.questions.filter((q) => q.projectId === projectId).sort(byUrgency);
+}
+
+/** Sessions that ended recently on a project's floor, newest first. */
+export function endedForProject(snapshot: OfficeSnapshot, projectId: string): EndedSession[] {
+  return snapshot.ended.filter((e) => e.projectId === projectId);
 }
 
 /** Decisions recorded for a project, newest first. */

@@ -195,6 +195,50 @@ describe("building", () => {
   });
 });
 
+describe("sign-out sheet", () => {
+  it("lists the floor's ended sessions newest first and resumes one back to its desk", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await enter("p-shop");
+    expect(screen.getByTestId("object-signed-out")).toHaveTextContent("2 signed out");
+    await user.click(screen.getByTestId("rail-signed-out"));
+    const rows = screen.getAllByTestId("signed-out-row");
+    expect(rows.map((r) => within(r).getByTestId("signed-out-title").textContent)).toEqual(["refund emails", "price import"]);
+    expect(rows[0]).toHaveTextContent("Claude Code");
+    await user.click(within(screen.getAllByTestId("signed-out-row")[0] ?? document.body).getByRole("button", { name: "Resume refund emails" }));
+    // The agent walks back in from the door, then takes its desk.
+    fireEvent.animationEnd(await screen.findByTestId("walk"));
+    expect(await screen.findByRole("button", { name: /^refund emails, Claude Code, Thinking/ })).toBeInTheDocument();
+    expect(screen.getAllByTestId("signed-out-row")).toHaveLength(1);
+    expect(screen.getByText(/Resumed “refund emails”/)).toBeInTheDocument();
+  });
+
+  it("says why a resume failed, on the session's own line", async () => {
+    class FailingApi extends MockApi {
+      override resumeSession(): Promise<void> {
+        return Promise.reject(new Error("the folder ~/code/corner_shop is gone"));
+      }
+    }
+    const user = userEvent.setup();
+    renderApp(new FailingApi());
+    await enter("p-shop");
+    await user.click(screen.getByTestId("rail-signed-out"));
+    await user.click(screen.getByRole("button", { name: "Resume price import" }));
+    const row = screen.getAllByTestId("signed-out-row")[1] ?? document.body;
+    expect(await within(row).findByRole("alert")).toHaveTextContent("Could not resume: the folder ~/code/corner_shop is gone.");
+    expect(within(row).getByRole("button", { name: "Resume price import" })).toBeEnabled();
+  });
+
+  it("an empty sheet says nobody has signed out", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await enter("p-arcade");
+    expect(screen.getByTestId("object-signed-out")).toHaveTextContent("Nobody signed out");
+    await user.click(screen.getByTestId("rail-signed-out"));
+    expect(screen.getByText(/Nobody has signed out of this floor/)).toBeInTheDocument();
+  });
+});
+
 describe("floor", () => {
   it("enters a floor: a worker per session, the hire desk, the rail and the room objects", async () => {
     renderApp();

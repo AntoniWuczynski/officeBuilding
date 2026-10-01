@@ -7,8 +7,8 @@ pub mod pricing;
 pub mod rules;
 
 use crate::model::{
-    AnswerVia, ControlMode, Helper, Project, Question, QuestionOption, Session, SessionState,
-    Spend, ToolKind,
+    AnswerVia, ControlMode, EndedSession, Helper, Project, Question, QuestionOption, Session,
+    SessionState, Spend, ToolKind,
 };
 use rules::Signals;
 use std::collections::BTreeMap;
@@ -24,6 +24,10 @@ pub struct Discovered {
     pub projects: Vec<Project>,
     pub sessions: Vec<Session>,
     pub questions: Vec<Question>,
+    /// Sessions that ended recently, newest first.
+    pub ended: Vec<EndedSession>,
+    /// The folder each ended session ran in, to resume it there.
+    pub resume_dirs: BTreeMap<String, PathBuf>,
 }
 
 /// FNV-1a, 32-bit: the same stable hash the frontend uses for looks.
@@ -128,6 +132,8 @@ struct SessionInput {
     /// Otherwise a waiting state falls back to the plain-prose scorer.
     formal_question: Option<FormalQuestionInput>,
     helpers: Vec<Helper>,
+    /// A person started it, so once it ends it can be offered to resume.
+    resumable: bool,
 }
 
 fn from_claude(f: claude_code::Found) -> Option<SessionInput> {
@@ -172,6 +178,7 @@ fn from_claude(f: claude_code::Found) -> Option<SessionInput> {
         signals,
         formal_question,
         helpers: f.helpers,
+        resumable: !f.transcript.scripted,
     })
 }
 
@@ -194,7 +201,65 @@ fn from_codex(f: codex::Found) -> Option<SessionInput> {
         // waiting Codex session always falls back to the plain-prose scorer.
         formal_question: None,
         helpers: Vec::new(),
+        resumable: true,
     })
+}
+
+/// What a session with no title of its own is called.
+const UNTITLED: &str = "Untitled session";
+
+/// What a waiting session asks the human: its formal question, or the asking
+/// line of a plain-prose ask (soft block), which has no options.
+fn question_for(input: &SessionInput, root: &Path) -> Question {
+    let (suffix, prompt, options, priority, asked_at) = match &input.formal_question {
+        Some(q) => (
+            q.id_suffix.as_str(),
+            q.prompt.clone(),
+            q.options
+                .iter()
+                .enumerate()
+                .map(|(i, label)| QuestionOption {
+                    id: format!("opt-{i}"),
+                    label: label.clone(),
+                })
+                .collect(),
+            0,
+            q.asked_at.clone(),
+        ),
+        None => (
+            "prose",
+            rules::score_soft_block(&input.signals.reply_to_human).question,
+            Vec::new(),
+            1,
+            input.last_activity.clone(),
+        ),
+    };
+    Question {
+        id: format!("{}:{suffix}", input.session_id),
+        project_id: project_id(root),
+        session_id: input.session_id.clone(),
+        prompt,
+        options,
+        allow_other: true,
+        answer_via: AnswerVia::Terminal,
+        priority,
+        asked_at,
+        context: String::new(),
+        source_file: None,
+    }
+}
+
+/// An ended session's line on its floor's sign-out sheet.
+fn signed_out(input: SessionInput, root: &Path) -> EndedSession {
+    EndedSession {
+        id: input.session_id,
+        tool: input.tool,
+        project_id: project_id(root),
+        title: input.title.unwrap_or_else(|| UNTITLED.to_string()),
+        ended_at: input.last_activity,
+        model: input.model,
+        effort: input.effort,
+    }
 }
 
 /// Build floors, desks and questions from every tool's finds. `root_of` maps a
@@ -207,12 +272,18 @@ fn assemble(
     let mut floors: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     let mut sessions = Vec::new();
     let mut questions = Vec::new();
+    let mut ended = Vec::new();
+    let mut resume_dirs = BTreeMap::new();
 
     for input in inputs {
         let root = root_of(Path::new(&input.cwd));
         // An ended session leaves the office; its floor stays while the session was recent.
         let ids = floors.entry(root.clone()).or_default();
         if !input.live {
+            if input.resumable {
+                resume_dirs.insert(input.session_id.clone(), PathBuf::from(&input.cwd));
+                ended.push(signed_out(input, &root));
+            }
             continue;
         }
         ids.push(input.session_id.clone());
@@ -220,51 +291,12 @@ fn assemble(
 
         let mut pending = Vec::new();
         if state == SessionState::WaitingHuman {
-            let question = match &input.formal_question {
-                Some(q) => Question {
-                    id: format!("{}:{}", input.session_id, q.id_suffix),
-                    project_id: project_id(&root),
-                    session_id: input.session_id.clone(),
-                    prompt: q.prompt.clone(),
-                    options: q
-                        .options
-                        .iter()
-                        .enumerate()
-                        .map(|(i, label)| QuestionOption {
-                            id: format!("opt-{i}"),
-                            label: label.clone(),
-                        })
-                        .collect(),
-                    allow_other: true,
-                    answer_via: AnswerVia::Terminal,
-                    priority: 0,
-                    asked_at: q.asked_at.clone(),
-                    context: String::new(),
-                    source_file: None,
-                },
-                // A plain-prose ask (soft block): no options, the prompt is the asking line.
-                None => Question {
-                    id: format!("{}:prose", input.session_id),
-                    project_id: project_id(&root),
-                    session_id: input.session_id.clone(),
-                    prompt: rules::score_soft_block(&input.signals.reply_to_human).question,
-                    options: Vec::new(),
-                    allow_other: true,
-                    answer_via: AnswerVia::Terminal,
-                    priority: 1,
-                    asked_at: input.last_activity.clone(),
-                    context: String::new(),
-                    source_file: None,
-                },
-            };
+            let question = question_for(&input, &root);
             pending.push(question.id.clone());
             questions.push(question);
         }
 
-        let title = input
-            .title
-            .clone()
-            .unwrap_or_else(|| "Untitled session".to_string());
+        let title = input.title.clone().unwrap_or_else(|| UNTITLED.to_string());
         sessions.push(Session {
             id: input.session_id,
             tool: input.tool,
@@ -301,11 +333,14 @@ fn assemble(
             .cmp(&b.priority)
             .then_with(|| a.asked_at.cmp(&b.asked_at))
     });
+    ended.sort_by(|a: &EndedSession, b| b.ended_at.cmp(&a.ended_at));
     Discovered {
         roots: root_by_id,
         projects,
         sessions,
         questions,
+        ended,
+        resume_dirs,
     }
 }
 
@@ -402,6 +437,43 @@ mod tests {
         let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
         assert_eq!(s1.pending_question_ids, vec!["s1:toolu_1".to_string()]);
         assert_eq!(s1.control, ControlMode::RaiseWindow);
+    }
+
+    #[test]
+    fn ended_sessions_go_on_their_floors_sign_out_sheet_newest_first() {
+        let later = r#"{"type":"assistant","cwd":"/home/me/code/app/web","timestamp":"2026-09-29T11:00:00Z","message":{"id":"m","model":"claude-opus-5-5","content":[{"type":"text","text":"Bye."}]}}"#;
+        let scripted = r#"{"type":"assistant","entrypoint":"sdk-cli","cwd":"/home/me/code/app","timestamp":"2026-09-29T12:00:00Z","message":{"id":"m","content":[{"type":"text","text":"ok"}]}}"#;
+        let d = assemble(
+            Path::new("/home/me"),
+            claude_inputs(vec![
+                found("s1", "/home/me/code/app", &[ASK], true),
+                found("s3", "/home/me/code/other", &[DONE], false),
+                found("s4", "/home/me/code/app/web", &[later], false),
+                found("s5", "/home/me/code/app", &[scripted], false),
+            ]),
+            |cwd| {
+                if cwd.starts_with("/home/me/code/app") {
+                    PathBuf::from("/home/me/code/app")
+                } else {
+                    cwd.to_path_buf()
+                }
+            },
+        );
+        let ended: Vec<&str> = d.ended.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ended, vec!["s4", "s3"], "scripted runs are not listed");
+        let s4 = &d.ended[0];
+        assert_eq!(s4.project_id, project_id(Path::new("/home/me/code/app")));
+        assert_eq!(s4.ended_at, "2026-09-29T11:00:00Z");
+        assert_eq!(s4.model.as_deref(), Some("claude-opus-5-5"));
+        // Resumed in the folder it ran in, not just its floor's root.
+        assert_eq!(
+            d.resume_dirs.get("s4"),
+            Some(&PathBuf::from("/home/me/code/app/web"))
+        );
+        assert!(
+            !d.resume_dirs.contains_key("s1"),
+            "a live session is not ended"
+        );
     }
 
     #[test]

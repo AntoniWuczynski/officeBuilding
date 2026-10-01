@@ -39,6 +39,15 @@ pub async fn spawn_session(
         .map_err(|e| format!("the hire did not finish: {e}"))?
 }
 
+/// On a blocking thread, like a hire: it waits for the agent to start.
+#[tauri::command]
+pub async fn resume_session(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.resume_session(&session_id))
+        .await
+        .map_err(|e| format!("the resume did not finish: {e}"))?
+}
+
 #[tauri::command]
 pub fn answer_question(
     office: OfficeState<'_>,

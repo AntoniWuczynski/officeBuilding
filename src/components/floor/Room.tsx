@@ -11,7 +11,7 @@ import { Billboard, CameraContext, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
 import { Person, Walker } from "../../scene/Person";
-import { BackWall, LeftWall, ManagerOffice } from "./RoomObjects";
+import { BackWall, LeftWall, ManagerOffice, SignOutStand } from "./RoomObjects";
 import type { RoomObjectsModel } from "./RoomObjects";
 import type { Section } from "./sections";
 import { Pod } from "./Pod";
@@ -100,6 +100,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
       <BackWall model={objects} depth={depth} onOpen={onOpenSection} />
       <LeftWall model={objects} depth={depth} onOpen={onOpenSection} />
       <ManagerOffice model={objects} depth={depth} onOpen={onOpenSection} />
+      <SignOutStand model={objects} depth={depth} onOpen={onOpenSection} />
 
       {sessions.map((s, i) => {
         const desk = roomDeskSlot(i);

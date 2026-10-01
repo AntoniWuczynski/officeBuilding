@@ -126,6 +126,16 @@ export function App({ api }: Props): React.ReactElement {
     [api, snapshot, toast],
   );
 
+  const resume = useCallback(
+    (sessionId: string) => {
+      const title = snapshot?.ended.find((e) => e.id === sessionId)?.title ?? sessionId;
+      return api.resumeSession(sessionId).then(() => {
+        toast("ok", `Resumed “${title}”. It is heading back to its desk.`);
+      });
+    },
+    [api, snapshot, toast],
+  );
+
   const tick = useCallback(
     (todoId: string) => {
       api.tickTodo(todoId).catch((err: unknown) => toast("error", `Could not tick that off: ${message(err)}.`));
@@ -195,6 +205,7 @@ export function App({ api }: Props): React.ReactElement {
               onHire={hire}
               onAnswer={answer}
               onTick={tick}
+              onResume={resume}
             />
           </motion.div>
         )}

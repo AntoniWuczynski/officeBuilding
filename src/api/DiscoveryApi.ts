@@ -106,6 +106,12 @@ export interface DiscoveryApi {
    */
   subscribeHireFailures(listener: (failure: HireFailure) => void): () => void;
 
+  /**
+   * Resume an ended session (from its floor's sign-out sheet) in an in-app
+   * terminal, in the folder it ran in. Resolves once the agent has started.
+   */
+  resumeSession(sessionId: string): Promise<void>;
+
   /** Send keystrokes to a `full`-control session's terminal. */
   writeTerminal(sessionId: string, data: string): Promise<void>;
 

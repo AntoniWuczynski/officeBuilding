@@ -53,6 +53,13 @@ export function SectionIcon({ section }: { readonly section: Section }): React.R
           <path d="M3 18h16" />
         </svg>
       );
+    case "signed-out": // clipboard
+      return (
+        <svg {...common}>
+          <rect x="5" y="4" width="12" height="15" />
+          <path d="M8.5 4V2.5h5V4M8 9h6M8 12h6M8 15h3" />
+        </svg>
+      );
   }
 }
 

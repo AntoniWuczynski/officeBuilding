@@ -20,8 +20,13 @@ sessions as an **office building**:
 - **The manager's panels are objects in the room**, and also sit on a rail at the
   right edge: brass plaque = Info, memo pile on the manager's desk = Decisions
   (questions ordered by priority → one question → A / B / Other), cork board =
-  Human TODO, whiteboard = TODO, wall meter = Spend. Everything is scoped to the
-  floor you are on.
+  Human TODO, whiteboard = TODO, wall meter = Spend, sign-out sheet by the door =
+  Signed out. Everything is scoped to the floor you are on.
+- **Resume an agent that has left.** Sessions that ended in the last 12 hours
+  are listed on their floor's sign-out sheet. Resume runs `claude --resume` or
+  `codex resume` in an in-app terminal, in the folder the session ran in, on
+  the same model and effort. The app never stops a running agent itself, so to
+  restart a hung one, exit it first (`/exit`) and resume it from the sheet.
 - **Decisions and TODOs come from each repo's own files**: open and settled calls
   from `FOUNDER_DECISIONS.md` (or `HUMAN_DECISIONS.md`) plus the agents'
   `DECISIONS.md` log, your actions from `FOUNDER_TODO.md` (or `HUMAN_TODO.md`),

@@ -3,6 +3,7 @@ import { AnimatePresence } from "framer-motion";
 import type { OfficeSnapshot, Project, Session, ToolOptions } from "../../types";
 import type { HireRequest, QuestionAnswer } from "../../api/DiscoveryApi";
 import {
+  endedForProject,
   formatUsd,
   openCount,
   questionsForProject,
@@ -38,11 +39,12 @@ interface Props {
   readonly onHire: (projectId: string, request: HireRequest) => Promise<void>;
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
   readonly onTick: (todoId: string) => void;
+  readonly onResume: (sessionId: string) => Promise<void>;
 }
 
 /** The sketch's project screen: the open-plan floor, its search and tally, the rail and panels. */
 export function FloorView(props: Props): React.ReactElement {
-  const { project, snapshot, now, section, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, loadHireOptions, onHire, onAnswer, onTick } = props;
+  const { project, snapshot, now, section, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, loadHireOptions, onHire, onAnswer, onTick, onResume } = props;
   const [query, setQuery] = useState("");
   const [hireOpen, setHireOpen] = useState(false);
 
@@ -53,6 +55,7 @@ export function FloorView(props: Props): React.ReactElement {
   const humanTodos = todosForProject(snapshot, project.id, "human");
   const aiTodos = todosForProject(snapshot, project.id, "ai");
   const spend = totalSpend(sessions);
+  const ended = endedForProject(snapshot, project.id);
   const depth = roomDepth(sessions.length + 1);
   const openSession = sessions.find((s) => s.id === openSessionId);
 
@@ -64,6 +67,7 @@ export function FloorView(props: Props): React.ReactElement {
     humanTodos,
     aiTodos,
     spend,
+    signedOut: ended.length,
   };
 
   const badge = (n: number): string | null => (n > 0 ? String(n) : null);
@@ -153,6 +157,7 @@ export function FloorView(props: Props): React.ReactElement {
               onAnswer={onAnswer}
               onTick={onTick}
               onOpenSession={onOpenSession}
+              onResume={onResume}
             />
           )}
         </AnimatePresence>
@@ -166,6 +171,7 @@ export function FloorView(props: Props): React.ReactElement {
             "human-todo": badge(openCount(humanTodos)),
             todo: badge(openCount(aiTodos)),
             spend: formatUsd(spend.usd),
+            "signed-out": badge(ended.length),
           }}
         />
       </div>

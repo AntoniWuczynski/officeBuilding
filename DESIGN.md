@@ -24,7 +24,7 @@ Motion:
   Navigation: one camera move per action (dive into a floor, pull back to the building), 450-600ms tween, ease-out, no bounce, no overshoot.
   Agent-to-agent messages: a worker walks a note to the recipient's desk.
   prefers-reduced-motion: character loops stop, camera moves become cuts, walkers teleport.
-Signature device: the metaphor made structural. Every sidebar section is an object in the room and opens its panel: memo pile on the manager's desk = Decisions queue, cork board = Human TODO, whiteboard = AI TODO, meter on the wall = Spend, brass plaque = Info, an agent walking a note to a colleague = agent-to-agent message.
+Signature device: the metaphor made structural. Every sidebar section is an object in the room and opens its panel: memo pile on the manager's desk = Decisions queue, cork board = Human TODO, whiteboard = AI TODO, meter on the wall = Spend, brass plaque = Info, clipboard sign-out sheet by the door = Signed out (sessions to resume, Antek 2026-10-01), an agent walking a note to a colleague = agent-to-agent message.
 First-paint emotion: command-play (a management sim: you are in charge, and it is a toy you want to poke). Owner picked "Command and Play"; recorded as one compound.
 Voice: matter-of-fact British English. States in human words: Working, Thinking, Needs you, Stuck, Idle, Finished. Errors say what happened and what to do next. No em dashes in interface copy.
 Dark mode: deferred (daylight only)

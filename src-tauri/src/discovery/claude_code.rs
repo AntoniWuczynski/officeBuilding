@@ -45,6 +45,10 @@ pub struct PendingQuestion {
 
 /// What one transcript says, reduced to what the office shows.
 #[derive(Debug, Clone, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts read from the transcript, not a state machine"
+)]
 pub struct Transcript {
     pub cwd: Option<String>,
     pub title: Option<String>,
@@ -66,6 +70,8 @@ pub struct Transcript {
     /// The agent signed off: its last reply ended the turn, or (a workflow
     /// agent) its `StructuredOutput` result came back.
     pub finished: bool,
+    /// Started by a script or the SDK (`claude -p`, entrypoint `sdk-*`), not by a person.
+    pub scripted: bool,
 }
 
 /// Whether a process exists (signal 0 probes without sending anything).
@@ -166,6 +172,7 @@ impl ParserState {
                 open_tools: 0,
                 question: None,
                 finished: false,
+                scripted: false,
             },
             open: HashSet::new(),
             usage_by_message: HashMap::new(),
@@ -241,6 +248,9 @@ impl ParserState {
         }
         if let Some(cwd) = rec.get("cwd").and_then(Value::as_str) {
             self.t.cwd = Some(cwd.to_string());
+        }
+        if let Some(entry) = rec.get("entrypoint").and_then(Value::as_str) {
+            self.t.scripted = entry.starts_with("sdk");
         }
         let at = rec
             .get("timestamp")

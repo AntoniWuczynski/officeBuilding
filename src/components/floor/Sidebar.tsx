@@ -6,6 +6,7 @@ import {
   STATE_LABEL,
   TOOL_LABEL,
   decisionsForProject,
+  endedForProject,
   formatTokens,
   formatUsd,
   questionsForProject,
@@ -17,6 +18,7 @@ import {
 import { relativeTime } from "../../lib/time";
 import { CloseIcon } from "../icons";
 import { DecisionsPanel } from "./DecisionsPanel";
+import { SignOutSheet } from "./SignOutSheet";
 import { sectionLabel } from "./sections";
 import type { Section } from "./sections";
 
@@ -29,10 +31,11 @@ interface Props {
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
   readonly onTick: (todoId: string) => void;
   readonly onOpenSession: (session: Session) => void;
+  readonly onResume: (sessionId: string) => Promise<void>;
 }
 
 /** The enlarged sidebar: one of the manager's sections for this floor. */
-export function Sidebar({ section, project, snapshot, now, onClose, onAnswer, onTick, onOpenSession }: Props): React.ReactElement {
+export function Sidebar({ section, project, snapshot, now, onClose, onAnswer, onTick, onOpenSession, onResume }: Props): React.ReactElement {
   return (
     <motion.aside
       className="sidebar"
@@ -57,12 +60,13 @@ export function Sidebar({ section, project, snapshot, now, onClose, onAnswer, on
         onAnswer={onAnswer}
         onTick={onTick}
         onOpenSession={onOpenSession}
+        onResume={onResume}
       />
     </motion.aside>
   );
 }
 
-function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpenSession }: Omit<Props, "onClose">): React.ReactElement {
+function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpenSession, onResume }: Omit<Props, "onClose">): React.ReactElement {
   const sessions = sessionsForProject(snapshot, project.id);
   switch (section) {
     case "decisions":
@@ -99,6 +103,8 @@ function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpen
       return <SpendBody sessions={sessions} allSessions={snapshot.sessions} onOpenSession={onOpenSession} />;
     case "info":
       return <InfoBody project={project} sessions={sessions} now={now} />;
+    case "signed-out":
+      return <SignOutSheet ended={endedForProject(snapshot, project.id)} now={now} onResume={onResume} />;
   }
 }
 

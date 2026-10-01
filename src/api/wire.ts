@@ -35,6 +35,17 @@ export const projectSchema = z.object({
 export const snapshotSchema = z.object({
   projects: z.array(projectSchema),
   sessions: z.array(sessionSchema),
+  ended: z.array(
+    z.object({
+      id: z.string(),
+      tool: toolKind,
+      projectId: z.string(),
+      title: z.string(),
+      endedAt: z.string(),
+      model: z.string().nullable(),
+      effort: z.string().nullable(),
+    }),
+  ),
   questions: z.array(
     z.object({
       id: z.string(),

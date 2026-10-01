@@ -74,6 +74,18 @@ fn a_sub_agent_is_finished_once_it_signs_off() {
 }
 
 #[test]
+fn a_scripted_run_is_marked() {
+    let at = |entry: &str| {
+        format!(
+            r#"{{"type":"user","entrypoint":"{entry}","timestamp":"t","message":{{"role":"user","content":"go"}}}}"#
+        )
+    };
+    assert!(!parse(&[&at("cli")]).scripted);
+    assert!(parse(&[&at("sdk-cli")]).scripted);
+    assert!(!parse(&[USER]).scripted);
+}
+
+#[test]
 fn running_sub_agents_are_the_sessions_helpers() {
     let home = temp_dir("helpers");
     let project = home.join(".claude/projects/-code-app");

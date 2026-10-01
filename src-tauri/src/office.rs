@@ -4,9 +4,9 @@
 use crate::discovery::{self, Discovered, Discovery};
 use crate::focus;
 use crate::model::{
-    AgentMessage, AnswerVia, ControlMode, HireFailed, HireRequest, OfficeSnapshot, Party, Project,
-    QuestionAnswer, Session, SessionState, Spend, TerminalBacklog, TerminalExit, TodoItem,
-    ToolKind, ToolOptions,
+    AgentMessage, AnswerVia, ControlMode, EndedSession, HireFailed, HireRequest, OfficeSnapshot,
+    Party, Project, QuestionAnswer, Session, SessionState, Spend, TerminalBacklog, TerminalExit,
+    TodoItem, ToolKind, ToolOptions,
 };
 use crate::options;
 use crate::project_files::{self, ProjectFiles};
@@ -220,6 +220,37 @@ fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<Stri
     }
 }
 
+/// The tool's own resume command for an ended session, on the model and effort it ran with.
+fn resume_command(ended: &EndedSession, shell: &str) -> Result<String, String> {
+    let quote = |s: &str| pty::quote(shell, s);
+    let claude = match ended.tool {
+        ToolKind::ClaudeCode => true,
+        ToolKind::Codex => false,
+        _ => return Err("only Claude Code and Codex sessions can be resumed so far".to_string()),
+    };
+    let mut words = if claude {
+        vec!["claude".to_string(), "--resume".to_string()]
+    } else {
+        vec!["codex".to_string(), "resume".to_string()]
+    };
+    words.push(quote(&ended.id));
+    if let Some(model) = &ended.model {
+        words.push(if claude { "--model" } else { "-m" }.to_string());
+        words.push(quote(model));
+    }
+    if let Some(effort) = &ended.effort {
+        if claude {
+            words.extend(["--effort".to_string(), quote(effort)]);
+        } else {
+            words.extend([
+                "-c".to_string(),
+                quote(&format!("model_reasoning_effort=\"{effort}\"")),
+            ]);
+        }
+    }
+    Ok(words.join(" "))
+}
+
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -328,6 +359,7 @@ impl Office {
         OfficeSnapshot {
             projects: inner.found.projects.clone(),
             sessions: inner.found.sessions.clone(),
+            ended: inner.found.ended.clone(),
             questions,
             decisions,
             todos,
@@ -400,32 +432,14 @@ impl Office {
             ),
             _ => return Err("only Claude Code and Codex can be hired so far".to_string()),
         };
-        let terminal = start_agent(&self.terminals, &root, &command)?;
-        {
-            // Under the lock `hire_failed` takes: an exit either lands here or finds the entry.
-            let mut inner = self.lock();
-            if let Some(code) = self.terminals.wait_exit(&terminal, Duration::ZERO)? {
-                return Err(launch_failure(&self.terminals, &terminal, code)?);
-            }
-            inner.hired.insert(
-                terminal,
-                if task.is_empty() {
-                    "New task".to_string()
-                } else {
-                    task.to_string()
-                },
-            );
-        }
+        let title = if task.is_empty() { "New task" } else { task };
+        self.launch(&root, &command, title)?;
         // The real session id arrives with discovery; this is only the receipt.
         Ok(Session {
             id: format!("hired-{}", chrono::Utc::now().timestamp_millis()),
             tool: req.tool,
             project_id: project_id.to_string(),
-            title: if task.is_empty() {
-                "New task".to_string()
-            } else {
-                task.to_string()
-            },
+            title: title.to_string(),
             state: SessionState::Thinking,
             control: ControlMode::Full,
             model: Some(model.id.clone()),
@@ -435,6 +449,38 @@ impl Office {
             spend: Spend::default(),
             helpers: Vec::new(),
         })
+    }
+
+    /// Resume an ended session in an in-app terminal, in the folder it ran in.
+    pub fn resume_session(&self, session_id: &str) -> Result<(), String> {
+        let (ended, dir) = {
+            let inner = self.lock();
+            let ended = inner.found.ended.iter().find(|e| e.id == session_id);
+            match (ended, inner.found.resume_dirs.get(session_id)) {
+                (Some(e), Some(d)) => (e.clone(), d.clone()),
+                _ => {
+                    return Err(format!(
+                        "{session_id} has not signed out, so there is nothing to resume"
+                    ));
+                }
+            }
+        };
+        let command = resume_command(&ended, &pty::login_shell())?;
+        self.launch(&dir, &command, &ended.title)
+    }
+
+    /// Run `command` in a new in-app terminal in `dir`. An agent that stops at
+    /// once is an error; one that stops later, before reaching a desk, is
+    /// reported by `hire_failed`.
+    fn launch(&self, dir: &Path, command: &str, title: &str) -> Result<(), String> {
+        let terminal = start_agent(&self.terminals, dir, command)?;
+        // Under the lock `hire_failed` takes: an exit either lands here or finds the entry.
+        let mut inner = self.lock();
+        if let Some(code) = self.terminals.wait_exit(&terminal, Duration::ZERO)? {
+            return Err(launch_failure(&self.terminals, &terminal, code)?);
+        }
+        inner.hired.insert(terminal, title.to_string());
+        Ok(())
     }
 
     /// Add a floor for a repo folder the human picked. Idempotent: a folder that

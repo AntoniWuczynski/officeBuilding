@@ -79,6 +79,20 @@ pub struct Session {
     pub helpers: Vec<Helper>,
 }
 
+/// A session whose agent has left: listed on its floor's sign-out sheet to resume.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EndedSession {
+    pub id: String,
+    pub tool: ToolKind,
+    pub project_id: String,
+    pub title: String,
+    /// Its last activity.
+    pub ended_at: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
 /// A sub-agent at work for a session: it gets a tiny desk beside its session's.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -177,6 +191,8 @@ pub struct AgentMessage {
 pub struct OfficeSnapshot {
     pub projects: Vec<Project>,
     pub sessions: Vec<Session>,
+    /// Sessions that ended recently, newest first: each floor's sign-out sheet.
+    pub ended: Vec<EndedSession>,
     pub questions: Vec<Question>,
     pub decisions: Vec<Decision>,
     pub todos: Vec<TodoItem>,

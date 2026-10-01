@@ -64,6 +64,7 @@ pub fn run() -> tauri::Result<()> {
             commands::get_snapshot,
             commands::hire_options,
             commands::spawn_session,
+            commands::resume_session,
             commands::answer_question,
             commands::tick_todo,
             commands::send_agent_message,

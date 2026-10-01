@@ -65,7 +65,8 @@ describe("TauriApi", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(floor)
-      .mockResolvedValueOnce("/Users/me/code/app");
+      .mockResolvedValueOnce("/Users/me/code/app")
+      .mockResolvedValueOnce(null);
     await api.hireOptions();
     const request = { tool: "codex", title: "x", model: "gpt-5.5", effort: "high" } as const;
     await expect(api.spawnSession("p-1", request)).resolves.toEqual(session);
@@ -75,6 +76,7 @@ describe("TauriApi", () => {
     await api.focusSession("s-1");
     await expect(api.addFloor("~/code/app")).resolves.toEqual(floor);
     await expect(api.pickFolder()).resolves.toBe("/Users/me/code/app");
+    await api.resumeSession("e-1");
     expect(api.canPickFolder).toBe(true);
     expect(invoke.mock.calls).toEqual([
       ["hire_options", undefined],
@@ -85,6 +87,7 @@ describe("TauriApi", () => {
       ["focus_session", { sessionId: "s-1" }],
       ["add_floor", { path: "~/code/app" }],
       ["pick_folder", undefined],
+      ["resume_session", { sessionId: "e-1" }],
     ]);
   });
 

@@ -213,6 +213,10 @@ export class TauriApi implements DiscoveryApi {
     );
   }
 
+  async resumeSession(sessionId: string): Promise<void> {
+    await call("resume_session", { sessionId });
+  }
+
   async writeTerminal(sessionId: string, data: string): Promise<void> {
     await call("terminal_write", { sessionId, data });
   }

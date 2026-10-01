@@ -459,3 +459,46 @@ fn the_desk_of_a_session_before_a_clear_opens_its_terminal() {
         vec![ControlMode::Full, ControlMode::ReadOnly]
     );
 }
+
+#[test]
+fn resuming_runs_the_tools_own_resume_with_the_same_model_and_effort() {
+    let ended = |tool, model: Option<&str>, effort: Option<&str>| EndedSession {
+        id: "abc".to_string(),
+        tool,
+        project_id: "p".to_string(),
+        title: "t".to_string(),
+        ended_at: String::new(),
+        model: model.map(str::to_string),
+        effort: effort.map(str::to_string),
+    };
+    let zsh = "/bin/zsh";
+    assert_eq!(
+        resume_command(
+            &ended(ToolKind::ClaudeCode, Some("claude-opus-5-5"), Some("high")),
+            zsh
+        ),
+        Ok("claude --resume 'abc' --model 'claude-opus-5-5' --effort 'high'".to_string())
+    );
+    assert_eq!(
+        resume_command(&ended(ToolKind::ClaudeCode, None, None), zsh),
+        Ok("claude --resume 'abc'".to_string())
+    );
+    assert_eq!(
+        resume_command(
+            &ended(ToolKind::Codex, Some("gpt-6-astra"), Some("xhigh")),
+            zsh
+        ),
+        Ok("codex resume 'abc' -m 'gpt-6-astra' -c 'model_reasoning_effort=\"xhigh\"'".to_string())
+    );
+    assert!(resume_command(&ended(ToolKind::Cursor, None, None), zsh).is_err());
+}
+
+#[test]
+fn only_an_ended_session_can_be_resumed() {
+    let (office, dir) = office("resume-unknown");
+    assert_eq!(
+        office.resume_session("nope"),
+        Err("nope has not signed out, so there is nothing to resume".to_string())
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
