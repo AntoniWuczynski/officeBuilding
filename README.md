@@ -68,7 +68,8 @@ MCP surface layered on.
   with the chosen model and effort in an in-app terminal: a pseudo-terminal
   (through your login shell, in the floor's folder) streamed to xterm.js, with
   the last 256 KiB kept for replay. Once the agent registers its session, its
-  desk opens that terminal. An agent that stops within 1.5 s of your login
+  desk opens that terminal. Dropping a file (a screenshot, say) onto it types
+  the file's path, as iTerm2 does, so Claude Code attaches the image. An agent that stops within 1.5 s of your login
   shell handing over to it (or while the shell's profile is still loading) fails
   the hire with what it printed. One that stops later, before it ever reached
   a desk, is reported in an error message. A hired Codex agent needs a task,

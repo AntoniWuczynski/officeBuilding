@@ -47,6 +47,7 @@ describe("TerminalPanel (verifier)", () => {
       subscribeTerminal: () => stop,
       writeTerminal: () => Promise.resolve(),
       resizeTerminal: () => Promise.resolve(),
+      subscribeFileDrops: () => () => {},
     };
     const session = fullSession();
     const { rerender } = render(

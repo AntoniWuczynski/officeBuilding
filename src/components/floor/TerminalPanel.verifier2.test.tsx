@@ -4,6 +4,7 @@ import { TerminalApiContext, TerminalPanel } from "./TerminalPanel";
 import type { TerminalApi } from "./TerminalPanel";
 import { makeSeedSnapshot } from "../../api/mockData";
 import type { Session } from "../../types";
+import type { FileDrop } from "../../api/DiscoveryApi";
 
 const xterm = vi.hoisted(() => {
   class FakeTerminal {
@@ -28,6 +29,9 @@ const xterm = vi.hoisted(() => {
     focus(): void {}
     dispose(): void {}
     type(data: string): void {
+      this.listener?.(data);
+    }
+    paste(data: string): void {
       this.listener?.(data);
     }
   }
@@ -55,7 +59,12 @@ describe("TerminalPanel (verifier round 2)", () => {
       .fn<TerminalApi["writeTerminal"]>()
       .mockRejectedValueOnce(new Error("s-1 was not started in the app, so it has no terminal here"))
       .mockResolvedValue(undefined);
-    const api: TerminalApi = { subscribeTerminal: () => () => {}, writeTerminal, resizeTerminal: () => Promise.resolve() };
+    const api: TerminalApi = {
+      subscribeTerminal: () => () => {},
+      writeTerminal,
+      resizeTerminal: () => Promise.resolve(),
+      subscribeFileDrops: () => () => {},
+    };
     render(
       <TerminalApiContext value={api}>
         <TerminalPanel session={fullSession()} onClose={() => {}} />
@@ -71,5 +80,41 @@ describe("TerminalPanel (verifier round 2)", () => {
       await Promise.resolve();
     });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("TerminalPanel file drops", () => {
+  function renderWithDrops(): { drop: (d: FileDrop) => void; writeTerminal: ReturnType<typeof vi.fn<TerminalApi["writeTerminal"]>> } {
+    let listener: ((d: FileDrop) => void) | null = null;
+    const writeTerminal = vi.fn<TerminalApi["writeTerminal"]>().mockResolvedValue(undefined);
+    const api: TerminalApi = {
+      subscribeTerminal: () => () => {},
+      writeTerminal,
+      resizeTerminal: () => Promise.resolve(),
+      subscribeFileDrops: (l) => {
+        listener = l;
+        return () => {};
+      },
+    };
+    render(
+      <TerminalApiContext value={api}>
+        <TerminalPanel session={fullSession()} onClose={() => {}} />
+      </TerminalApiContext>,
+    );
+    const screenEl = screen.getByTestId("terminal-screen");
+    screenEl.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 500, width: 800, height: 300 });
+    return { drop: (d) => act(() => listener?.(d)), writeTerminal };
+  }
+
+  it("types a screenshot dropped on the terminal as its escaped path", () => {
+    const { drop, writeTerminal } = renderWithDrops();
+    drop({ paths: ["/Users/me/Desktop/Screenshot 1.png"], x: 400, y: 600 });
+    expect(writeTerminal).toHaveBeenCalledWith(fullSession().id, "/Users/me/Desktop/Screenshot\\ 1.png");
+  });
+
+  it("ignores files dropped elsewhere in the window", () => {
+    const { drop, writeTerminal } = renderWithDrops();
+    drop({ paths: ["/tmp/a.png"], x: 400, y: 100 });
+    expect(writeTerminal).not.toHaveBeenCalled();
   });
 });

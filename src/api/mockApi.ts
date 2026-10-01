@@ -7,7 +7,7 @@ import type {
   SessionState,
   ToolOptions,
 } from "../types";
-import type { DiscoveryApi, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
+import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions } from "./mockHireOptions";
 
@@ -255,6 +255,11 @@ export class MockApi implements DiscoveryApi {
 
   /** The demo's hires always reach their desks, so there is nothing to report. */
   subscribeHireFailures(_listener: (failure: HireFailure) => void): () => void {
+    return () => {};
+  }
+
+  /** A browser page gets no file paths from a drop, so the demo hears none. */
+  subscribeFileDrops(_listener: (drop: FileDrop) => void): () => void {
     return () => {};
   }
 

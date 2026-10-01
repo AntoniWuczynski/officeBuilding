@@ -7,9 +7,10 @@ import type { DiscoveryApi } from "../../api/DiscoveryApi";
 import type { Session } from "../../types";
 import { STATE_LABEL, TOOL_LABEL, modelLine } from "../../state/selectors";
 import { CloseIcon } from "../icons";
+import { shellPaths } from "../../lib/shell";
 import { message } from "../../lib/errors";
 
-export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal">;
+export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal" | "subscribeFileDrops">;
 
 /** The terminal operations, provided by App (the floor view in between does not need them). */
 export const TerminalApiContext = createContext<TerminalApi | null>(null);
@@ -92,6 +93,11 @@ function LiveTerminal({ sessionId }: { readonly sessionId: string }): React.Reac
     });
     fit.fit();
     api.resizeTerminal(sessionId, term.cols, term.rows).catch(fail);
+    // A file dropped on the terminal types its path, as iTerm2 and Terminal.app do.
+    const dropped = api.subscribeFileDrops(({ paths, x, y }) => {
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) term.paste(shellPaths(paths));
+    });
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(el);
     const stop = api.subscribeTerminal(sessionId, {
@@ -105,6 +111,7 @@ function LiveTerminal({ sessionId }: { readonly sessionId: string }): React.Reac
     term.focus();
     return () => {
       stop();
+      dropped();
       observer.disconnect();
       typed.dispose();
       resized.dispose();

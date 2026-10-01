@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { OfficeSnapshot, Project, Session, ToolOptions } from "../types";
 import type { z } from "zod";
-import type { DiscoveryApi, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
+import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
   folderSchema,
   hireFailureSchema,
@@ -39,6 +40,25 @@ async function call(cmd: string, args?: Record<string, unknown>): Promise<unknow
   } catch (err: unknown) {
     throw asError(err);
   }
+}
+
+/**
+ * Deliver what `start`'s listener hears until the returned stop is called,
+ * even when that happens before the listener has attached.
+ */
+function follow<T>(start: (deliver: (value: T) => void) => Promise<() => void>, listener: (value: T) => void): () => void {
+  let stopped = false;
+  let unlisten: (() => void) | null = null;
+  void start((value) => {
+    if (!stopped) listener(value);
+  }).then((off) => {
+    if (stopped) off();
+    else unlisten = off;
+  });
+  return () => {
+    stopped = true;
+    unlisten?.();
+  };
 }
 
 /** {@link DiscoveryApi} backed by the Rust side (src-tauri/src/commands.rs). */
@@ -171,19 +191,26 @@ export class TauriApi implements DiscoveryApi {
   }
 
   subscribeHireFailures(listener: (failure: HireFailure) => void): () => void {
-    let stopped = false;
-    let unlisten: (() => void) | null = null;
-    void listen<unknown>(HIRE_FAILED_EVENT, (event) => {
-      const r = hireFailureSchema.safeParse(event.payload);
-      if (r.success && !stopped) listener(r.data);
-    }).then((off) => {
-      if (stopped) off();
-      else unlisten = off;
-    });
-    return () => {
-      stopped = true;
-      unlisten?.();
-    };
+    return follow(
+      (deliver) =>
+        listen<unknown>(HIRE_FAILED_EVENT, (event) => {
+          const r = hireFailureSchema.safeParse(event.payload);
+          if (r.success) deliver(r.data);
+        }),
+      listener,
+    );
+  }
+
+  subscribeFileDrops(listener: (drop: FileDrop) => void): () => void {
+    return follow(
+      (deliver) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+          if (event.payload.type !== "drop") return;
+          const { x, y } = event.payload.position.toLogical(window.devicePixelRatio);
+          deliver({ paths: event.payload.paths, x, y });
+        }),
+      listener,
+    );
   }
 
   async writeTerminal(sessionId: string, data: string): Promise<void> {

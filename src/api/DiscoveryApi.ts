@@ -32,6 +32,13 @@ export interface TerminalHandlers {
   readonly error: (message: string) => void;
 }
 
+/** Files dropped onto the window from Finder, at a point in CSS pixels. */
+export interface FileDrop {
+  readonly paths: readonly string[];
+  readonly x: number;
+  readonly y: number;
+}
+
 /**
  * The single seam between the UI and its data source. Phase 1 = `MockApi`
  * (in-browser, no native deps). Phase 2+ = `TauriApi` calling the Rust backend
@@ -104,4 +111,7 @@ export interface DiscoveryApi {
 
   /** Tell a `full`-control session's terminal its new size in cells. */
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
+
+  /** Hear about files dropped onto the window. Returns an unsubscribe. */
+  subscribeFileDrops(listener: (drop: FileDrop) => void): () => void;
 }

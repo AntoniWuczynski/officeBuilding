@@ -21,6 +21,15 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: (handler: (event: { payload: unknown }) => void) => {
+      listeners.set("drag-drop", handler);
+      return Promise.resolve(unlisten);
+    },
+  }),
+}));
+
 const { TauriApi } = await import("./tauriApi");
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
@@ -229,6 +238,22 @@ describe("TauriApi", () => {
       expect(unlisten).toHaveBeenCalledTimes(1);
       push("office://hire-failed", { title: "late", exitCode: null, lastLines: [] });
       expect(reports).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("file drops", () => {
+    it("delivers dropped paths at their position in CSS pixels", async () => {
+      vi.stubGlobal("devicePixelRatio", 2);
+      const drops = vi.fn();
+      const off = new TauriApi().subscribeFileDrops(drops);
+      await flush();
+      const position = { toLogical: (factor: number) => ({ x: 800 / factor, y: 1200 / factor }) };
+      push("drag-drop", { type: "over", position });
+      push("drag-drop", { type: "drop", paths: ["/tmp/a.png"], position });
+      expect(drops.mock.calls).toEqual([[{ paths: ["/tmp/a.png"], x: 400, y: 600 }]]);
+      off();
+      expect(unlisten).toHaveBeenCalledTimes(1);
+      vi.unstubAllGlobals();
     });
   });
 });
