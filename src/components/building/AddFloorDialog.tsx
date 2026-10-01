@@ -1,14 +1,11 @@
 import { useState } from "react";
+import { message } from "../../lib/errors";
 
 interface Props {
   readonly canPickFolder: boolean;
   readonly onPickFolder: () => Promise<string | null>;
   readonly onAdd: (path: string) => Promise<void>;
   readonly onCancel: () => void;
-}
-
-function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /** Add a floor: the repo folder a project lives in. */

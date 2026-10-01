@@ -7,6 +7,7 @@ import type { DiscoveryApi } from "../../api/DiscoveryApi";
 import type { Session } from "../../types";
 import { STATE_LABEL, TOOL_LABEL, modelLine } from "../../state/selectors";
 import { CloseIcon } from "../icons";
+import { message } from "../../lib/errors";
 
 export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal">;
 
@@ -21,10 +22,6 @@ const FONT = '"SF Mono", Menlo, Consolas, monospace';
 interface Props {
   readonly session: Session;
   readonly onClose: () => void;
-}
-
-function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /**

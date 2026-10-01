@@ -13,6 +13,7 @@ import type { Section } from "./components/floor/sections";
 import { TerminalApiContext } from "./components/floor/TerminalPanel";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
+import { message } from "./lib/errors";
 
 interface Props {
   readonly api: DiscoveryApi;
@@ -22,10 +23,6 @@ type View = { readonly kind: "building" } | { readonly kind: "floor"; readonly p
 
 const CAMERA_EASE = [0.2, 0.8, 0.2, 1] as const;
 const TOAST_MS = 4500;
-
-function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 /** Root view-state machine: building ↔ floor, plus the floor's panels and toasts. */
 export function App({ api }: Props): React.ReactElement {

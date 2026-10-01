@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ModelOption, ToolKind, ToolOptions } from "../../types";
 import type { HireRequest } from "../../api/DiscoveryApi";
 import { TOOL_LABEL } from "../../state/selectors";
+import { message } from "../../lib/errors";
 
 type Load =
   | { readonly status: "loading" }
@@ -29,10 +30,6 @@ function defaultsFor(tool: ToolOptions): Choice {
 /** Keep the effort if the new model supports it, otherwise take the model's default. */
 function effortFor(model: ModelOption, current: string): string {
   return model.efforts.some((e) => e.id === current) ? current : model.defaultEffort;
-}
-
-function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /** Start a new agent session on this floor: tool, model, effort and task. */
