@@ -48,15 +48,20 @@ fn ps(pid: i32, fields: &str) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
+/// A process's parent pid and command name. (`ppid` is the keyword macOS `ps` knows.)
+fn parent_and_comm(pid: i32) -> Option<(i32, String)> {
+    let line = ps(pid, "ppid=,comm=")?;
+    let (parent, comm) = line.split_once(char::is_whitespace)?;
+    Some((parent.trim().parse().ok()?, comm.trim().to_string()))
+}
+
 /// The terminal app hosting a process: walk up its parents until one is a known terminal.
+#[must_use]
 pub fn terminal_app_of(pid: i32) -> Option<&'static str> {
     let mut current = pid;
     for _ in 0..20 {
-        let line = ps(current, "parent=,comm=")?;
-        let mut parts = line.splitn(2, char::is_whitespace);
-        let parent: i32 = parts.next()?.trim().parse().ok()?;
-        let comm = parts.next()?.trim();
-        if let Some(app) = terminal_for_comm(comm) {
+        let (parent, comm) = parent_and_comm(current)?;
+        if let Some(app) = terminal_for_comm(&comm) {
             return Some(app);
         }
         if parent <= 1 {
@@ -217,6 +222,14 @@ pub fn choose_folder(prompt: &str) -> Result<Option<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_a_live_process_parent_and_name() {
+        let me = i32::try_from(std::process::id()).expect("pid fits");
+        let (parent, comm) = parent_and_comm(me).expect("ps reads this process");
+        assert_eq!(Some(parent), parent_pid(me));
+        assert!(!comm.is_empty());
+    }
 
     #[test]
     fn recognises_terminal_processes() {
