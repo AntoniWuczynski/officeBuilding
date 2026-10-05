@@ -42,8 +42,10 @@ sessions as an **office building**:
   level the model supports, and name the task.
 - **Click an employee → their terminal.** App-spawned sessions get a full in-app
   terminal docked under the floor (PTY + xterm.js); closing the panel leaves the
-  agent running. Discovered / hand-started sessions raise their **original
-  native terminal window** instead.
+  agent running. Drag the panel's top edge (or focus it and use the arrow keys)
+  to make it taller, and it keeps that height the next time it opens.
+  Discovered / hand-started sessions raise their **original native terminal
+  window** instead.
 - Sessions are **auto-discovered** from each tool's on-disk store (Claude Code
   first, then Codex, then opencode / antigravity), so terminals you started by
   hand still appear in the building.

@@ -539,14 +539,29 @@
 
 /* ---- terminal ---- */
 .terminal {
+  position: relative;
   flex: none;
-  height: 260px;
   display: flex;
   flex-direction: column;
   background: var(--terminal);
   color: var(--terminal-text);
   border-top: 2px solid var(--ink);
   font: 13px/1.5 var(--font-mono);
+}
+/* The top edge: drag (or arrow keys) to make the terminal taller or shorter. */
+.terminal-resize {
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: row-resize;
+  z-index: 1;
+}
+.terminal-resize:hover,
+.terminal-resize:focus-visible {
+  outline: none;
+  background: linear-gradient(transparent 3px, var(--terminal-text) 3px, var(--terminal-text) 5px, transparent 5px);
 }
 .terminal-head {
   display: flex;

@@ -9,6 +9,7 @@ import { STATE_LABEL, TOOL_LABEL, modelLine } from "../../state/selectors";
 import { CloseIcon } from "../icons";
 import { shellPaths } from "../../lib/shell";
 import { message } from "../../lib/errors";
+import { readPref, writePref } from "../../lib/prefs";
 
 export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal" | "subscribeFileDrops">;
 
@@ -19,6 +20,52 @@ export const TerminalApiContext = createContext<TerminalApi | null>(null);
 // mirror --terminal and --terminal-text in src/styles/tokens.css.
 const THEME = { background: "#16181c", foreground: "#e8e6e1", cursor: "#e8e6e1", selectionBackground: "#3a3f48" };
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
+
+const HEIGHT_KEY = "office-building:terminal-height";
+const DEFAULT_HEIGHT = 260;
+const MIN_HEIGHT = 140;
+/** Room the floor keeps above a tall terminal, so its header stays reachable. */
+const FLOOR_ROOM = 120;
+/** How far one arrow key moves the handle. */
+const KEY_STEP = 40;
+
+function storedHeight(): number {
+  const h = Number(readPref(HEIGHT_KEY));
+  return Number.isFinite(h) && h >= MIN_HEIGHT ? h : DEFAULT_HEIGHT;
+}
+
+/** The panel's height, set by dragging its top edge (or arrow keys on it) and remembered between opens. */
+function usePanelHeight(panel: React.RefObject<HTMLElement | null>): {
+  readonly height: number;
+  readonly handle: React.HTMLAttributes<HTMLDivElement>;
+} {
+  const [height, setHeight] = useState(storedHeight);
+  useEffect(() => writePref(HEIGHT_KEY, String(height)), [height]);
+  const clamp = (h: number): number => {
+    const room = (panel.current?.parentElement?.clientHeight ?? window.innerHeight) - FLOOR_ROOM;
+    return Math.round(Math.max(MIN_HEIGHT, Math.min(room, h)));
+  };
+  const handle: React.HTMLAttributes<HTMLDivElement> = {
+    onPointerDown: (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const move = (ev: PointerEvent): void => setHeight(clamp(height + startY - ev.clientY));
+      const up = (): void => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    onKeyDown: (e) => {
+      const step = e.key === "ArrowUp" ? KEY_STEP : e.key === "ArrowDown" ? -KEY_STEP : 0;
+      if (step === 0) return;
+      e.preventDefault();
+      setHeight(clamp(height + step));
+    },
+  };
+  return { height, handle };
+}
 
 interface Props {
   readonly session: Session;
@@ -35,9 +82,13 @@ export function TerminalPanel({ session, onClose }: Props): React.ReactElement {
   // Opened on a live terminal, the panel stays on it: after `/clear` this id
   // turns read-only while the backend keeps it pointing at the same terminal.
   const [live] = useState(session.control !== "read-only");
+  const panel = useRef<HTMLElement>(null);
+  const { height, handle } = usePanelHeight(panel);
   return (
     <motion.section
+      ref={panel}
       className="terminal"
+      style={{ height, maxHeight: `calc(100% - ${FLOOR_ROOM}px)` }}
       data-testid="terminal-panel"
       data-session={session.id}
       aria-label={`Terminal: ${session.title}`}
@@ -46,6 +97,16 @@ export function TerminalPanel({ session, onClose }: Props): React.ReactElement {
       exit={{ y: 40, opacity: 0 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
     >
+      <div
+        className="terminal-resize"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize terminal"
+        aria-valuenow={height}
+        tabIndex={0}
+        data-testid="terminal-resize"
+        {...handle}
+      />
       <header className="terminal-head">
         <span className="terminal-title">
           <b>{session.title}</b>

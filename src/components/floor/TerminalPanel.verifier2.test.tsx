@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TerminalApiContext, TerminalPanel } from "./TerminalPanel";
 import type { TerminalApi } from "./TerminalPanel";
 import { makeSeedSnapshot } from "../../api/mockData";
@@ -116,5 +116,51 @@ describe("TerminalPanel file drops", () => {
     const { drop, writeTerminal } = renderWithDrops();
     drop({ paths: ["/tmp/a.png"], x: 400, y: 100 });
     expect(writeTerminal).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalPanel resizing", () => {
+  const api: TerminalApi = {
+    subscribeTerminal: () => () => {},
+    writeTerminal: () => Promise.resolve(),
+    resizeTerminal: () => Promise.resolve(),
+    subscribeFileDrops: () => () => {},
+  };
+
+  afterEach(() => localStorage.clear());
+
+  function renderPanel(): { panel: HTMLElement; handle: HTMLElement; unmount: () => void } {
+    const { container, unmount } = render(
+      <TerminalApiContext value={api}>
+        <TerminalPanel session={fullSession()} onClose={() => {}} />
+      </TerminalApiContext>,
+    );
+    Object.defineProperty(container, "clientHeight", { value: 800 });
+    return { panel: screen.getByTestId("terminal-panel"), handle: screen.getByTestId("terminal-resize"), unmount };
+  }
+
+  function drag(handle: HTMLElement, from: number, to: number): void {
+    fireEvent.pointerDown(handle, { clientY: from });
+    fireEvent.pointerMove(window, { clientY: to });
+    fireEvent.pointerUp(window);
+  }
+
+  it("grows when its top edge is dragged up, within room left for the floor, and remembers it", () => {
+    const first = renderPanel();
+    expect(first.panel.style.height).toBe("260px");
+    drag(first.handle, 500, 400);
+    expect(first.panel.style.height).toBe("360px");
+    drag(first.handle, 500, -1000);
+    expect(first.panel.style.height).toBe("680px");
+    first.unmount();
+    expect(renderPanel().panel.style.height).toBe("680px");
+  });
+
+  it("steps with the arrow keys and never shrinks below its minimum", () => {
+    const { panel, handle } = renderPanel();
+    fireEvent.keyDown(handle, { key: "ArrowUp" });
+    expect(panel.style.height).toBe("300px");
+    for (let i = 0; i < 10; i++) fireEvent.keyDown(handle, { key: "ArrowDown" });
+    expect(panel.style.height).toBe("140px");
   });
 });
