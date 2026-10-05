@@ -245,12 +245,12 @@ describe("TauriApi", () => {
   });
 
   describe("file drops", () => {
-    it("delivers dropped paths at their position in CSS pixels", async () => {
+    it("delivers dropped paths at their position unscaled, as macOS already reports points", async () => {
       vi.stubGlobal("devicePixelRatio", 2);
       const drops = vi.fn();
       const off = new TauriApi().subscribeFileDrops(drops);
       await flush();
-      const position = { toLogical: (factor: number) => ({ x: 800 / factor, y: 1200 / factor }) };
+      const position = { x: 400, y: 600, toLogical: (factor: number) => ({ x: 400 / factor, y: 600 / factor }) };
       push("drag-drop", { type: "over", position });
       push("drag-drop", { type: "drop", paths: ["/tmp/a.png"], position });
       expect(drops.mock.calls).toEqual([[{ paths: ["/tmp/a.png"], x: 400, y: 600 }]]);

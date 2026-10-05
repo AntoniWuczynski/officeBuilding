@@ -206,7 +206,8 @@ export class TauriApi implements DiscoveryApi {
       (deliver) =>
         getCurrentWebview().onDragDropEvent((event) => {
           if (event.payload.type !== "drop") return;
-          const { x, y } = event.payload.position.toLogical(window.devicePixelRatio);
+          // wry on macOS reports the drop in window points (CSS pixels), though Tauri types it as physical.
+          const { x, y } = event.payload.position;
           deliver({ paths: event.payload.paths, x, y });
         }),
       listener,
