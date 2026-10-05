@@ -7,7 +7,7 @@ import type {
   SessionState,
   ToolOptions,
 } from "../types";
-import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
+import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions } from "./mockHireOptions";
 
@@ -18,6 +18,8 @@ interface FakeShell {
   backlog: string;
   /** The line being typed. */
   line: string;
+  /** The size the panel last gave it, which its backlog is drawn at. */
+  size: TerminalSize;
   readonly watchers: Set<TerminalHandlers>;
 }
 
@@ -278,7 +280,7 @@ export class MockApi implements DiscoveryApi {
       handlers.error(shell.message);
       return () => {};
     }
-    handlers.output(shell.backlog);
+    handlers.output(shell.backlog, shell.size);
     shell.watchers.add(handlers);
     return () => {
       shell.watchers.delete(handlers);
@@ -324,6 +326,7 @@ export class MockApi implements DiscoveryApi {
     const shell = this.shell(sessionId);
     if (shell instanceof Error) return Promise.reject(shell);
     if (cols < 1 || rows < 1) return Promise.reject(new Error("a terminal needs at least one row and one column"));
+    shell.size = { cols, rows };
     return Promise.resolve();
   }
 
@@ -334,7 +337,7 @@ export class MockApi implements DiscoveryApi {
     if (session.control !== "full") return new Error(`${session.title} was not started in the app, so it has no terminal here`);
     let shell = this.shells.get(sessionId);
     if (shell === undefined) {
-      shell = { backlog: `Demo terminal for “${session.title}”. Type a line and press Enter.\r\n$ `, line: "", watchers: new Set() };
+      shell = { backlog: `Demo terminal for “${session.title}”. Type a line and press Enter.\r\n$ `, line: "", size: { cols: 80, rows: 24 }, watchers: new Set() };
       this.shells.set(sessionId, shell);
     }
     return shell;

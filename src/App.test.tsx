@@ -39,8 +39,9 @@ const xterm = vi.hoisted(() => {
       this.pre = document.createElement("pre");
       el.append(this.pre);
     }
-    write(data: string): void {
+    write(data: string, done?: () => void): void {
       if (this.pre !== null) this.pre.textContent = `${this.pre.textContent}${data}`;
+      done?.();
     }
     onData(listener: (data: string) => void): Disposable {
       this.onDataListener = listener;
@@ -327,6 +328,9 @@ describe("floor", () => {
     await waitFor(() => expect(screen.queryByTestId("terminal-panel")).not.toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /audit checkout/ }));
     expect(screen.getByTestId("terminal-screen")).toHaveTextContent("echo: ls");
+    // Replayed at the size it was drawn at, not reset to a fresh terminal's 80x24 first.
+    expect(lastTerminal().cols).toBe(120);
+    expect(resize).toHaveBeenLastCalledWith("s-1", 120, 30);
   });
 
   it("says when the agent in a terminal exits, and stops taking input", async () => {

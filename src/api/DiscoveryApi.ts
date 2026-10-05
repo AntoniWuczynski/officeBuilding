@@ -22,10 +22,19 @@ export interface HireFailure {
   readonly lastLines: readonly string[];
 }
 
+/** A terminal's size in cells. */
+export interface TerminalSize {
+  readonly cols: number;
+  readonly rows: number;
+}
+
 /** What a terminal panel hears from a session's in-app terminal. */
 export interface TerminalHandlers {
-  /** Output in order: the kept backlog first, then live chunks. */
-  readonly output: (data: string) => void;
+  /**
+   * Output in order: the kept backlog first, with the terminal size it was
+   * drawn at, then live chunks without one.
+   */
+  readonly output: (data: string, drawnAt?: TerminalSize) => void;
   /** The agent exited (at most once); `exitCode` is null when it is unknown. */
   readonly exit: (exitCode: number | null) => void;
   /** The terminal could not be reached. */

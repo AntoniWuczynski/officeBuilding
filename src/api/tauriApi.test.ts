@@ -135,7 +135,7 @@ describe("TauriApi", () => {
     function watch(): { calls: string[]; stop: () => void } {
       const calls: string[] = [];
       const stop = new TauriApi().subscribeTerminal("s-1", {
-        output: (d) => calls.push(`out:${d}`),
+        output: (d, at) => calls.push(at === undefined ? `out:${d}` : `out:${d}@${at.cols}x${at.rows}`),
         exit: (c) => calls.push(`exit:${String(c)}`),
         error: (m) => calls.push(`error:${m}`),
       });
@@ -161,18 +161,18 @@ describe("TauriApi", () => {
       push(EXIT, { terminalId: "t-2", exitCode: 1 });
       push(EXIT, { terminalId: "t-1", exitCode: 0 });
       push(EXIT, { terminalId: "t-1", exitCode: 0 });
-      expect(calls).toEqual(["out:old", "out:new", "out:live", "exit:0"]);
+      expect(calls).toEqual(["out:old@100x24", "out:new", "out:live", "exit:0"]);
       stop();
       expect(unlisten).toHaveBeenCalledTimes(2);
       push(OUTPUT, { terminalId: "t-1", seq: 5, data: "late" });
       expect(calls).toHaveLength(4);
     });
 
-    it("a finished terminal replays nothing new and reports its exit", async () => {
+    it("a finished terminal replays an empty backlog at its size and reports its exit", async () => {
       invoke.mockResolvedValueOnce({ ...backlog, data: "", running: false, exitCode: 3 });
       const { calls } = watch();
       await flush();
-      expect(calls).toEqual(["exit:3"]);
+      expect(calls).toEqual(["out:@100x24", "exit:3"]);
     });
 
     it("reports a terminal it cannot reach or a backlog of the wrong shape", async () => {

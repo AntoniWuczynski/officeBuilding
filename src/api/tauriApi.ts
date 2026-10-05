@@ -175,7 +175,7 @@ export class TauriApi implements DiscoveryApi {
         if (stopped) return;
         terminalId = backlog.terminalId;
         seq = backlog.seq;
-        if (backlog.data !== "") handlers.output(backlog.data);
+        handlers.output(backlog.data, { cols: backlog.cols, rows: backlog.rows });
         replayed = true;
         for (const e of early.splice(0)) deliver(e);
         if (!backlog.running) exit(backlog.exitCode);

@@ -91,17 +91,30 @@ function LiveTerminal({ sessionId }: { readonly sessionId: string }): React.Reac
     const resized = term.onResize(({ cols, rows }) => {
       api.resizeTerminal(sessionId, cols, rows).catch(fail);
     });
-    fit.fit();
-    api.resizeTerminal(sessionId, term.cols, term.rows).catch(fail);
+    // Fitting waits for the backlog: resizing first would lose the size it was drawn at.
+    let replayed = false;
     // A file dropped on the terminal types its path, as iTerm2 and Terminal.app do.
     const dropped = api.subscribeFileDrops(({ paths, x, y }) => {
       const r = el.getBoundingClientRect();
       if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) term.paste(shellPaths(paths));
     });
-    const observer = new ResizeObserver(() => fit.fit());
+    const observer = new ResizeObserver(() => {
+      if (replayed) fit.fit();
+    });
     observer.observe(el);
     const stop = api.subscribeTerminal(sessionId, {
-      output: (data) => term.write(data),
+      output: (data, drawnAt) => {
+        if (drawnAt === undefined) {
+          term.write(data);
+          return;
+        }
+        // Replay at the drawn size so the agent's cursor moves land where they did, then fit the panel.
+        term.resize(drawnAt.cols, drawnAt.rows);
+        term.write(data, () => {
+          replayed = true;
+          fit.fit();
+        });
+      },
       exit: (code) => {
         term.options.disableStdin = true;
         setExit({ code });
