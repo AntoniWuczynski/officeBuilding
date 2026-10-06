@@ -260,6 +260,33 @@ button.roof-sign:hover {
   background: var(--fault);
   animation: blink 0.6s steps(1) infinite;
 }
+.desk-plant,
+.desk-plant::before,
+.desk-plant::after {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  height: 8px;
+  background: var(--leaf);
+  border-radius: 50% 50% 40% 40%;
+  transform-origin: 50% 100%;
+}
+.desk-plant {
+  left: -1.5px;
+}
+.desk-plant::before,
+.desk-plant::after {
+  content: "";
+  left: 0;
+  height: 7px;
+  background: var(--leaf-shade);
+}
+.desk-plant::before {
+  transform: rotate(-38deg);
+}
+.desk-plant::after {
+  transform: rotate(38deg);
+}
 
 /* ---- people ---- */
 .person {

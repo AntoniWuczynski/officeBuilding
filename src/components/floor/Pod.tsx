@@ -3,6 +3,7 @@ import { POD, podFor } from "../../lib/layout";
 import type { Slot } from "../../lib/layout";
 import { poseForState } from "../../lib/animation";
 import { lookFor } from "../../lib/looks";
+import { Plant } from "../../scene/Desk";
 import { Billboard, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Person } from "../../scene/Person";
@@ -26,7 +27,8 @@ export function Pod({ desk, z, helpers }: Props): React.ReactElement | null {
   const d = pod.cell * 0.5;
   const h = Math.max(1.5, pod.cell * 0.24);
   const seated = pod.cell >= POD.personCell;
-  const scale: StyleWithVars = { "--pod-scale": String(pod.cell / 40) };
+  const ratio = pod.cell / 40;
+  const scale: StyleWithVars = { "--pod-scale": String(ratio) };
   const bottom = Math.max(...pod.slots.map((s) => s.y)) + pod.cell;
   return (
     <div className="group pod" data-testid="pod">
@@ -48,6 +50,7 @@ export function Pod({ desk, z, helpers }: Props): React.ReactElement | null {
               className="pod-desk"
               topContent={<b className={`pod-led led-${helper.state}`} data-testid="pod-desk" />}
             />
+            {seated && helper.worktree ? <Plant x={slot.x + w * 0.12} y={slot.y + d * 0.1} z={z + h} scale={ratio} /> : null}
             {seated ? (
               <Billboard x={slot.x + w * 0.62} y={slot.y - 1} z={z}>
                 <span className="pod-person" style={scale}>

@@ -22,7 +22,8 @@ export const sessionSchema = z.object({
   lastActivityAt: z.string(),
   pendingQuestionIds: z.array(z.string()),
   spend: z.object({ usd: z.number(), tokens: z.number(), unpricedTokens: z.number() }),
-  helpers: z.array(z.object({ id: z.string(), state: sessionState })),
+  helpers: z.array(z.object({ id: z.string(), state: sessionState, worktree: z.boolean() })),
+  worktree: z.boolean(),
 }) satisfies z.ZodType<Session>;
 
 export const projectSchema = z.object({

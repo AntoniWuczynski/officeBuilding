@@ -114,6 +114,8 @@ export interface Session {
   readonly spend: Spend;
   /** Sub-agents (plain or in a workflow) still working for this session. */
   readonly helpers: readonly Helper[];
+  /** It works in a linked git worktree of its floor's repo: a plant sits on its desk. */
+  readonly worktree: boolean;
 }
 
 /** A session whose agent has left: listed on its floor's sign-out sheet to resume. */
@@ -132,6 +134,8 @@ export interface EndedSession {
 export interface Helper {
   readonly id: string;
   readonly state: SessionState;
+  /** It works in a linked git worktree: a plant sits on its tiny desk. */
+  readonly worktree: boolean;
 }
 
 export interface Project {

@@ -23,7 +23,9 @@ sessions as an **office building**:
   is stuck and grey when all are idle. Colleagues walk notes to each other's
   desks (agent-to-agent messages); new hires walk in. A session's running
   subagents, plain or in a workflow, sit at tiny desks beside its own. The desks
-  shrink as the team grows, and past 64 the rest show as a count.
+  shrink as the team grows, and past 64 the rest show as a count. An agent or
+  subagent working in a git worktree stays on its repo's floor, with a potted
+  plant on its desk.
 - **The manager's panels are objects in the room**, and also sit on a rail at the
   right edge: brass plaque = Info, memo pile on the manager's desk = Decisions
   (questions ordered by priority → one question → A / B / Other), cork board =

@@ -12,7 +12,7 @@ Tokens:
   --ink: #1C1F24 (text, sign borders); --paper: #FFFDF8 (signs, panels); --rule: #CFC7B6
   --signage: #B5532B (enamel sign red: roof sign, primary action only)
   Status, semantic only: --ok #2FBF71 (healthy), --wait #F2B33D (needs you), --fault #E5484D (error), --off #7C8088 (empty or finished)
-  Props (objects in the room, never chrome): --roof #8E887C, --window #AFD3E6, --monitor #2B2E33 / #40444C / #1F2226, --cork #C99A5B / #8C6436, --brass #C9A45C / #8A6D2E, sticky notes #F7E27A / #9FD8F2 / #F6B5C8, --terminal #16181C with #E8E6E1 text
+  Props (objects in the room, never chrome): --roof #8E887C, --window #AFD3E6, --monitor #2B2E33 / #40444C / #1F2226, --cork #C99A5B / #8C6436, --brass #C9A45C / #8A6D2E, desk plant (agent in a git worktree, Antek 2026-10-06) leaves #6F9A4E / #557A3A, soil #4A3626, pot #B8683F / #96512F, sticky notes #F7E27A / #9FD8F2 / #F6B5C8, --terminal #16181C with #E8E6E1 text
   People: shirts, skins and hair from fixed palettes in src/lib/looks.ts, picked per agent id
 Type:
   Signage: "DIN Condensed" (macOS system font, bold), uppercase allowed only on physical signs (roof sign, floor nameplates). Fallback "Arial Narrow", sans-serif.

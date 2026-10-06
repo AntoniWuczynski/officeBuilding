@@ -41,6 +41,7 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
     pendingQuestionIds: over.pendingQuestionIds ?? [],
     spend: over.spend ?? { usd: 0, tokens: 0, unpricedTokens: 0 },
     helpers: over.helpers ?? [],
+    worktree: over.worktree ?? false,
   };
 }
 
@@ -162,8 +163,8 @@ describe("per-floor manager data", () => {
 describe("helpersLine", () => {
   it("counts a session's working helpers, and says nothing when it has none", () => {
     expect(helpersLine(session("running"))).toBeNull();
-    expect(helpersLine(session("running", { helpers: [{ id: "a", state: "running" }] }))).toBe("1 helper working");
-    expect(helpersLine(session("idle", { helpers: [{ id: "a", state: "running" }, { id: "b", state: "thinking" }] }))).toBe("2 helpers working");
+    expect(helpersLine(session("running", { helpers: [{ id: "a", state: "running", worktree: false }] }))).toBe("1 helper working");
+    expect(helpersLine(session("idle", { helpers: [{ id: "a", state: "running", worktree: false }, { id: "b", state: "thinking", worktree: false }] }))).toBe("2 helpers working");
   });
 });
 

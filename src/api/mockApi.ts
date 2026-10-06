@@ -103,6 +103,7 @@ export class MockApi implements DiscoveryApi {
       pendingQuestionIds: [],
       spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
       helpers: [],
+      worktree: false,
     };
     const projects = this.snapshot.projects.map((p) =>
       p.id === projectId ? { ...p, sessionIds: [...p.sessionIds, id] } : p,
@@ -134,6 +135,7 @@ export class MockApi implements DiscoveryApi {
       pendingQuestionIds: [],
       spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
       helpers: [],
+      worktree: false,
     };
     this.commit({
       ...this.snapshot,

@@ -203,7 +203,7 @@ function Seat({ session, x }: { readonly session: Session; readonly x: number })
   const spot = session.state === "error" ? floorSpotOf(desk, STOREY.depth - 3) : seatOf(desk);
   return (
     <>
-      <Desk x={x} y={STOREY.deskY} z={STOREY.slab} led={session.state} />
+      <Desk x={x} y={STOREY.deskY} z={STOREY.slab} led={session.state} plant={session.worktree} />
       <Billboard x={spot.x} y={spot.y} z={STOREY.slab}>
         <Person look={lookFor(session.id)} pose={poseForState(session.state)} />
       </Billboard>

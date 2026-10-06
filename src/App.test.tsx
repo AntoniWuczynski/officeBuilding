@@ -308,6 +308,15 @@ describe("floor", () => {
     expect(within(team).getByTestId("pod-more")).toHaveTextContent("+186");
   });
 
+  it("puts a plant on the desk of an agent or helper working in a worktree", async () => {
+    renderApp();
+    await enter("p-shop");
+    // One on the worktree session's desk, one on its worktree helper's (mock helpers alternate).
+    expect(screen.getAllByTestId("desk-plant")).toHaveLength(2);
+    expect(within(screen.getByTestId("pod")).getAllByTestId("desk-plant")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /orders ingest fix, Codex, Needs you, in a worktree/ })).toBeInTheDocument();
+  });
+
   it("a stuck agent lies on the floor", async () => {
     renderApp();
     await enter("p-shop");

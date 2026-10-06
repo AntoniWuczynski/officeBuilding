@@ -116,7 +116,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
         const dim = !sessionMatches(s, query);
         return (
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
-            <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} />
+            <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} />
             <Pod desk={desk} z={ROOM.slab} helpers={s.helpers} />
             {walking.has(s.id) ? null : (
               <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
@@ -126,7 +126,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
                   data-testid="worker"
                   data-session={s.id}
                   data-state={s.state}
-                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s)].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
+                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), s.worktree ? "in a worktree" : null].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
                   onClick={() => onOpenSession(s)}
                   onMouseEnter={(e) => showCard(s.id, e.currentTarget)}
                   onMouseLeave={hideCard}
