@@ -274,3 +274,16 @@ describe("makeSeedSnapshot", () => {
     for (const t of snap.todos) expect(projectIds.has(t.projectId)).toBe(true);
   });
 });
+
+describe("MockApi floors", () => {
+  it("demolishing a floor takes its agents, sign-out sheet and questions with it", async () => {
+    const api = new MockApi();
+    await api.demolishFloor("p-shop");
+    const after = await api.getSnapshot();
+    expect(after.projects.map((p) => p.id)).not.toContain("p-shop");
+    expect(after.sessions.some((s) => s.projectId === "p-shop")).toBe(false);
+    expect(after.ended.some((e) => e.projectId === "p-shop")).toBe(false);
+    expect(after.questions.some((q) => q.projectId === "p-shop")).toBe(false);
+    await expect(api.demolishFloor("p-shop")).rejects.toThrow(/not a floor/);
+  });
+});

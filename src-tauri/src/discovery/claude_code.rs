@@ -89,6 +89,18 @@ pub fn pid_alive(pid: i32) -> bool {
     rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// Ask a process to exit cleanly (SIGTERM). Whether it did is for [`pid_alive`] to tell.
+#[expect(
+    unsafe_code,
+    reason = "kill(2) has no safe std equivalent; the call only sends SIGTERM"
+)]
+pub fn terminate(pid: i32) {
+    if pid > 0 {
+        // SAFETY: kill(2) with SIGTERM touches no memory; a failure only means the process is gone.
+        unsafe { libc::kill(pid, libc::SIGTERM) };
+    }
+}
+
 /// Parse one registry file. Returns None for anything that is not a session record.
 pub fn parse_registry_entry(text: &str) -> Option<LiveEntry> {
     let v: Value = serde_json::from_str(text).ok()?;

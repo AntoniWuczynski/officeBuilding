@@ -70,6 +70,7 @@ pub fn run() -> tauri::Result<()> {
             commands::send_agent_message,
             commands::focus_session,
             commands::add_floor,
+            commands::demolish_floor,
             commands::pick_folder,
             commands::terminal_backlog,
             commands::terminal_write,

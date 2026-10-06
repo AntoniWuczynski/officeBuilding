@@ -4,6 +4,7 @@
 
 use crate::model::{AgentMessage, Decision, TodoItem};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -22,6 +23,10 @@ pub struct Records {
     /// Floors the human added by hand (absolute repo roots), kept even with no sessions.
     #[serde(default)]
     pub pinned_floors: Vec<String>,
+    /// Floors the human demolished (absolute repo roots), with when: what they held
+    /// before then stays hidden, and a session started there since brings them back.
+    #[serde(default)]
+    pub demolished_floors: BTreeMap<String, String>,
     #[serde(default)]
     pub seq: u64,
 }

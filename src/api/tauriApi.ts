@@ -115,6 +115,10 @@ export class TauriApi implements DiscoveryApi {
     return parseWire(projectSchema, "floor", await call("add_floor", { path }));
   }
 
+  async demolishFloor(projectId: string): Promise<void> {
+    await call("demolish_floor", { projectId });
+  }
+
   /** macOS's own picker (osascript `choose folder`) via src-tauri/src/focus.rs. */
   readonly canPickFolder = true;
 

@@ -140,6 +140,14 @@
 .btn-primary:hover {
   background: var(--signage-edge);
 }
+.btn-danger {
+  background: var(--fault);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--fault) 82%, var(--ink));
+}
 .icon-btn {
   display: inline-flex;
   align-items: center;

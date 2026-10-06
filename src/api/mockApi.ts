@@ -267,6 +267,23 @@ export class MockApi implements DiscoveryApi {
     return Promise.resolve(project);
   }
 
+  /** The demo's agents always stop when asked, so the floor always comes down. */
+  demolishFloor(projectId: string): Promise<void> {
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) {
+      return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    }
+    const leaving = new Set(this.snapshot.sessions.filter((s) => s.projectId === projectId).map((s) => s.id));
+    for (const id of leaving) this.shells.delete(id);
+    this.commit({
+      ...this.snapshot,
+      projects: this.snapshot.projects.filter((p) => p.id !== projectId),
+      sessions: this.snapshot.sessions.filter((s) => !leaving.has(s.id)),
+      ended: this.snapshot.ended.filter((e) => e.projectId !== projectId),
+      questions: this.snapshot.questions.filter((q) => q.projectId !== projectId),
+    });
+    return Promise.resolve();
+  }
+
   /** A browser has no native folder picker; the dialog asks for a typed path. */
   readonly canPickFolder: boolean = false;
 

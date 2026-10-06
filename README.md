@@ -9,6 +9,12 @@ sessions as an **office building**:
   floor's status strip and nameplate lamp (green / yellow / red, off when nobody
   works there) signal whether that project needs attention. Click the sign on
   the roof to rename the building (a blank name restores "Office Building").
+  A new floor goes up behind scaffolding. The wrecking-ball button beside a
+  floor's nameplate demolishes it: its running agents are stopped cleanly
+  (SIGTERM) first, then it collapses into rubble that is quickly cleared, and the
+  floors above settle down. It stays down until an agent starts work in that
+  folder again or you add it from the roof, and a rebuilt floor keeps its
+  sign-out sheet.
 - **Desks = agent sessions.** Each desk has a live, animated employee whose pose
   reflects the session state (typing, thinking, hand up for a question, lying on
   the floor when stuck). When a session ends its agent leaves; the floor stays

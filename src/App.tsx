@@ -115,6 +115,14 @@ export function App({ api }: Props): React.ReactElement {
     [api, snapshot, toast],
   );
 
+  const demolishFloor = useCallback(
+    (projectId: string) => {
+      const name = snapshot?.projects.find((p) => p.id === projectId)?.name;
+      return api.demolishFloor(projectId).then(() => toast("ok", name === undefined ? "Demolished the floor." : `Demolished the ${name} floor.`));
+    },
+    [api, snapshot, toast],
+  );
+
   const answer = useCallback(
     (questionId: string, a: QuestionAnswer) => {
       const asker = snapshot?.questions.find((q) => q.id === questionId);
@@ -180,6 +188,7 @@ export function App({ api }: Props): React.ReactElement {
               canPickFolder={api.canPickFolder}
               onPickFolder={pickFolder}
               onAddFloor={addFloor}
+              onDemolishFloor={demolishFloor}
             />
           </motion.div>
         ) : (

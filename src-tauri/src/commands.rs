@@ -9,10 +9,18 @@ use crate::model::{
     HireRequest, OfficeSnapshot, Project, QuestionAnswer, Session, TerminalBacklog, ToolOptions,
 };
 use crate::office::Office;
+use crate::watch::SNAPSHOT_EVENT;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 type OfficeState<'a> = State<'a, Arc<Office>>;
+
+/// Push the snapshot after a change the command rescanned itself: the watcher
+/// only pushes what its own rescan finds changed, so it would never send this.
+fn push_snapshot(app: &AppHandle, office: &Office) {
+    // A closed webview just means nobody is listening right now.
+    let _ = app.emit(SNAPSHOT_EVENT, office.snapshot());
+}
 
 #[tauri::command]
 #[must_use]
@@ -77,9 +85,28 @@ pub fn focus_session(office: OfficeState<'_>, session_id: String) -> Result<(), 
     office.focus_session(&session_id)
 }
 
+/// Stopping the floor's agents waits for them to exit, so it runs off the main thread.
 #[tauri::command]
-pub fn add_floor(office: OfficeState<'_>, path: String) -> Result<Project, String> {
-    office.add_floor(&path)
+pub async fn demolish_floor(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    project_id: String,
+) -> Result<(), String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || {
+        office.demolish_floor(&project_id)?;
+        push_snapshot(&app, &office);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("the demolition did not finish: {e}"))?
+}
+
+#[tauri::command]
+pub fn add_floor(app: AppHandle, office: OfficeState<'_>, path: String) -> Result<Project, String> {
+    let project = office.add_floor(&path)?;
+    push_snapshot(&app, &office);
+    Ok(project)
 }
 
 /// Runs the native picker off the main thread (it blocks until the human chooses).

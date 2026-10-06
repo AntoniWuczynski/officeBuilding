@@ -80,3 +80,13 @@ export function CloseIcon(): React.ReactElement {
     </svg>
   );
 }
+
+/** A wrecking ball on its chain: demolish a floor. */
+export function DemolishIcon(): React.ReactElement {
+  return (
+    <svg {...common} width={14} height={14}>
+      <path d="M2 3h10M6 3l6 7" />
+      <circle cx="14" cy="14" r="4.5" />
+    </svg>
+  );
+}

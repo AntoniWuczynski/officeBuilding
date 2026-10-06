@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import type { OfficeSnapshot, Project } from "../../types";
 import {
   floorLight,
@@ -10,8 +11,10 @@ import {
 import { BUILDING_CAMERA } from "../../lib/iso";
 import { STOREY, storeyWidth } from "../../lib/layout";
 import { useBuildingName } from "../../state/useBuildingName";
+import { usePresence } from "../../state/usePresence";
 import { Stage } from "../../scene/Stage";
 import { AddFloorDialog } from "./AddFloorDialog";
+import { DemolishDialog } from "./DemolishDialog";
 import { Building, buildingHeight } from "./Building";
 import type { FloorModel } from "./Storey";
 
@@ -27,12 +30,15 @@ interface Props {
   readonly canPickFolder: boolean;
   readonly onPickFolder: () => Promise<string | null>;
   readonly onAddFloor: (path: string) => Promise<Project>;
+  readonly onDemolishFloor: (projectId: string) => Promise<void>;
 }
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [demolishing, setDemolishing] = useState<string | null>(null);
+  const animate = !(useReducedMotion() ?? false);
   const [buildingName, renameBuilding] = useBuildingName();
   const viewRef = useRef<HTMLDivElement>(null);
 
@@ -47,6 +53,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
       dimmed: !matchesQuery(project, query),
     };
   });
+  const standing = usePresence(floors, (f) => f.project.id, animate);
+  const doomed = floors.find((f) => f.project.id === demolishing);
   const matching = floors.filter((f) => !f.dimmed).length;
   const tally = sessionCounts(snapshot.sessions);
   const needsYou = floors.filter((f) => f.light === "red" || f.light === "yellow");
@@ -115,19 +123,22 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
         camera={BUILDING_CAMERA}
         width={width}
         depth={STOREY.depth}
-        height={buildingHeight(floors.length)}
+        height={buildingHeight(standing.list.length)}
         pad={{ left: 210, right: 28, top: 48, bottom: 28 }}
         fit="width"
         maxScale={1.7}
         className="building-stage"
       >
         <Building
-          floors={floors}
+          floors={standing.list}
+          animate={animate}
           width={width}
           name={buildingName}
           onRename={renameBuilding}
           onEnter={(projectId, el) => onEnter(projectId, originOf(el))}
           onAddFloor={() => setAdding(true)}
+          onDemolish={setDemolishing}
+          onGone={standing.done}
         />
       </Stage>
 
@@ -139,6 +150,15 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           onAdd={(path) => onAddFloor(path).then(() => setAdding(false))}
         />
       ) : null}
+
+      {doomed === undefined ? null : (
+        <DemolishDialog
+          name={doomed.project.name}
+          agents={doomed.sessions.length}
+          onCancel={() => setDemolishing(null)}
+          onDemolish={() => onDemolishFloor(doomed.project.id).then(() => setDemolishing(null))}
+        />
+      )}
     </div>
   );
 }

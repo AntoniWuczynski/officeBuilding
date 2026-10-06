@@ -90,6 +90,13 @@ export interface DiscoveryApi {
    */
   addFloor(path: string): Promise<Project>;
 
+  /**
+   * Pull a floor down: its running agents are stopped cleanly first, then it
+   * stays hidden until a new session starts there. Rejects, leaving the floor
+   * standing, when an agent will not stop.
+   */
+  demolishFloor(projectId: string): Promise<void>;
+
   /** Whether {@link pickFolder} can open a native folder picker here. */
   readonly canPickFolder: boolean;
 

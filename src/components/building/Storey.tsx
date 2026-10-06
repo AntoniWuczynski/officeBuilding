@@ -7,7 +7,10 @@ import { lookFor, MANAGER_LOOK } from "../../lib/looks";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
-import { Person } from "../../scene/Person";
+import { Person, Walker } from "../../scene/Person";
+import { DemolishIcon } from "../icons";
+import { usePresence } from "../../state/usePresence";
+import type { Phase } from "../../state/usePresence";
 
 export interface FloorModel {
   readonly project: Project;
@@ -24,30 +27,55 @@ interface StoreyProps {
   readonly level: number;
   readonly width: number;
   readonly floor: FloorModel;
+  /** Going up (arriving), standing, or coming down (leaving). */
+  readonly phase: Phase;
+  /** Whether people who leave walk off, or vanish (reduced motion). */
+  readonly animate: boolean;
   readonly onEnter: (projectId: string, from: HTMLElement) => void;
+  readonly onDemolish: (projectId: string) => void;
+  /** Its collapse has played and the rubble is gone. */
+  readonly onGone: (projectId: string) => void;
 }
+
+/** Rubble left by a collapse, as boxes on the slab: [x share, y, w, d, h]. */
+const RUBBLE: readonly (readonly [number, number, number, number, number])[] = [
+  [0.08, 20, 26, 18, 10],
+  [0.22, 34, 18, 14, 14],
+  [0.36, 16, 30, 20, 8],
+  [0.5, 40, 16, 12, 12],
+  [0.62, 22, 24, 22, 9],
+  [0.76, 36, 20, 16, 13],
+  [0.86, 18, 14, 14, 7],
+];
 
 const WALL_H = STOREY.height - STOREY.slab;
 
 /** One storey of the cutaway: a room you can see into. Click it to go inside. */
-export function Storey({ level, width, floor, onEnter }: StoreyProps): React.ReactElement {
+export function Storey({ level, width, floor, phase, animate, onEnter, onDemolish, onGone }: StoreyProps): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null);
   const { project, sessions, light, counts, pending, dimmed } = floor;
   const shown = sessions.slice(0, storeyDeskCount(sessions.length));
   const overflow = sessions.length - shown.length;
+  const seats = usePresence(shown, (s) => s.id, animate);
+  const leaving = phase === "leaving";
   const managerX = width - STOREY.managerWidth;
   const style: StyleWithVars = { "--z": `${level * STOREY.height}px` };
 
   return (
     <div
       ref={ref}
-      className={`storey light-${light}${dimmed ? " is-dim" : ""}`}
+      className={`storey light-${light}${dimmed ? " is-dim" : ""}${phase === "here" ? "" : ` is-${phase}`}`}
       style={style}
       data-testid="storey"
       data-project={project.id}
       data-light={light}
+      data-phase={phase}
+      aria-hidden={leaving || undefined}
       onClick={() => {
-        if (ref.current !== null) onEnter(project.id, ref.current);
+        if (!leaving && ref.current !== null) onEnter(project.id, ref.current);
+      }}
+      onAnimationEnd={(e) => {
+        if (e.animationName === "rubble-clear") onGone(project.id);
       }}
     >
       {/* A still, invisible volume: when the room slides out from under the
@@ -78,9 +106,13 @@ export function Storey({ level, width, floor, onEnter }: StoreyProps): React.Rea
       <Wall axis="back" x={0} y={0} z={STOREY.slab} length={width} height={WALL_H} background="var(--window-wall)" className="wall-windows" />
       <Wall axis="left" x={0} y={0} z={STOREY.slab} length={STOREY.depth} height={WALL_H} background="var(--plaster-shade)" />
 
-      {shown.map((s, i) => (
-        <Seat key={s.id} session={s} x={storeyDeskX(i)} />
-      ))}
+      {seats.list.map(({ key, item, phase: seat }, i) =>
+        seat === "leaving" ? (
+          <Leaver key={key} session={item} x={storeyDeskX(i)} onGone={seats.done} />
+        ) : (
+          <Seat key={key} session={item} x={storeyDeskX(i)} />
+        ),
+      )}
       {overflow > 0 ? (
         <Billboard x={storeyDeskX(shown.length - 1) + 44} y={STOREY.deskY + 8} z={STOREY.slab + 20}>
           <span className="overflow-sign">+{overflow}</span>
@@ -100,6 +132,21 @@ export function Storey({ level, width, floor, onEnter }: StoreyProps): React.Rea
       ) : null}
       </div>
 
+      {phase === "arriving" ? (
+        <Wall axis="back" x={0} y={STOREY.depth} z={0} length={width} height={STOREY.height} background="var(--scaffold)" className="scaffold" />
+      ) : null}
+
+      {leaving ? (
+        <div className="rubble">
+          {RUBBLE.map(([share, y, w, d, h]) => (
+            <IsoBox key={share} x={share * width} y={y} w={w} d={d} h={h} top="var(--concrete)" front="var(--concrete-shade)" side="var(--plaster-shade)" />
+          ))}
+          <Billboard x={width / 2} y={STOREY.depth / 2} z={STOREY.slab}>
+            <span className="dust" aria-hidden />
+          </Billboard>
+        </div>
+      ) : null}
+
       <Billboard x={0} y={STOREY.depth} z={STOREY.height * 0.5} className="nameplate-anchor">
         <button
           type="button"
@@ -113,8 +160,41 @@ export function Storey({ level, width, floor, onEnter }: StoreyProps): React.Rea
             {counts.active}/{counts.total}
           </span>
         </button>
+        <button
+          type="button"
+          className="demolish-btn"
+          data-testid="demolish-floor"
+          aria-label={`Demolish ${project.name}`}
+          title="Demolish this floor"
+          disabled={leaving}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDemolish(project.id);
+          }}
+        >
+          <DemolishIcon />
+        </button>
       </Billboard>
     </div>
+  );
+}
+
+/** An agent whose session ended: up from the desk and off the floor. */
+function Leaver({ session, x, onGone }: { readonly session: Session; readonly x: number; readonly onGone: (id: string) => void }): React.ReactElement {
+  const spot = seatOf({ x, y: STOREY.deskY });
+  return (
+    <Billboard x={spot.x} y={spot.y} z={STOREY.slab}>
+      <span
+        className="storey-leaver"
+        data-testid="storey-leaver"
+        onAnimationEnd={(e) => {
+          e.stopPropagation();
+          if (e.animationName === "storey-leave") onGone(session.id);
+        }}
+      >
+        <Walker look={lookFor(session.id)} carrying={false} />
+      </span>
+    </Billboard>
   );
 }
 

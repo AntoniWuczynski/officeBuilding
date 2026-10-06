@@ -54,6 +54,8 @@ const LAUNCH_GRACE: Duration = Duration::from_millis(1500);
 /// hire counts as started, and a later exit is reported by [`Office::hire_failed`].
 const LAUNCH_LIMIT: Duration = Duration::from_secs(15);
 const LAUNCH_POLL: Duration = Duration::from_millis(100);
+/// How long a demolished floor's agents have to exit after SIGTERM.
+const STOP_WAIT: Duration = Duration::from_secs(5);
 /// Process names of shells: while the started process still runs one, the
 /// login shell has not handed over to the agent yet.
 const SHELL_NAMES: &[&str] = &["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh"];
@@ -286,6 +288,7 @@ impl Office {
         let inner = &mut *guard;
         let mut found = inner.discovery.scan(SystemTime::now());
         let pinned = inner.store.records.pinned_floors.clone();
+        drop_demolished(&mut found, &inner.store.records.demolished_floors);
         add_pinned_floors(&mut found, &pinned, &self.home);
         let discovery = &inner.discovery;
         let elsewhere = claim_owned(
@@ -483,6 +486,50 @@ impl Office {
         Ok(())
     }
 
+    /// Pull a floor down: stop its running agents cleanly, then hide it until a
+    /// new session starts there. An agent that does not stop keeps it standing.
+    pub fn demolish_floor(&self, project_id: &str) -> Result<(), String> {
+        let (root, agents) = {
+            let inner = self.lock();
+            let root = inner
+                .found
+                .roots
+                .get(project_id)
+                .cloned()
+                .ok_or_else(|| format!("{project_id} is not a floor of this building"))?;
+            let mut agents = Vec::new();
+            for s in inner
+                .found
+                .sessions
+                .iter()
+                .filter(|s| s.project_id == project_id)
+            {
+                let pid = inner.discovery.pid_of(&s.id).or_else(|| {
+                    inner
+                        .ran_in
+                        .get(&s.id)
+                        .and_then(|t| self.terminals.pid(t).ok())
+                });
+                let pid = pid.ok_or_else(|| {
+                    format!("{} cannot be stopped: its process is unknown", s.title)
+                })?;
+                agents.push((s.title.clone(), pid));
+            }
+            (root, agents)
+        };
+        stop_agents(&agents, STOP_WAIT)?;
+        {
+            let mut inner = self.lock();
+            let key = root.to_string_lossy().into_owned();
+            inner.store.records.pinned_floors.retain(|k| *k != key);
+            let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            inner.store.records.demolished_floors.insert(key, at);
+            inner.store.save()?;
+        }
+        self.refresh();
+        Ok(())
+    }
+
     /// Add a floor for a repo folder the human picked. Idempotent: a folder that
     /// already has a floor returns that floor.
     pub fn add_floor(&self, path: &str) -> Result<Project, String> {
@@ -503,8 +550,11 @@ impl Office {
         let key = root.to_string_lossy().into_owned();
         {
             let mut inner = self.lock();
+            let rebuilt = inner.store.records.demolished_floors.remove(&key).is_some();
             if !inner.store.records.pinned_floors.contains(&key) {
                 inner.store.records.pinned_floors.push(key);
+                inner.store.save()?;
+            } else if rebuilt {
                 inner.store.save()?;
             }
         }
@@ -708,6 +758,77 @@ impl Office {
         };
         focus::focus_pid(pid)
     }
+}
+
+/// Ask each agent to exit (SIGTERM) and wait up to `within` for all of them.
+fn stop_agents(agents: &[(String, i32)], within: Duration) -> Result<(), String> {
+    for (_, pid) in agents {
+        discovery::claude_code::terminate(*pid);
+    }
+    let deadline = Instant::now() + within;
+    loop {
+        let left: Vec<&str> = agents
+            .iter()
+            .filter(|(_, pid)| discovery::claude_code::pid_alive(*pid))
+            .map(|(title, _)| title.as_str())
+            .collect();
+        if left.is_empty() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "{} did not stop, so the floor is still standing",
+                left.join(", ")
+            ));
+        }
+        std::thread::sleep(LAUNCH_POLL);
+    }
+}
+
+/// Keep each demolished floor down until work starts there again. Its earlier
+/// sessions never return to the desks, but a rebuilt floor's sign-out sheet
+/// keeps everyone who left, the agents its demolition stopped included.
+fn drop_demolished(found: &mut Discovered, demolished: &BTreeMap<String, String>) {
+    let instant = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok();
+    for (key, at) in demolished {
+        let Some(at) = instant(at) else { continue };
+        let id = discovery::project_id(Path::new(key));
+        let since = |when: &str| instant(when).is_some_and(|t| t > at);
+        let rebuilt = found
+            .sessions
+            .iter()
+            .any(|s| s.project_id == id && since(&s.last_activity_at))
+            || found
+                .ended
+                .iter()
+                .any(|e| e.project_id == id && since(&e.ended_at));
+        found
+            .sessions
+            .retain(|s| s.project_id != id || since(&s.last_activity_at));
+        if rebuilt {
+            let kept: Vec<String> = found
+                .sessions
+                .iter()
+                .filter(|s| s.project_id == id)
+                .map(|s| s.id.clone())
+                .collect();
+            if let Some(p) = found.projects.iter_mut().find(|p| p.id == id) {
+                p.session_ids.retain(|sid| kept.contains(sid));
+            }
+        } else {
+            found.ended.retain(|e| e.project_id != id);
+            found.projects.retain(|p| p.id != id);
+            found.roots.remove(&id);
+        }
+    }
+    let sessions = &found.sessions;
+    found
+        .questions
+        .retain(|q| q.session_id.is_empty() || sessions.iter().any(|s| s.id == q.session_id));
+    let ended = &found.ended;
+    found
+        .resume_dirs
+        .retain(|sid, _| ended.iter().any(|e| &e.id == sid));
 }
 
 /// Floors the human pinned that no agent is working on yet: added with no desks.
