@@ -17,13 +17,13 @@ sessions as an **office building**:
   sign-out sheet.
 - **Desks = agent sessions.** Each desk has a live, animated employee whose pose
   reflects the session state (typing, thinking, hand up for a question, lying on
-  the floor when stuck). When a session ends its agent leaves; the floor stays
-  for 12 hours after its last activity. A floor's light is green while an agent
-  works, yellow when one needs you, red when one is stuck and grey when all are
-  idle. Colleagues walk notes to each other's desks (agent-to-agent messages);
-  new hires walk in. A session's running subagents, plain or in a workflow, sit
-  at tiny desks beside its own. The desks shrink as the team grows, and past 64
-  the rest show as a count.
+  the floor when stuck). When a session ends its agent gets up and walks out of
+  the door; the floor stays for 12 hours after its last activity. A floor's
+  light is green while an agent works, yellow when one needs you, red when one
+  is stuck and grey when all are idle. Colleagues walk notes to each other's
+  desks (agent-to-agent messages); new hires walk in. A session's running
+  subagents, plain or in a workflow, sit at tiny desks beside its own. The desks
+  shrink as the team grows, and past 64 the rest show as a count.
 - **The manager's panels are objects in the room**, and also sit on a rail at the
   right edge: brass plaque = Info, memo pile on the manager's desk = Decisions
   (questions ordered by priority → one question → A / B / Other), cork board =

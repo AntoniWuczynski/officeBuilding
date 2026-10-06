@@ -727,6 +727,21 @@ describe("live updates and failures", () => {
     expect(screen.getAllByTestId("worker")).toHaveLength(2);
   });
 
+  it("an agent whose session ends walks from its desk out of the door", async () => {
+    const api = new PushableApi();
+    renderApp(api);
+    await enter("p-shop");
+    const seed = makeSeedSnapshot();
+    act(() => {
+      api.push({ ...seed, sessions: seed.sessions.filter((s) => s.id !== "s-1") });
+    });
+    const walk = screen.getByTestId("walk");
+    expect(walk).toHaveClass("walk-leave");
+    expect(screen.queryByRole("button", { name: /audit checkout/ })).not.toBeInTheDocument();
+    fireEvent.animationEnd(walk);
+    expect(screen.queryByTestId("walk")).not.toBeInTheDocument();
+  });
+
   it("returns to the building if the floor disappears", async () => {
     const api = new PushableApi();
     renderApp(api);

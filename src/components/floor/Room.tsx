@@ -19,7 +19,7 @@ import { WorkerCard } from "./WorkerCard";
 
 interface Walk {
   readonly id: string;
-  readonly kind: "note" | "arrive";
+  readonly kind: "note" | "arrive" | "leave";
   readonly walkerId: string;
   readonly toId: string | null;
   readonly from: PlanPoint;
@@ -54,6 +54,8 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
   const reduced = useReducedMotion() ?? false;
   const seenMessages = useRef<Set<string>>(new Set(messages.map((m) => m.id)));
   const seenSessions = useRef<Set<string>>(new Set(sessions.map((s) => s.id)));
+  // Where each agent sat last time, so one whose session ends can walk out from there.
+  const lastSeats = useRef<Map<string, PlanPoint>>(seatsFor(sessions));
   const [walks, setWalks] = useState<readonly Walk[]>([]);
   const [card, setCard] = useState<{ readonly sessionId: string; readonly x: number; readonly y: number } | null>(null);
   const showCard = (sessionId: string, el: HTMLElement): void => {
@@ -83,6 +85,12 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
         fresh.push({ id: `arrive-${s.id}`, kind: "arrive", walkerId: s.id, toId: null, from: doorOf(depth), to: seat });
       }
     }
+    for (const [id, seat] of lastSeats.current) {
+      if (!reduced && !seats.has(id)) {
+        fresh.push({ id: `leave-${id}`, kind: "leave", walkerId: id, toId: null, from: seat, to: doorOf(depth) });
+      }
+    }
+    lastSeats.current = seats;
     if (fresh.length === 0) return;
     setWalks((current) => {
       const busy = new Set(current.map((w) => w.walkerId));

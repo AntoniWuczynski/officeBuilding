@@ -454,7 +454,11 @@ button.roof-sign:hover {
   animation: walk-note 6s ease-in-out forwards;
 }
 .walk-arrive {
-  animation: walk-arrive 2.6s ease-in-out forwards;
+  animation: walk-straight 2.6s ease-in-out forwards;
+}
+/* An agent whose session ended: from its desk out of the door. */
+.walk-leave {
+  animation: walk-straight 2.2s ease-in forwards;
 }
 .walker {
   position: absolute;
@@ -486,7 +490,8 @@ button.roof-sign:hover {
 .walk-note.heads-left .w-flip {
   animation-name: face-left-out-and-back;
 }
-.walk-arrive.heads-left .w-flip {
+.walk-arrive.heads-left .w-flip,
+.walk-leave.heads-left .w-flip {
   transform: scaleX(-1);
 }
 
@@ -752,7 +757,7 @@ button.roof-sign:hover {
     transform: translateZ(var(--z)) translate(var(--fx), var(--fy));
   }
 }
-@keyframes walk-arrive {
+@keyframes walk-straight {
   from {
     transform: translateZ(var(--z)) translate(var(--fx), var(--fy));
   }
