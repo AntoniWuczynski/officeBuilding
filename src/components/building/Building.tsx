@@ -1,12 +1,15 @@
 import { STOREY } from "../../lib/layout";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
+import { EditableSign } from "./EditableSign";
 import { Storey } from "./Storey";
 import type { FloorModel } from "./Storey";
 
 interface BuildingProps {
   readonly floors: readonly FloorModel[];
   readonly width: number;
+  readonly name: string;
+  readonly onRename: (name: string) => void;
   readonly onEnter: (projectId: string, from: HTMLElement) => void;
   readonly onAddFloor: () => void;
 }
@@ -17,7 +20,7 @@ export function buildingHeight(floorCount: number): number {
 }
 
 /** The cutaway: lobby at the bottom, one storey per project, roof on top. */
-export function Building({ floors, width, onEnter, onAddFloor }: BuildingProps): React.ReactElement {
+export function Building({ floors, width, name, onRename, onEnter, onAddFloor }: BuildingProps): React.ReactElement {
   const n = floors.length;
   return (
     <>
@@ -25,7 +28,7 @@ export function Building({ floors, width, onEnter, onAddFloor }: BuildingProps):
       {floors.map((floor, k) => (
         <Storey key={floor.project.id} level={n - k} width={width} floor={floor} onEnter={onEnter} />
       ))}
-      <Roof width={width} level={n + 1} onAddFloor={onAddFloor} />
+      <Roof width={width} level={n + 1} name={name} onRename={onRename} onAddFloor={onAddFloor} />
     </>
   );
 }
@@ -49,14 +52,26 @@ function Lobby({ width }: { readonly width: number }): React.ReactElement {
   );
 }
 
-function Roof({ width, level, onAddFloor }: { readonly width: number; readonly level: number; readonly onAddFloor: () => void }): React.ReactElement {
+function Roof({
+  width,
+  level,
+  name,
+  onRename,
+  onAddFloor,
+}: {
+  readonly width: number;
+  readonly level: number;
+  readonly name: string;
+  readonly onRename: (name: string) => void;
+  readonly onAddFloor: () => void;
+}): React.ReactElement {
   const z = level * STOREY.height;
   return (
     <>
       <IsoBox x={0} y={0} z={z} w={width} d={STOREY.depth} h={8} top="var(--roof)" front="var(--concrete)" side="var(--concrete-shade)" />
       <IsoBox x={22} y={12} z={z + 8} w={30} d={30} h={20} top="#A7B0B5" front="#8D969B" side="#7A8388" />
       <Billboard x={width / 2 + 20} y={STOREY.depth / 2} z={z + 8}>
-        <span className="roof-sign">Office Building</span>
+        <EditableSign name={name} onRename={onRename} />
       </Billboard>
       <Billboard x={width - 30} y={STOREY.depth - 10} z={z + 8}>
         <button type="button" className="add-floor-sign" data-testid="add-floor" onClick={onAddFloor}>

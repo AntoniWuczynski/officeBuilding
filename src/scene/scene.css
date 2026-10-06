@@ -204,6 +204,18 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+button.roof-sign {
+  cursor: text;
+}
+button.roof-sign:hover {
+  border-style: dashed;
+}
+.roof-sign-input {
+  box-sizing: content-box;
+  text-align: center;
+  outline: none;
+  border-style: dashed;
+}
 .memo-badge,
 .overflow-sign {
   position: absolute;

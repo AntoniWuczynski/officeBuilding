@@ -9,6 +9,7 @@ import {
 } from "../../state/selectors";
 import { BUILDING_CAMERA } from "../../lib/iso";
 import { STOREY, storeyWidth } from "../../lib/layout";
+import { useBuildingName } from "../../state/useBuildingName";
 import { Stage } from "../../scene/Stage";
 import { AddFloorDialog } from "./AddFloorDialog";
 import { Building, buildingHeight } from "./Building";
@@ -32,6 +33,7 @@ interface Props {
 export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [buildingName, renameBuilding] = useBuildingName();
   const viewRef = useRef<HTMLDivElement>(null);
 
   const floors: FloorModel[] = snapshot.projects.map((project) => {
@@ -60,7 +62,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   return (
     <div ref={viewRef} className="view building-view">
       <header className="topbar" data-tauri-drag-region>
-        <span className="topbar-sign">Office Building</span>
+        <span className="topbar-sign">{buildingName}</span>
         <label className="search">
           <span className="sr-only">Search floors</span>
           <input
@@ -122,6 +124,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
         <Building
           floors={floors}
           width={width}
+          name={buildingName}
+          onRename={renameBuilding}
           onEnter={(projectId, el) => onEnter(projectId, originOf(el))}
           onAddFloor={() => setAdding(true)}
         />

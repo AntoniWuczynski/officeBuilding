@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { MockApi } from "./api/mockApi";
@@ -175,6 +175,29 @@ describe("building", () => {
     await user.click(screen.getByTestId("add-floor"));
     await user.keyboard("{Escape}");
     expect(screen.queryByTestId("add-floor-dialog")).not.toBeInTheDocument();
+  });
+
+  it("renames the building from the roof sign, keeps the name, and restores the default when blanked", async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findAllByTestId("storey");
+    expect(screen.getByTestId("roof-sign")).toHaveTextContent("Office Building");
+    await user.click(screen.getByTestId("roof-sign"));
+    await user.keyboard("{Control>}a{/Control}Acme HQ{Escape}");
+    expect(screen.getByTestId("roof-sign")).toHaveTextContent("Office Building");
+    await user.click(screen.getByTestId("roof-sign"));
+    await user.keyboard("{Control>}a{/Control}Acme HQ{Enter}");
+    expect(screen.getByTestId("roof-sign")).toHaveTextContent("Acme HQ");
+    expect(document.querySelector(".topbar-sign")).toHaveTextContent("Acme HQ");
+    cleanup();
+    renderApp();
+    expect(await screen.findByTestId("roof-sign")).toHaveTextContent("Acme HQ");
+    await user.click(screen.getByTestId("roof-sign"));
+    await user.clear(screen.getByTestId("roof-sign-input"));
+    await user.keyboard("{Enter}");
+    expect(screen.getByTestId("roof-sign")).toHaveTextContent("Office Building");
+    localStorage.clear();
   });
 
   it("fills the folder from the native picker where there is one", async () => {

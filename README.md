@@ -7,7 +7,8 @@ sessions as an **office building**:
 
 - **Floors = projects.** The building is a 2.5D cutaway you can see into. A
   floor's status strip and nameplate lamp (green / yellow / red, off when nobody
-  works there) signal whether that project needs attention.
+  works there) signal whether that project needs attention. Click the sign on
+  the roof to rename the building (a blank name restores "Office Building").
 - **Desks = agent sessions.** Each desk has a live, animated employee whose pose
   reflects the session state (typing, thinking, hand up for a question, lying on
   the floor when stuck). When a session ends its agent leaves; the floor stays
