@@ -661,6 +661,10 @@ impl ClaudeSource {
                             helpers.push(Helper {
                                 id: id.to_string(),
                                 state: helper_state(&t),
+                                worktree: t
+                                    .cwd
+                                    .as_deref()
+                                    .is_some_and(|cwd| super::locate(Path::new(cwd)).worktree),
                             });
                         }
                     }

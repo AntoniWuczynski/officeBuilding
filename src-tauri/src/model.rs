@@ -77,6 +77,8 @@ pub struct Session {
     pub spend: Spend,
     /// Sub-agents (plain or in a workflow) still working for this session.
     pub helpers: Vec<Helper>,
+    /// It works in a linked git worktree of its floor's repo.
+    pub worktree: bool,
 }
 
 /// A session whose agent has left: listed on its floor's sign-out sheet to resume.
@@ -99,6 +101,8 @@ pub struct EndedSession {
 pub struct Helper {
     pub id: String,
     pub state: SessionState,
+    /// It works in a linked git worktree (an isolated sub-agent's own checkout).
+    pub worktree: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

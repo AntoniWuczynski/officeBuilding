@@ -91,26 +91,39 @@ fn running_sub_agents_are_the_sessions_helpers() {
     let project = home.join(".claude/projects/-code-app");
     let helpers = project.join("s1/subagents");
     fs::create_dir_all(helpers.join("workflows/w1")).expect("dirs");
-    let record = |stop: &str, block: &str| {
+    // agent-b is isolated in a worktree of the app's repo; agent-a works in the repo itself.
+    let app = home.join("code/app");
+    let git_dir = app.join(".git/worktrees/agent-b");
+    let tree = app.join(".claude/worktrees/agent-b");
+    fs::create_dir_all(&git_dir).expect("dirs");
+    fs::create_dir_all(&tree).expect("dirs");
+    fs::write(git_dir.join("commondir"), "../..\n").expect("write");
+    fs::write(
+        tree.join(".git"),
+        format!("gitdir: {}\n", git_dir.display()),
+    )
+    .expect("write");
+    let record = |cwd: &Path, stop: &str, block: &str| {
+        let cwd = cwd.display();
         format!(
-            r#"{{"type":"assistant","isSidechain":true,"timestamp":"t","message":{{"id":"m","stop_reason":{stop},"content":[{block}]}}}}"#
+            r#"{{"type":"assistant","isSidechain":true,"cwd":"{cwd}","timestamp":"t","message":{{"id":"m","stop_reason":{stop},"content":[{block}]}}}}"#
         )
     };
     fs::write(project.join("s1.jsonl"), format!("{USER}\n")).expect("write");
     let tool = r#"{"type":"tool_use","id":"b1","name":"Bash","input":{}}"#;
     fs::write(
         helpers.join("agent-b.jsonl"),
-        record("\"tool_use\"", tool) + "\n",
+        record(&tree, "\"tool_use\"", tool) + "\n",
     )
     .expect("write");
     fs::write(
         helpers.join("agent-done.jsonl"),
-        record("\"end_turn\"", r#"{"type":"text","text":"ok"}"#) + "\n",
+        record(&app, "\"end_turn\"", r#"{"type":"text","text":"ok"}"#) + "\n",
     )
     .expect("write");
     fs::write(
         helpers.join("workflows/w1/agent-a.jsonl"),
-        record("null", r#"{"type":"thinking","thinking":""}"#) + "\n",
+        record(&app, "null", r#"{"type":"thinking","thinking":""}"#) + "\n",
     )
     .expect("write");
 
@@ -122,11 +135,13 @@ fn running_sub_agents_are_the_sessions_helpers() {
         vec![
             Helper {
                 id: "agent-a".into(),
-                state: SessionState::Thinking
+                state: SessionState::Thinking,
+                worktree: false,
             },
             Helper {
                 id: "agent-b".into(),
-                state: SessionState::Running
+                state: SessionState::Running,
+                worktree: true,
             },
         ]
     );

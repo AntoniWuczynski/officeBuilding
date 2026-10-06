@@ -451,6 +451,7 @@ impl Office {
             pending_question_ids: Vec::new(),
             spend: Spend::default(),
             helpers: Vec::new(),
+            worktree: false,
         })
     }
 

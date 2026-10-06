@@ -13,7 +13,7 @@ use crate::model::{
 use rules::Signals;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 /// What discovery currently sees.
@@ -41,17 +41,77 @@ pub fn fnv1a(s: &str) -> u32 {
     h
 }
 
-/// The floor a working directory belongs to: its git root, or itself.
+/// Where a working directory sits: its floor's root, and whether it is inside a
+/// linked git worktree of that floor's repo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Location {
+    pub root: PathBuf,
+    pub worktree: bool,
+}
+
+/// The floor a working directory belongs to: its git root, or itself. A linked
+/// worktree belongs to its main checkout's floor.
 #[must_use]
-pub fn project_root(cwd: &Path) -> PathBuf {
+pub fn locate(cwd: &Path) -> Location {
     let mut dir = Some(cwd);
     while let Some(d) = dir {
-        if d.join(".git").exists() {
-            return d.to_path_buf();
+        let git = d.join(".git");
+        if git.is_file()
+            && let Some(root) = main_checkout(d, &git)
+        {
+            return Location {
+                root,
+                worktree: true,
+            };
+        }
+        if git.exists() {
+            return Location {
+                root: d.to_path_buf(),
+                worktree: false,
+            };
         }
         dir = d.parent();
     }
-    cwd.to_path_buf()
+    Location {
+        root: cwd.to_path_buf(),
+        worktree: false,
+    }
+}
+
+#[must_use]
+pub fn project_root(cwd: &Path) -> PathBuf {
+    locate(cwd).root
+}
+
+/// The main checkout of the worktree at `dir`, whose `.git` file reads
+/// `gitdir: <main>/.git/worktrees/<name>`. Only a worktree's git dir has a
+/// `commondir`, so a submodule (also a `.git` file) stays its own floor, as does
+/// a worktree of a bare repo, which has no main checkout.
+fn main_checkout(dir: &Path, git: &Path) -> Option<PathBuf> {
+    let pointer = fs::read_to_string(git).ok()?;
+    let git_dir = dir.join(pointer.strip_prefix("gitdir:")?.trim());
+    let common = fs::read_to_string(git_dir.join("commondir")).ok()?;
+    let common = normalise(&git_dir.join(common.trim()));
+    if common.file_name()? != ".git" {
+        return None;
+    }
+    common.parent().map(Path::to_path_buf)
+}
+
+/// Folds `.` and `..` out of a path without touching the disk, so the main
+/// checkout keeps the spelling its own sessions report.
+fn normalise(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 #[must_use]
@@ -94,7 +154,7 @@ impl Discovery {
             .filter_map(from_claude)
             .chain(self.codex.scan(now).into_iter().filter_map(from_codex))
             .collect();
-        assemble(&self.home, inputs, project_root)
+        assemble(&self.home, inputs, locate)
     }
 
     /// Pid of a running session, for focusing its terminal window.
@@ -262,12 +322,12 @@ fn signed_out(input: SessionInput, root: &Path) -> EndedSession {
     }
 }
 
-/// Build floors, desks and questions from every tool's finds. `root_of` maps a
-/// working directory to its floor (git root in production, identity in tests).
+/// Build floors, desks and questions from every tool's finds. `locate` places a
+/// working directory on its floor (git root in production, identity in tests).
 fn assemble(
     home: &Path,
     inputs: Vec<SessionInput>,
-    root_of: impl Fn(&Path) -> PathBuf,
+    locate: impl Fn(&Path) -> Location,
 ) -> Discovered {
     let mut floors: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     let mut sessions = Vec::new();
@@ -276,7 +336,7 @@ fn assemble(
     let mut resume_dirs = BTreeMap::new();
 
     for input in inputs {
-        let root = root_of(Path::new(&input.cwd));
+        let Location { root, worktree } = locate(Path::new(&input.cwd));
         // An ended session leaves the office; its floor stays while the session was recent.
         let ids = floors.entry(root.clone()).or_default();
         if !input.live {
@@ -310,6 +370,7 @@ fn assemble(
             pending_question_ids: pending,
             spend: input.spend,
             helpers: input.helpers,
+            worktree,
         });
     }
 
@@ -381,6 +442,14 @@ mod tests {
         }
     }
 
+    /// Every folder is its own floor, outside any worktree.
+    fn own_floor(cwd: &Path) -> Location {
+        Location {
+            root: cwd.to_path_buf(),
+            worktree: false,
+        }
+    }
+
     fn claude_inputs(founds: Vec<Found>) -> Vec<SessionInput> {
         founds.into_iter().filter_map(from_claude).collect()
     }
@@ -399,7 +468,7 @@ mod tests {
                 found("s2", "/home/me/code/app", &[PROSE], true),
                 found("s3", "/home/me/code/other", &[DONE], false),
             ]),
-            Path::to_path_buf,
+            own_floor,
         );
         assert_eq!(d.projects.len(), 2);
         let app = d
@@ -453,9 +522,9 @@ mod tests {
             ]),
             |cwd| {
                 if cwd.starts_with("/home/me/code/app") {
-                    PathBuf::from("/home/me/code/app")
+                    own_floor(Path::new("/home/me/code/app"))
                 } else {
-                    cwd.to_path_buf()
+                    own_floor(cwd)
                 }
             },
         );
@@ -486,7 +555,7 @@ mod tests {
         let d = assemble(
             Path::new("/home/me"),
             claude_inputs(vec![asking]),
-            Path::to_path_buf,
+            own_floor,
         );
         let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
         assert_eq!(s1.state, SessionState::WaitingHuman);
@@ -514,7 +583,7 @@ mod tests {
         let home = Path::new("/home/me");
         let mut inputs = claude_inputs(vec![found("s1", "/home/me/code/app", &[idle], true)]);
         inputs.extend(from_codex(codex_found));
-        let d = assemble(home, inputs, Path::to_path_buf);
+        let d = assemble(home, inputs, own_floor);
 
         assert_eq!(d.projects.len(), 1);
         let app = &d.projects[0];
@@ -534,6 +603,76 @@ mod tests {
         assert_eq!(prose.prompt, "Fixed it. Should I also bump the version?");
         assert!(prose.options.is_empty());
         assert_eq!(prose.answer_via, AnswerVia::Terminal);
+    }
+
+    #[test]
+    fn a_worktree_session_sits_on_its_main_checkouts_floor() {
+        let main = std::env::temp_dir().join(format!("ob-worktree-{}", std::process::id()));
+        let git_dir = main.join(".git/worktrees/agent-1");
+        let tree = main.join(".claude/worktrees/agent-1");
+        let submodule = main.join("vendor/lib");
+        for dir in [
+            &git_dir,
+            &tree.join("server"),
+            &main.join("web"),
+            &main.join(".git/modules/lib"),
+            &submodule,
+        ] {
+            fs::create_dir_all(dir).expect("mkdir");
+        }
+        fs::write(git_dir.join("commondir"), "../..\n").expect("commondir");
+        fs::write(
+            tree.join(".git"),
+            format!("gitdir: {}\n", git_dir.display()),
+        )
+        .expect("pointer");
+        fs::write(submodule.join(".git"), "gitdir: ../../.git/modules/lib\n").expect("submodule");
+
+        let at = |dir: &Path| {
+            let cwd = dir.to_string_lossy().into_owned();
+            let line = format!(
+                r#"{{"type":"assistant","cwd":"{cwd}","timestamp":"2026-09-29T10:00:00Z","message":{{"id":"m","content":[{{"type":"text","text":"ok"}}]}}}}"#
+            );
+            (cwd, line)
+        };
+        let (in_main, main_line) = at(&main.join("web"));
+        let (in_tree, tree_line) = at(&tree.join("server"));
+        let d = assemble(
+            Path::new("/home/me"),
+            claude_inputs(vec![
+                found("s1", &in_main, &[&main_line], true),
+                found("s2", &in_tree, &[&tree_line], true),
+            ]),
+            locate,
+        );
+        assert_eq!(
+            d.projects.len(),
+            1,
+            "the worktree is not a floor of its own"
+        );
+        assert_eq!(
+            d.projects[0].session_ids,
+            vec!["s1".to_string(), "s2".to_string()]
+        );
+        let worktree = |id: &str| {
+            d.sessions
+                .iter()
+                .find(|s| s.id == id)
+                .expect("session")
+                .worktree
+        };
+        assert!(!worktree("s1"));
+        assert!(worktree("s2"));
+
+        // A submodule's `.git` file points at a git dir with no commondir: its own floor.
+        assert_eq!(
+            locate(&submodule),
+            Location {
+                root: submodule.clone(),
+                worktree: false
+            }
+        );
+        fs::remove_dir_all(&main).expect("cleanup");
     }
 
     #[test]
