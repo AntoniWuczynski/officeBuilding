@@ -80,14 +80,16 @@ export class MockApi implements DiscoveryApi {
     if (project === undefined) {
       return Promise.reject(new Error(`unknown project: ${projectId}`));
     }
-    const model = this.options
-      .find((o) => o.tool === request.tool)
-      ?.models.find((m) => m.id === request.model);
+    const tool = this.options.find((o) => o.tool === request.tool);
+    const model = tool?.models.find((m) => m.id === request.model);
     if (model === undefined) {
       return Promise.reject(new Error(`${request.model} is not a model the app can start for ${request.tool}`));
     }
     if (!model.efforts.some((e) => e.id === request.effort)) {
       return Promise.reject(new Error(`${model.label} does not support ${request.effort} effort`));
+    }
+    if (request.ultracode && tool?.ultracode === null) {
+      return Promise.reject(new Error(`${request.tool} has no ultracode`));
     }
     const id = this.nextId("s-new");
     const session: Session = {

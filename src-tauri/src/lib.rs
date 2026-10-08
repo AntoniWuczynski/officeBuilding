@@ -10,6 +10,7 @@ pub mod options;
 pub mod project_files;
 pub mod pty;
 pub mod store;
+pub mod tools;
 pub mod watch;
 
 use office::Office;

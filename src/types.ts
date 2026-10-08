@@ -163,8 +163,12 @@ export interface ModelOption {
 /** What the app can hire for one tool. Read from the tool's own config by the backend. */
 export interface ToolOptions {
   readonly tool: ToolKind;
+  /** Installed on this Mac. An unavailable tool is listed greyed out, with no models. */
+  readonly available: boolean;
   readonly models: readonly ModelOption[];
   readonly defaultModel: string;
+  /** Null when the tool has no ultracode; otherwise its default (Claude Code). */
+  readonly ultracode: boolean | null;
 }
 
 /** The full snapshot the UI renders from. Kept flat + normalised. */

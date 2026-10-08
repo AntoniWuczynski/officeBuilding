@@ -105,6 +105,8 @@ struct State {
     scrollback: String,
     /// Chunks emitted so far: lets a panel drop live events its backlog already holds.
     seq: u64,
+    /// When the agent last printed (or was started, if it has not yet).
+    last_output: Instant,
     size: PtySize,
     /// `None` while the agent runs; then its exit code, if one could be read.
     #[expect(
@@ -251,6 +253,7 @@ impl Terminals {
             state: Mutex::new(State {
                 scrollback: String::new(),
                 seq: 0,
+                last_output: Instant::now(),
                 size: INITIAL_SIZE,
                 exit: None,
                 modes_at_start: Modes::default(),
@@ -337,6 +340,11 @@ impl Terminals {
         }
     }
 
+    /// How long ago the agent last printed anything.
+    pub fn idle_for(&self, id: &str) -> Result<Duration, String> {
+        Ok(lock(&self.get(id)?.state).last_output.elapsed())
+    }
+
     /// Everything a panel needs to catch up before live events.
     pub fn backlog(&self, id: &str) -> Result<TerminalBacklog, String> {
         let t = self.get(id)?;
@@ -404,6 +412,7 @@ fn pump(mut reader: Box<dyn Read + Send>, t: &Terminal, sink: &Sink, id: &str) {
         let dropped = trim_front(&mut s.scrollback, SCROLLBACK);
         track_modes(&dropped, &mut s.modes_at_start);
         s.seq += 1;
+        s.last_output = Instant::now();
         // Emitting under the lock keeps `seq` and the backlog consistent for a panel attaching now.
         sink(TerminalEvent::Output(TerminalOutput {
             terminal_id: id.to_string(),

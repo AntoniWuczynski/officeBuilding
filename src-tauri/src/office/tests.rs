@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::{EffortOption, ModelOption};
 
 fn office(tag: &str) -> (Office, PathBuf) {
     let dir = std::env::temp_dir().join(format!("ob-office-{}-{tag}", std::process::id()));
@@ -341,6 +342,7 @@ fn hiring_onto_a_floor_whose_folder_is_gone_fails_clearly() {
         title: "x".to_string(),
         model: "claude-opus-5-5".to_string(),
         effort: "high".to_string(),
+        ultracode: false,
     };
     let err = office.spawn_session(&floor.id, &req).expect_err("gone");
     assert_eq!(
@@ -436,6 +438,7 @@ fn a_task_named_like_a_claude_command_is_refused() {
         title: " doctor ".to_string(),
         model: "claude-opus-5-5".to_string(),
         effort: "high".to_string(),
+        ultracode: false,
     };
     assert_eq!(
         office.spawn_session(&floor.id, &req),
@@ -626,4 +629,269 @@ fn stopping_agents_waits_for_them_and_reports_one_that_will_not_stop() {
     unsafe {
         libc::kill(stubborn, libc::SIGKILL)
     };
+}
+
+const ZSH: &str = "/bin/zsh";
+
+fn model(id: &str, efforts: &[&str]) -> ModelOption {
+    ModelOption {
+        id: id.to_string(),
+        label: id.to_string(),
+        efforts: efforts
+            .iter()
+            .map(|e| EffortOption {
+                id: e.to_lowercase(),
+                label: (*e).to_string(),
+                description: String::new(),
+            })
+            .collect(),
+        default_effort: efforts[0].to_lowercase(),
+    }
+}
+
+fn hire(tool: ToolKind, model: &str, effort: &str, ultracode: bool) -> HireRequest {
+    HireRequest {
+        tool,
+        title: String::new(),
+        model: model.to_string(),
+        effort: effort.to_string(),
+        ultracode,
+    }
+}
+
+fn command(req: &HireRequest, efforts: &[&str], task: &str) -> String {
+    launch_command(req, &model(&req.model, efforts), task, ZSH).expect("command")
+}
+
+#[test]
+fn claude_code_gets_the_full_model_id_effort_and_the_ultracode_setting() {
+    let on = hire(ToolKind::ClaudeCode, "claude-opus-5-5", "high", true);
+    assert_eq!(
+        command(&on, &["high"], "fix the tests"),
+        r#"claude --model 'claude-opus-5-5' --effort 'high' --settings '{"ultracode":true}' -- 'fix the tests'"#
+    );
+    let off = hire(ToolKind::ClaudeCode, "claude-opus-5-5", "high", false);
+    assert_eq!(
+        command(&off, &["high"], "-x it's"),
+        r#"claude --model 'claude-opus-5-5' --effort 'high' --settings '{"ultracode":false}' -- '-x it'\''s'"#
+    );
+}
+
+#[test]
+fn claude_code_omits_a_default_effort_and_an_empty_task() {
+    let req = hire(ToolKind::ClaudeCode, "claude-sonnet-5", "default", false);
+    assert_eq!(
+        command(&req, &["default"], ""),
+        r#"claude --model 'claude-sonnet-5' --settings '{"ultracode":false}'"#
+    );
+}
+
+#[test]
+fn codex_launches_as_before_and_ignores_ultracode() {
+    let req = hire(ToolKind::Codex, "gpt-5.5", "low", true);
+    assert_eq!(
+        command(&req, &["low"], "go"),
+        r#"codex -m 'gpt-5.5' -c 'model_reasoning_effort="low"' -- 'go'"#
+    );
+}
+
+#[test]
+fn codex_omits_the_model_and_effort_flags_when_they_are_default() {
+    let req = hire(ToolKind::Codex, "default", "default", false);
+    assert_eq!(command(&req, &["default"], "go"), "codex -- 'go'");
+    assert_eq!(command(&req, &["default"], ""), "codex");
+    let model_only = hire(ToolKind::Codex, "gpt-5.5", "default", false);
+    assert_eq!(
+        command(&model_only, &["default"], "go"),
+        "codex -m 'gpt-5.5' -- 'go'"
+    );
+    let effort_only = hire(ToolKind::Codex, "default", "low", false);
+    assert_eq!(
+        command(&effort_only, &["low"], ""),
+        r#"codex -c 'model_reasoning_effort="low"'"#
+    );
+}
+
+#[test]
+fn antigravity_gets_the_model_and_effort_as_one_quoted_name() {
+    let req = hire(ToolKind::Antigravity, "Gemini 3.6 Flash", "high", true);
+    assert_eq!(
+        command(&req, &["High"], "refactor it's"),
+        r"agy --model 'Gemini 3.6 Flash (High)' -i='refactor it'\''s'"
+    );
+    assert_eq!(
+        command(&req, &["High"], "--help"),
+        r"agy --model 'Gemini 3.6 Flash (High)' -i='--help'"
+    );
+    assert_eq!(
+        command(&req, &["High"], ""),
+        r"agy --model 'Gemini 3.6 Flash (High)'"
+    );
+    let plain = hire(ToolKind::Antigravity, "Some Model", "default", false);
+    assert_eq!(
+        command(&plain, &["Default"], "go"),
+        r"agy --model 'Some Model' -i='go'"
+    );
+}
+
+#[test]
+fn opencode_and_cursor_start_with_only_the_model_and_no_prompt() {
+    let open = hire(ToolKind::Opencode, "anthropic/claude", "default", false);
+    assert_eq!(
+        command(&open, &["Default"], "a task"),
+        "opencode --model 'anthropic/claude'"
+    );
+    let cursor = hire(ToolKind::Cursor, "gpt-5", "default", false);
+    assert_eq!(
+        command(&cursor, &["Default"], "a task"),
+        "cursor-agent --model 'gpt-5'"
+    );
+    let bare = hire(ToolKind::Cursor, "default", "default", false);
+    assert_eq!(command(&bare, &["Default"], "a task"), "cursor-agent");
+}
+
+fn floor_office(tag: &str) -> (Office, PathBuf, Project) {
+    let (office, dir) = office(tag);
+    let repo = dir.join("home/code/app");
+    std::fs::create_dir_all(&repo).expect("mkdir");
+    let floor = office.add_floor(&repo.to_string_lossy()).expect("add");
+    (office, dir, floor)
+}
+
+/// Run `cat` in a terminal-backed desk on `floor` (it exits on end-of-transmission).
+fn launch_desk(office: &Office, dir: &Path, floor: &Project) -> String {
+    let desk = Desk {
+        tool: ToolKind::Antigravity,
+        project_id: floor.id.clone(),
+        root: dir.join("home/code/app"),
+        title: "write docs".to_string(),
+        model: "Gemini 3.6 Flash".to_string(),
+        effort: "high".to_string(),
+    };
+    office
+        .launch(&desk.root.clone(), "/bin/cat", Launched::Desk(desk))
+        .expect("launch")
+}
+
+fn desks_of(office: &Office) -> Vec<Session> {
+    office.refresh();
+    office.snapshot().sessions
+}
+
+#[test]
+fn a_tool_without_discovery_has_a_desk_while_its_terminal_runs() {
+    let (office, dir, floor) = floor_office("desk");
+    let terminal = launch_desk(&office, &dir, &floor);
+    let id = desk_session_id(&terminal);
+    let sessions = desks_of(&office);
+    assert_eq!(sessions.len(), 1);
+    let desk = &sessions[0];
+    assert_eq!(desk.id, id);
+    assert_eq!(
+        (desk.tool, desk.title.as_str(), desk.state, desk.control),
+        (
+            ToolKind::Antigravity,
+            "write docs",
+            SessionState::Running,
+            ControlMode::Full
+        )
+    );
+    assert_eq!(desk.model.as_deref(), Some("Gemini 3.6 Flash"));
+    assert_eq!(desk.effort.as_deref(), Some("high"));
+    assert!(!desk.worktree && desk.helpers.is_empty());
+    assert_eq!(desk.project_id, floor.id);
+    let snapshot = office.snapshot();
+    let listed = snapshot.projects.iter().find(|p| p.id == floor.id);
+    assert_eq!(
+        listed.map(|p| p.session_ids.clone()),
+        Some(vec![id.clone()])
+    );
+    // The panel attaches by the desk's id, and a refresh keeps the desk.
+    assert_eq!(
+        office.terminal_backlog(&id).expect("backlog").terminal_id,
+        terminal
+    );
+    assert_eq!(desks_of(&office).len(), 1);
+    office.terminal_write(&id, "\u{4}").expect("eot");
+    office
+        .terminals
+        .wait_exit(&terminal, Duration::from_secs(10))
+        .expect("wait")
+        .expect("exited");
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn a_desk_leaves_when_its_terminal_exits_and_is_not_a_failed_hire() {
+    let (office, dir, floor) = floor_office("desk-exit");
+    let terminal = launch_desk(&office, &dir, &floor);
+    let id = desk_session_id(&terminal);
+    office.terminal_write(&id, "\u{4}").expect("eot");
+    let code = office
+        .terminals
+        .wait_exit(&terminal, Duration::from_secs(10))
+        .expect("wait")
+        .expect("exited");
+    assert!(desks_of(&office).is_empty());
+    assert!(office.snapshot().ended.is_empty());
+    let exit = TerminalExit {
+        terminal_id: terminal,
+        exit_code: code,
+    };
+    assert_eq!(office.hire_failed(&exit), None);
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn demolishing_a_floor_stops_its_terminal_desks() {
+    let (office, dir, floor) = floor_office("desk-demolish");
+    let terminal = launch_desk(&office, &dir, &floor);
+    assert_eq!(desks_of(&office).len(), 1);
+    office.demolish_floor(&floor.id).expect("demolish");
+    assert!(desks_of(&office).is_empty());
+    assert!(office.snapshot().projects.is_empty());
+    assert!(
+        office
+            .terminals
+            .wait_exit(&terminal, Duration::from_secs(10))
+            .expect("wait")
+            .is_some()
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn a_desk_whose_terminal_is_quiet_is_idle() {
+    let desk = Desk {
+        tool: ToolKind::Cursor,
+        project_id: "p".to_string(),
+        root: PathBuf::from("/"),
+        title: "t".to_string(),
+        model: "default".to_string(),
+        effort: "default".to_string(),
+    };
+    let state = |secs| desk_session("t-1", &desk, Duration::from_secs(secs)).state;
+    assert_eq!(state(9), SessionState::Running);
+    assert_eq!(state(11), SessionState::Idle);
+}
+
+#[test]
+fn a_tool_that_is_not_installed_cannot_be_hired() {
+    let listed = |tool, available| ToolOptions {
+        tool,
+        available,
+        models: Vec::new(),
+        default_model: String::new(),
+        ultracode: None,
+    };
+    let options = vec![
+        listed(ToolKind::Codex, true),
+        listed(ToolKind::Antigravity, false),
+    ];
+    assert!(hireable(options.clone(), ToolKind::Codex).is_ok());
+    assert_eq!(
+        hireable(options.clone(), ToolKind::Antigravity).map(|_| ()),
+        Err("Antigravity is not installed on this Mac".to_string())
+    );
+    assert!(hireable(options, ToolKind::Cursor).is_err());
 }

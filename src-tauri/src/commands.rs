@@ -28,11 +28,15 @@ pub fn get_snapshot(office: OfficeState<'_>) -> OfficeSnapshot {
     office.snapshot()
 }
 
+/// On a blocking thread: it runs `agy models` and a login shell, which take seconds.
 #[tauri::command]
-#[must_use]
-pub fn hire_options(office: OfficeState<'_>) -> Vec<ToolOptions> {
-    office.hire_options()
+pub async fn hire_options(office: OfficeState<'_>) -> Result<Vec<ToolOptions>, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.hire_options())
+        .await
+        .map_err(|e| format!("the hire options did not load: {e}"))
 }
+
 
 /// On a blocking thread: it waits for the agent to start, to catch one that fails.
 #[tauri::command]

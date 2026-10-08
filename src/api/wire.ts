@@ -78,8 +78,10 @@ const effortSchema = z.object({ id: z.string(), label: z.string(), description: 
 export const hireOptionsSchema = z.array(
   z.object({
     tool: toolKind,
+    available: z.boolean(),
     models: z.array(z.object({ id: z.string(), label: z.string(), efforts: z.array(effortSchema), defaultEffort: z.string() })),
     defaultModel: z.string(),
+    ultracode: z.boolean().nullable(),
   }),
 ) satisfies z.ZodType<ToolOptions[]>;
 

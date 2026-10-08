@@ -223,8 +223,13 @@ pub struct ModelOption {
 #[serde(rename_all = "camelCase")]
 pub struct ToolOptions {
     pub tool: ToolKind,
+    /// Installed on this Mac (its CLI is on the login shell's PATH). An
+    /// unavailable tool is listed greyed out, with no models.
+    pub available: bool,
     pub models: Vec<ModelOption>,
     pub default_model: String,
+    /// None when the tool has no ultracode; otherwise its default (Claude Code).
+    pub ultracode: Option<bool>,
 }
 
 /// Everything needed to start a new agent session (`HireRequest` in DiscoveryApi.ts).
@@ -234,7 +239,11 @@ pub struct HireRequest {
     pub title: String,
     pub model: String,
     pub effort: String,
+    /// Run with ultracode on (Claude Code only, a setting beside the effort).
+    #[serde(default)]
+    pub ultracode: bool,
 }
+
 
 /// A human's answer to a queued question (`QuestionAnswer` in DiscoveryApi.ts).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -672,6 +672,25 @@
 .choice input {
   accent-color: var(--ink);
 }
+.choice label.is-off {
+  color: var(--off);
+  border-style: dashed;
+  background: transparent;
+  cursor: not-allowed;
+}
+.choice-note {
+  font-size: 11px;
+}
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+.choice-end {
+  align-self: flex-end;
+}
 .field {
   display: flex;
   flex-direction: column;

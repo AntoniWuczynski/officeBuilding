@@ -11,6 +11,8 @@ export interface HireRequest {
   readonly title: string;
   readonly model: string;
   readonly effort: string;
+  /** Run with ultracode on (Claude Code only, a setting beside the effort). */
+  readonly ultracode: boolean;
 }
 
 /** A hired agent that exited before it reached a desk. */

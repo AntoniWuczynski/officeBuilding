@@ -476,7 +476,7 @@ describe("floor", () => {
     expect(within(dialog).getByText("Greater reasoning depth for complex problems.")).toBeInTheDocument();
     await user.type(within(dialog).getByRole("textbox"), "port the renderer");
     await user.click(screen.getByTestId("hire-submit"));
-    expect(spawn).toHaveBeenCalledWith("p-arcade", { tool: "codex", model: "gpt-5.6-luna", effort: "high", title: "port the renderer" });
+    expect(spawn).toHaveBeenCalledWith("p-arcade", { tool: "codex", model: "gpt-5.6-luna", effort: "high", title: "port the renderer", ultracode: false });
     expect(await screen.findByText(/Hired Codex \(gpt-5.6-luna, high effort\) for “port the renderer”/)).toBeInTheDocument();
     // The new hire walks in from the front, then takes the desk.
     const walk = screen.getByTestId("walk");

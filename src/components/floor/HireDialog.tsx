@@ -20,20 +20,37 @@ interface Choice {
   readonly tool: ToolKind;
   readonly model: string;
   readonly effort: string;
+  readonly ultracode: boolean;
 }
 
 function defaultsFor(tool: ToolOptions): Choice {
-  const model = tool.models.find((m) => m.id === tool.defaultModel) ?? tool.models[0];
-  return { tool: tool.tool, model: model?.id ?? "", effort: model?.defaultEffort ?? "" };
+  const model =
+    tool.models.find((m) => m.id === tool.defaultModel) ?? tool.models[0];
+  return {
+    tool: tool.tool,
+    model: model?.id ?? "",
+    effort: model?.defaultEffort ?? "",
+    ultracode: tool.ultracode ?? false,
+  };
 }
 
 /** Keep the effort if the new model supports it, otherwise take the model's default. */
 function effortFor(model: ModelOption, current: string): string {
-  return model.efforts.some((e) => e.id === current) ? current : model.defaultEffort;
+  return model.efforts.some((e) => e.id === current)
+    ? current
+    : model.defaultEffort;
 }
 
+const classes = (...names: readonly (string | false)[]): string | undefined =>
+  names.filter(Boolean).join(" ") || undefined;
+
 /** Start a new agent session on this floor: tool, model, effort and task. */
-export function HireDialog({ projectName, loadOptions, onHire, onCancel }: Props): React.ReactElement {
+export function HireDialog({
+  projectName,
+  loadOptions,
+  onHire,
+  onCancel,
+}: Props): React.ReactElement {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [choice, setChoice] = useState<Choice | null>(null);
@@ -47,8 +64,10 @@ export function HireDialog({ projectName, loadOptions, onHire, onCancel }: Props
       .then((options) => {
         if (!live) return;
         setLoad({ status: "ready", options });
-        const first = options[0];
-        setChoice((c) => c ?? (first === undefined ? null : defaultsFor(first)));
+        const first = options.find((o) => o.available);
+        setChoice(
+          (c) => c ?? (first === undefined ? null : defaultsFor(first)),
+        );
       })
       .catch((err: unknown) => {
         if (live) setLoad({ status: "error", message: message(err) });
@@ -85,7 +104,9 @@ export function HireDialog({ projectName, loadOptions, onHire, onCancel }: Props
     >
       <h2 id="hire-title">Hire an agent for {projectName}</h2>
 
-      {load.status === "loading" ? <p className="panel-hint">Loading the tools and models you can hire…</p> : null}
+      {load.status === "loading" ? (
+        <p className="panel-hint">Loading the tools and models you can hire…</p>
+      ) : null}
       {load.status === "error" ? (
         <div className="form-error" role="alert">
           Could not load the tools: {load.message}.{" "}
@@ -102,18 +123,35 @@ export function HireDialog({ projectName, loadOptions, onHire, onCancel }: Props
         </div>
       ) : null}
 
-      {tool !== undefined && model !== undefined ? (
-        <>
-          <fieldset className="choice" disabled={busy}>
-            <legend>Tool</legend>
-            {options.map((o) => (
-              <label key={o.tool} className={o.tool === tool.tool ? "is-on" : undefined}>
-                <input type="radio" name="tool" checked={o.tool === tool.tool} onChange={() => setChoice(defaultsFor(o))} />
-                {TOOL_LABEL[o.tool]}
-              </label>
-            ))}
-          </fieldset>
+      {choice !== null && tool !== undefined ? (
+        <fieldset className="choice" disabled={busy}>
+          <legend>Tool</legend>
+          {options.map((o) => (
+            <label
+              key={o.tool}
+              className={classes(
+                o.tool === tool.tool && "is-on",
+                !o.available && "is-off",
+              )}
+            >
+              <input
+                type="radio"
+                name="tool"
+                checked={o.tool === tool.tool}
+                disabled={!o.available}
+                onChange={() => setChoice(defaultsFor(o))}
+              />
+              {TOOL_LABEL[o.tool]}
+              {o.available ? null : (
+                <small className="choice-note">Not installed</small>
+              )}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
 
+      {choice !== null && tool !== undefined && model !== undefined ? (
+        <>
           <label className="field">
             <span>Model</span>
             <select
@@ -122,7 +160,12 @@ export function HireDialog({ projectName, loadOptions, onHire, onCancel }: Props
               data-testid="hire-model"
               onChange={(e) => {
                 const next = tool.models.find((m) => m.id === e.target.value);
-                if (next !== undefined) setChoice({ tool: tool.tool, model: next.id, effort: effortFor(next, choice?.effort ?? "") });
+                if (next !== undefined)
+                  setChoice({
+                    ...choice,
+                    model: next.id,
+                    effort: effortFor(next, choice.effort),
+                  });
               }}
             >
               {tool.models.map((m) => (
@@ -133,25 +176,59 @@ export function HireDialog({ projectName, loadOptions, onHire, onCancel }: Props
             </select>
           </label>
 
-          <fieldset className="choice" disabled={busy}>
-            <legend>Effort</legend>
-            {model.efforts.map((e) => (
-              <label key={e.id} className={e.id === effort?.id ? "is-on" : undefined}>
-                <input
-                  type="radio"
-                  name="effort"
-                  checked={e.id === effort?.id}
-                  onChange={() => setChoice({ tool: tool.tool, model: model.id, effort: e.id })}
-                />
-                {e.label}
-              </label>
-            ))}
-          </fieldset>
-          {effort !== undefined && effort.description !== "" ? <p className="panel-hint">{effort.description}.</p> : null}
+          <div className="choice-row">
+            <fieldset className="choice" disabled={busy}>
+              <legend>Effort</legend>
+              {model.efforts.map((e) => (
+                <label
+                  key={e.id}
+                  className={e.id === effort?.id ? "is-on" : undefined}
+                >
+                  <input
+                    type="radio"
+                    name="effort"
+                    checked={e.id === effort?.id}
+                    onChange={() => setChoice({ ...choice, effort: e.id })}
+                  />
+                  {e.label}
+                </label>
+              ))}
+            </fieldset>
+            {tool.ultracode === null ? null : (
+              <div className="choice choice-end">
+                <label
+                  className={classes(
+                    "choice-toggle",
+                    choice.ultracode && "is-on",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={choice.ultracode}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setChoice({ ...choice, ultracode: e.target.checked })
+                    }
+                  />
+                  Ultracode
+                </label>
+              </div>
+            )}
+          </div>
+          {effort !== undefined && effort.description !== "" ? (
+            <p className="panel-hint">{effort.description}.</p>
+          ) : null}
 
           <label className="field">
             <span>Task</span>
-            <input value={title} disabled={busy} placeholder="What should they work on?" onChange={(e) => setTitle(e.target.value)} autoFocus />
+            <input
+              value={title}
+              disabled={busy}
+              placeholder="What should they work on?"
+              onChange={(e) => setTitle(e.target.value)}
+              autoFocus
+            />
           </label>
         </>
       ) : null}
@@ -162,10 +239,20 @@ export function HireDialog({ projectName, loadOptions, onHire, onCancel }: Props
         </p>
       )}
       <div className="dialog-actions">
-        <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+        <button
+          type="button"
+          className="btn"
+          onClick={onCancel}
+          disabled={busy}
+        >
           Cancel
         </button>
-        <button type="submit" className="btn btn-primary" data-testid="hire-submit" disabled={busy || model === undefined}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          data-testid="hire-submit"
+          disabled={busy || model === undefined}
+        >
           {busy ? "Hiring" : "Hire"}
         </button>
       </div>

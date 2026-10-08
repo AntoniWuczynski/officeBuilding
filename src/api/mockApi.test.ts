@@ -37,8 +37,8 @@ describe("MockApi", () => {
 
   it("offers the hireable tools with per-model efforts", async () => {
     const options = await new MockApi().hireOptions();
-    expect(options.map((o) => o.tool)).toEqual(["claude-code", "codex"]);
-    for (const tool of options) {
+    expect(options.map((o) => o.tool)).toEqual(["claude-code", "codex", "antigravity", "opencode", "cursor"]);
+    for (const tool of options.filter((o) => o.available)) {
       expect(tool.models.some((m) => m.id === tool.defaultModel)).toBe(true);
       for (const m of tool.models) expect(m.efforts.some((e) => e.id === m.defaultEffort)).toBe(true);
     }
@@ -52,7 +52,7 @@ describe("MockApi", () => {
     const api = new MockApi(makeSeedSnapshot(), fixedNow);
     const listener = vi.fn();
     api.subscribe(listener);
-    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "  port the renderer ", model: "gpt-5.5", effort: "high" });
+    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "  port the renderer ", model: "gpt-5.5", effort: "high", ultracode: false });
     expect(session).toMatchObject({ projectId: "p-arcade", tool: "codex", state: "thinking", control: "full", title: "port the renderer", model: "gpt-5.5", effort: "high", lastActivityAt: NOW.toISOString() });
     const snap = await api.getSnapshot();
     expect(snap.projects.find((p) => p.id === "p-arcade")?.sessionIds).toContain(session.id);
@@ -61,7 +61,7 @@ describe("MockApi", () => {
 
   it("spawnSession names an untitled task and rejects bad requests", async () => {
     const api = new MockApi();
-    const ok = { tool: "claude-code", title: "   ", model: "claude-opus-5-5", effort: "high" } as const;
+    const ok = { tool: "claude-code", title: "   ", model: "claude-opus-5-5", effort: "high", ultracode: false } as const;
     await expect(api.spawnSession("p-arcade", ok)).resolves.toMatchObject({ title: "New task" });
     await expect(api.spawnSession("nope", ok)).rejects.toThrow(/unknown project/);
     await expect(api.spawnSession("p-arcade", { ...ok, model: "gpt-5.5" })).rejects.toThrow(/not a model the app can start/);

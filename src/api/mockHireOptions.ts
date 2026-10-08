@@ -28,20 +28,29 @@ const CODEX_BASE: readonly EffortOption[] = [
 const CODEX_MAX: readonly EffortOption[] = [...CODEX_BASE, effort("max", "Max", "Maximum reasoning depth for the hardest problems")];
 const CODEX_ULTRA: readonly EffortOption[] = [...CODEX_MAX, effort("ultra", "Ultra", "Maximum reasoning with automatic task delegation")];
 
+const AGY_FULL: readonly EffortOption[] = [effort("high", "High", ""), effort("medium", "Medium", ""), effort("low", "Low", "")];
+const AGY_PRO: readonly EffortOption[] = [effort("high", "High", ""), effort("low", "Low", "")];
+const AGY_THINKING: readonly EffortOption[] = [effort("thinking", "Thinking", "")];
+const AGY_MEDIUM: readonly EffortOption[] = [effort("medium", "Medium", "")];
+
 export function makeHireOptions(): readonly ToolOptions[] {
   return [
     {
       tool: "claude-code",
+      available: true,
+      ultracode: false,
       defaultModel: "claude-opus-5-5",
       models: [
         { id: "claude-opus-5-5", label: "Opus 5.5", efforts: CLAUDE_EFFORTS, defaultEffort: "high" },
         { id: "claude-fable-5-1", label: "Fable 5.1", efforts: CLAUDE_EFFORTS, defaultEffort: "medium" },
-        { id: "claude-sonnet-5", label: "Sonnet 5", efforts: CLAUDE_EFFORTS, defaultEffort: "medium" },
-        { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", efforts: CLAUDE_EFFORTS, defaultEffort: "medium" },
+        { id: "claude-sonnet-5-5", label: "Sonnet 5.5", efforts: CLAUDE_EFFORTS, defaultEffort: "medium" },
+        { id: "claude-haiku-5-5", label: "Haiku 5.5", efforts: CLAUDE_EFFORTS, defaultEffort: "medium" },
       ],
     },
     {
       tool: "codex",
+      available: true,
+      ultracode: null,
       defaultModel: "gpt-6-astra",
       models: [
         { id: "gpt-6-astra", label: "GPT-6-Astra", efforts: CODEX_ULTRA, defaultEffort: "xhigh" },
@@ -51,5 +60,20 @@ export function makeHireOptions(): readonly ToolOptions[] {
         { id: "gpt-5.5", label: "GPT-5.5", efforts: CODEX_BASE, defaultEffort: "medium" },
       ],
     },
+    {
+      tool: "antigravity",
+      available: true,
+      ultracode: null,
+      defaultModel: "Gemini 3.6 Flash",
+      models: [
+        { id: "Gemini 3.6 Flash", label: "Gemini 3.6 Flash", efforts: AGY_FULL, defaultEffort: "high" },
+        { id: "Gemini 3.1 Pro", label: "Gemini 3.1 Pro", efforts: AGY_PRO, defaultEffort: "high" },
+        { id: "Claude Sonnet 4.6", label: "Claude Sonnet 4.6", efforts: AGY_THINKING, defaultEffort: "thinking" },
+        { id: "Claude Opus 4.6", label: "Claude Opus 4.6", efforts: AGY_THINKING, defaultEffort: "thinking" },
+        { id: "GPT-OSS 120B", label: "GPT-OSS 120B", efforts: AGY_MEDIUM, defaultEffort: "medium" },
+      ],
+    },
+    { tool: "opencode", available: false, ultracode: null, defaultModel: "", models: [] },
+    { tool: "cursor", available: false, ultracode: null, defaultModel: "", models: [] },
   ];
 }

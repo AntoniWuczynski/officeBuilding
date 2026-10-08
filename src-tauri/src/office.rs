@@ -12,6 +12,10 @@ use crate::options;
 use crate::project_files::{self, ProjectFiles};
 use crate::pty::{self, Terminals};
 use crate::store::Store;
+use launch::{
+    DESK_ACTIVE, Desk, Launched, desk_session, desk_session_id, hireable, is_discovered,
+    launch_command,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -32,6 +36,9 @@ struct Inner {
     /// Hired terminals no session has been bound to yet, with the task they
     /// were hired for: if one exits first, the hire failed after all.
     hired: BTreeMap<String, String>,
+    /// Terminals running a tool discovery cannot see: each is its own desk while
+    /// it runs, by terminal id.
+    desks: BTreeMap<String, Desk>,
 }
 
 pub struct Office {
@@ -270,6 +277,7 @@ impl Office {
                 owned: BTreeMap::new(),
                 ran_in: BTreeMap::new(),
                 hired: BTreeMap::new(),
+                desks: BTreeMap::new(),
             }),
             terminals,
         }
@@ -289,12 +297,36 @@ impl Office {
         let mut found = inner.discovery.scan(SystemTime::now());
         let pinned = inner.store.records.pinned_floors.clone();
         drop_demolished(&mut found, &inner.store.records.demolished_floors);
-        add_pinned_floors(&mut found, &pinned, &self.home);
+        let running = self.terminals.running_children();
+        inner
+            .desks
+            .retain(|terminal, _| running.values().any(|id| id == terminal));
+        let floors: Vec<String> = pinned
+            .into_iter()
+            .chain(
+                inner
+                    .desks
+                    .values()
+                    .map(|d| d.root.to_string_lossy().into_owned()),
+            )
+            .collect();
+        add_pinned_floors(&mut found, &floors, &self.home);
+        for (terminal, desk) in &inner.desks {
+            let session = desk_session(
+                terminal,
+                desk,
+                self.terminals.idle_for(terminal).unwrap_or(DESK_ACTIVE),
+            );
+            if let Some(p) = found.projects.iter_mut().find(|p| p.id == desk.project_id) {
+                p.session_ids.push(session.id.clone());
+            }
+            found.sessions.push(session);
+        }
         let discovery = &inner.discovery;
         let elsewhere = claim_owned(
             &mut found.sessions,
             &mut inner.owned,
-            &self.terminals.running_children(),
+            &running,
             |id| discovery.pid_of(id),
             focus::parent_pid,
         );
@@ -385,11 +417,7 @@ impl Office {
             .get(project_id)
             .cloned()
             .ok_or_else(|| format!("unknown project: {project_id}"))?;
-        let tool = self
-            .hire_options()
-            .into_iter()
-            .find(|o| o.tool == req.tool)
-            .ok_or_else(|| "that tool is not set up on this Mac".to_string())?;
+        let tool = hireable(self.hire_options(), req.tool)?;
         let model = tool
             .models
             .iter()
@@ -414,32 +442,30 @@ impl Office {
                 "“{task}” is also a claude command, so describe the task in a few more words"
             ));
         }
-        let shell = pty::login_shell();
-        let quote = |s: &str| pty::quote(&shell, s);
-        // `--` ends the options, so a task starting with `-` stays the prompt.
-        let prompt = if task.is_empty() {
-            String::new()
-        } else {
-            format!(" -- {}", quote(task))
-        };
-        let command = match req.tool {
-            ToolKind::ClaudeCode => format!(
-                "claude --model {} --effort {}{prompt}",
-                options::claude_alias(&model.id),
-                req.effort
-            ),
-            ToolKind::Codex => format!(
-                "codex -m {} -c {}{prompt}",
-                quote(&model.id),
-                quote(&format!("model_reasoning_effort=\"{}\"", req.effort))
-            ),
-            _ => return Err("only Claude Code and Codex can be hired so far".to_string()),
-        };
+        let command = launch_command(req, model, task, &pty::login_shell())?;
         let title = if task.is_empty() { "New task" } else { task };
-        self.launch(&root, &command, title)?;
-        // The real session id arrives with discovery; this is only the receipt.
+        let launched = if is_discovered(req.tool) {
+            Launched::Discovered {
+                title: title.to_string(),
+            }
+        } else {
+            Launched::Desk(Desk {
+                tool: req.tool,
+                project_id: project_id.to_string(),
+                root: root.clone(),
+                title: title.to_string(),
+                model: model.id.clone(),
+                effort: req.effort.clone(),
+            })
+        };
+        let terminal = self.launch(&root, &command, launched)?;
+        // A discovered session's real id arrives with discovery; this is only the receipt.
         Ok(Session {
-            id: format!("hired-{}", chrono::Utc::now().timestamp_millis()),
+            id: if is_discovered(req.tool) {
+                format!("hired-{}", chrono::Utc::now().timestamp_millis())
+            } else {
+                desk_session_id(&terminal)
+            },
             tool: req.tool,
             project_id: project_id.to_string(),
             title: title.to_string(),
@@ -470,21 +496,32 @@ impl Office {
             }
         };
         let command = resume_command(&ended, &pty::login_shell())?;
-        self.launch(&dir, &command, &ended.title)
+        self.launch(&dir, &command, Launched::Discovered { title: ended.title })
+            .map(drop)
     }
 
     /// Run `command` in a new in-app terminal in `dir`. An agent that stops at
     /// once is an error; one that stops later, before reaching a desk, is
     /// reported by `hire_failed`.
-    fn launch(&self, dir: &Path, command: &str, title: &str) -> Result<(), String> {
+    fn launch(&self, dir: &Path, command: &str, launched: Launched) -> Result<String, String> {
         let terminal = start_agent(&self.terminals, dir, command)?;
         // Under the lock `hire_failed` takes: an exit either lands here or finds the entry.
         let mut inner = self.lock();
         if let Some(code) = self.terminals.wait_exit(&terminal, Duration::ZERO)? {
             return Err(launch_failure(&self.terminals, &terminal, code)?);
         }
-        inner.hired.insert(terminal, title.to_string());
-        Ok(())
+        match launched {
+            Launched::Discovered { title } => {
+                inner.hired.insert(terminal.clone(), title);
+            }
+            Launched::Desk(desk) => {
+                let session = desk_session_id(&terminal);
+                inner.owned.insert(terminal.clone(), session.clone());
+                inner.ran_in.insert(session, terminal.clone());
+                inner.desks.insert(terminal.clone(), desk);
+            }
+        }
+        Ok(terminal)
     }
 
     /// Pull a floor down: stop its running agents cleanly, then hide it until a
@@ -522,6 +559,7 @@ impl Office {
         {
             let mut inner = self.lock();
             let key = root.to_string_lossy().into_owned();
+            inner.desks.retain(|_, d| d.project_id != project_id);
             inner.store.records.pinned_floors.retain(|k| *k != key);
             let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             inner.store.records.demolished_floors.insert(key, at);
@@ -852,5 +890,6 @@ fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
     }
 }
 
+mod launch;
 #[cfg(test)]
 mod tests;

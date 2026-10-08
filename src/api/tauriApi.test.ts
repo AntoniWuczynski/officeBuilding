@@ -37,7 +37,7 @@ const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 describe("wire", () => {
   it("accepts the shapes the app uses", () => {
     expect(parseWire(snapshotSchema, "snapshot", makeSeedSnapshot())).toEqual(makeSeedSnapshot());
-    expect(parseWire(hireOptionsSchema, "options", makeHireOptions())).toHaveLength(2);
+    expect(parseWire(hireOptionsSchema, "options", makeHireOptions())).toHaveLength(5);
   });
   it("names where a payload went wrong", () => {
     const bad = { ...makeSeedSnapshot(), sessions: [{ id: 1 }] };
@@ -68,7 +68,7 @@ describe("TauriApi", () => {
       .mockResolvedValueOnce("/Users/me/code/app")
       .mockResolvedValueOnce(null);
     await api.hireOptions();
-    const request = { tool: "codex", title: "x", model: "gpt-5.5", effort: "high" } as const;
+    const request = { tool: "codex", title: "x", model: "gpt-5.5", effort: "high", ultracode: false } as const;
     await expect(api.spawnSession("p-1", request)).resolves.toEqual(session);
     await api.answerQuestion("q-1", { kind: "option", optionId: "o-1" });
     await api.tickTodo("t-1");
