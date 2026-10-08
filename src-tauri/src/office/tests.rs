@@ -268,6 +268,42 @@ fn a_hired_codex_agent_binds_once_its_rollout_is_open() {
     assert_eq!(owned.get("t-1").map(String::as_str), Some("019a-codex"));
 }
 
+/// A hired Codex sits on a pre-turn question with no rollout: discovery shows a
+/// placeholder desk for its process, the terminal binds to it with full control,
+/// and when the rollout appears the terminal moves to the real session id.
+#[test]
+fn a_hired_codex_without_a_rollout_gets_a_placeholder_desk_that_hands_over_to_the_real_session() {
+    let children = BTreeMap::from([(4242, "t-1".to_string())]);
+    let mut owned = BTreeMap::new();
+    let codex = |id: &str| {
+        let mut s = session(id, ControlMode::RaiseWindow);
+        s.tool = ToolKind::Codex;
+        s
+    };
+
+    let mut pending = vec![codex("codex-new-4242")];
+    claim_owned(
+        &mut pending,
+        &mut owned,
+        &children,
+        pids(&[("codex-new-4242", 4242)]),
+        |_| None,
+    );
+    assert_eq!(pending[0].control, ControlMode::Full);
+    assert_eq!(owned.get("t-1").map(String::as_str), Some("codex-new-4242"));
+
+    let mut real = vec![codex("019a-codex")];
+    claim_owned(
+        &mut real,
+        &mut owned,
+        &children,
+        pids(&[("019a-codex", 4242)]),
+        |_| None,
+    );
+    assert_eq!(real[0].control, ControlMode::Full);
+    assert_eq!(owned.get("t-1").map(String::as_str), Some("019a-codex"));
+}
+
 #[test]
 fn between_equally_close_sessions_the_most_recent_takes_the_terminal() {
     let children = BTreeMap::from([(100, "t-1".to_string())]);

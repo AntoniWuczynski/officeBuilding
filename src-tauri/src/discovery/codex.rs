@@ -28,7 +28,7 @@
 //!   top-level rollout open plus three more rollouts that turned out to be sub-agent threads it had spawned — the ones
 //!   `session_meta.source` flags as sub-agent. Filtered to rollouts already
 //!   known to be top-level (from the parse pass), exactly one open rollout
-//!   remained: its own. A single `lsof -p <pid> -Fn` call lists every open file,
+//!   remained: its own. A single `lsof -p <pid> -Ffn` call lists every open file,
 //!   so this needs one `lsof` call per process, not one per candidate file.
 //! * The `ChatGPT` desktop app's embedded `codex` binary (`comm` also just
 //!   "codex" — matched by `ps` the same as the CLI) held zero rollout files
@@ -39,6 +39,20 @@
 //! So: a rollout is live when a running `codex` process holds *that exact
 //! file* open, filtered to top-level (non-sub-agent) rollouts under
 //! `~/.codex/sessions/**/rollout-*.jsonl` — proof, not a guess.
+//!
+//! ### No rollout yet (2026-10-08)
+//!
+//! Checked against a real Codex 0.154.0 in a pseudo-terminal: the rollout is
+//! created lazily, only once the first turn starts (about 10 s after the first
+//! message). A `codex` sitting at its prompt, or blocked on a pre-turn question
+//! such as "Do you trust the contents of this directory?", holds no rollout, so
+//! it had no desk. Such a process now gets a placeholder desk
+//! (`codex-new-<pid>`, "New Codex session", never resumable) until its rollout
+//! appears and it becomes that session. Two kinds of `codex` process are not
+//! sessions and never get one: cwd `/` (the desktop app's), and any whose
+//! arguments name the `app-server` or `mcp-server` subcommand (IDE extensions
+//! and the desktop app run those from a workspace). A process holding more than
+//! one top-level rollout stays ambiguous: not live, no placeholder.
 
 use super::collect_jsonl;
 use super::pricing::{self, CodexUsage};
@@ -50,87 +64,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-/// Pids of the `codex` processes running right now, via `ps` (name match).
-/// Never panics: an unavailable `ps` just yields none.
-pub fn list_codex_pids() -> Vec<i32> {
-    let Ok(out) = Command::new("ps").args(["-axo", "pid=,comm="]).output() else {
-        return Vec::new();
-    };
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut result = Vec::new();
-    for line in text.lines() {
-        let line = line.trim_start();
-        let mut parts = line.splitn(2, char::is_whitespace);
-        let Some(pid_str) = parts.next() else {
-            continue;
-        };
-        let Some(comm) = parts.next().map(str::trim_start) else {
-            continue;
-        };
-        if comm.rsplit('/').next() != Some("codex") {
-            continue;
-        }
-        let Ok(pid) = pid_str.parse::<i32>() else {
-            continue;
-        };
-        result.push(pid);
-    }
-    result
-}
-
-/// A running `codex` process and the top-level (non-sub-agent) rollout
-/// session ids `lsof` shows it holds open right now.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProcessOpenRollouts {
-    pub pid: i32,
-    pub open_session_ids: Vec<String>,
-}
-
-/// A process is live for the rollout it holds open, when that is unambiguous:
-/// exactly one top-level rollout open. Zero (no turn started yet: rollouts
-/// are created lazily) or more than one is not enough evidence to pick one.
-/// Pure and OS-call-free so the decision is directly testable.
-#[must_use]
-pub fn resolve_liveness_by_open_files(processes: &[ProcessOpenRollouts]) -> HashMap<String, i32> {
-    processes
-        .iter()
-        .filter_map(|p| match p.open_session_ids.as_slice() {
-            [only] => Some((only.clone(), p.pid)),
-            _ => None,
-        })
-        .collect()
-}
-
-/// The top-level rollout session ids a process holds open, via one `lsof -p
-/// <pid> -Fn` call, filtered to files under `sessions_dir` matching
-/// `rollout-*.jsonl` and further filtered to `top_level` (rollouts already
-/// known, from the parse pass, not to be sub-agent threads). Never panics: an
-/// unavailable `lsof`, or a process that exits mid-lookup, just yields none.
-fn open_rollout_session_ids(
-    pid: i32,
-    sessions_dir: &Path,
-    top_level: &HashSet<String>,
-) -> Vec<String> {
-    let Ok(out) = Command::new("lsof")
-        .args(["-p", &pid.to_string(), "-Fn"])
-        .output()
-    else {
-        return Vec::new();
-    };
-    let text = String::from_utf8_lossy(&out.stdout);
-    text.lines()
-        .filter_map(|l| l.strip_prefix('n'))
-        .map(Path::new)
-        .filter(|p| p.starts_with(sessions_dir))
-        .filter_map(|p| p.file_stem().and_then(|s| s.to_str()))
-        .filter(|stem| stem.starts_with("rollout-"))
-        .filter_map(session_uuid)
-        .filter(|id| top_level.contains(id))
-        .collect()
-}
+mod process;
+use process::{list_codex_pids, probe, resolve_liveness_by_open_files, rolloutless_sessions};
 
 /// A `token_count` event's `info`: cumulative totals and the latest request's usage.
 #[derive(Debug, Default, Deserialize)]
@@ -169,6 +106,28 @@ pub struct Transcript {
     pub parent_thread_id: Option<String>,
 }
 
+impl Transcript {
+    /// A rollout that says nothing yet.
+    fn blank() -> Self {
+        Self {
+            cwd: None,
+            root_session_id: None,
+            model: None,
+            effort: None,
+            last_activity: None,
+            spend: Spend::default(),
+            human_spoke_last: false,
+            last_block: LastBlock::Nothing,
+            reply_to_human: String::new(),
+            api_error: false,
+            open_tools: 0,
+            turn_open: false,
+            is_subagent: false,
+            parent_thread_id: None,
+        }
+    }
+}
+
 fn message_text(payload: &Value) -> String {
     payload
         .get("content")
@@ -186,22 +145,7 @@ fn message_text(payload: &Value) -> String {
     reason = "one reducer over the rollout's record kinds; splitting it scatters the shared state"
 )]
 pub fn parse_transcript(reader: impl BufRead) -> Transcript {
-    let mut t = Transcript {
-        cwd: None,
-        root_session_id: None,
-        model: None,
-        effort: None,
-        last_activity: None,
-        spend: Spend::default(),
-        human_spoke_last: false,
-        last_block: LastBlock::Nothing,
-        reply_to_human: String::new(),
-        api_error: false,
-        open_tools: 0,
-        turn_open: false,
-        is_subagent: false,
-        parent_thread_id: None,
-    };
+    let mut t = Transcript::blank();
     let mut counted = CodexUsage::default();
     let mut open: HashSet<String> = HashSet::new();
     // A sub-agent or forked rollout's first record is its own `session_meta`; a later record
@@ -366,6 +310,9 @@ pub struct Found {
     pub transcript: Transcript,
     pub title: Option<String>,
     pub live_pid: Option<i32>,
+    /// Whether it can be offered for resuming once it ends: false for a
+    /// placeholder, which has no rollout to resume.
+    pub resumable: bool,
 }
 
 /// Scans Codex's rollouts, re-reading one only when it changed.
@@ -468,14 +415,28 @@ impl CodexSource {
 
         let top_level: HashSet<String> = parsed.iter().map(|(_, id, _, _)| id.clone()).collect();
         let sessions_dir = codex_home.join("sessions");
-        let process_open: Vec<ProcessOpenRollouts> = pids
+        let process_open: Vec<_> = pids
             .into_iter()
-            .map(|pid| ProcessOpenRollouts {
-                pid,
-                open_session_ids: open_rollout_session_ids(pid, &sessions_dir, &top_level),
-            })
+            .map(|pid| probe(pid, &sessions_dir, &top_level))
             .collect();
         self.live_pids = resolve_liveness_by_open_files(&process_open);
+        let placeholders: Vec<Found> = rolloutless_sessions(&process_open)
+            .into_iter()
+            .map(|(pid, cwd)| {
+                let session_id = format!("codex-new-{pid}");
+                self.live_pids.insert(session_id.clone(), pid);
+                Found {
+                    session_id,
+                    transcript: Transcript {
+                        cwd: Some(cwd),
+                        ..Transcript::blank()
+                    },
+                    title: Some("New Codex session".to_string()),
+                    live_pid: Some(pid),
+                    resumable: false,
+                }
+            })
+            .collect();
 
         parsed
             .into_iter()
@@ -497,8 +458,10 @@ impl CodexSource {
                     transcript,
                     title,
                     live_pid,
+                    resumable: true,
                 }
             })
+            .chain(placeholders)
             .collect()
     }
 
@@ -768,47 +731,30 @@ mod tests {
         assert!(t.is_subagent);
     }
 
-    // Two codex processes in one folder each own their session (a verifier case).
+    // A running codex with no rollout (here this very test process, standing in for one, as
+    // `lsof` and `ps` really are run on it) gets a placeholder desk that is live but not resumable.
     #[test]
-    fn open_file_evidence_ties_each_process_to_its_own_rollout() {
-        let processes = vec![
-            ProcessOpenRollouts {
-                pid: 1,
-                open_session_ids: vec!["own-session".to_string()],
-            },
-            ProcessOpenRollouts {
-                pid: 2,
-                open_session_ids: vec!["another-session".to_string()],
-            },
-        ];
-        let live = resolve_liveness_by_open_files(&processes);
-        assert_eq!(live.get("own-session"), Some(&1));
-        assert_eq!(live.get("another-session"), Some(&2));
-        assert_eq!(live.len(), 2);
-    }
+    fn a_running_process_with_no_rollout_gets_a_placeholder_session() {
+        let dir = std::env::temp_dir().join(format!("ob-codex-placeholder-{}", std::process::id()));
+        fs::create_dir_all(dir.join(".codex/sessions")).expect("temp dir");
+        let pid = i32::try_from(std::process::id()).expect("pid fits");
 
-    // A `codex` process holds no rollout open for the ~19s between starting and writing its
-    // first turn (rollouts are created lazily). Without this, a naive cwd-based fallback would
-    // misattribute the cwd's previous, now-finished, rollout as still live.
-    #[test]
-    fn a_new_process_with_no_rollout_yet_is_not_live() {
-        let processes = vec![ProcessOpenRollouts {
-            pid: 9,
-            open_session_ids: Vec::new(),
-        }];
-        let live = resolve_liveness_by_open_files(&processes);
-        assert!(live.is_empty());
-    }
+        let found = CodexSource::new(dir.clone()).scan_with(SystemTime::now(), vec![pid]);
+        fs::remove_dir_all(&dir).expect("cleanup");
 
-    // A process holding more than one top-level rollout open has not happened in the rollouts
-    // inspected on this Mac, but ambiguous evidence should not be guessed at either.
-    #[test]
-    fn a_process_with_more_than_one_open_top_level_rollout_is_ambiguous_and_not_live() {
-        let processes = vec![ProcessOpenRollouts {
-            pid: 9,
-            open_session_ids: vec!["a".to_string(), "b".to_string()],
-        }];
-        let live = resolve_liveness_by_open_files(&processes);
-        assert!(live.is_empty());
+        let [placeholder] = found.as_slice() else {
+            panic!("expected one placeholder, got {found:?}");
+        };
+        assert_eq!(placeholder.session_id, format!("codex-new-{pid}"));
+        assert_eq!(placeholder.title.as_deref(), Some("New Codex session"));
+        assert_eq!(placeholder.live_pid, Some(pid));
+        assert!(!placeholder.resumable);
+        assert_eq!(
+            placeholder.transcript.cwd.as_deref(),
+            std::env::current_dir()
+                .ok()
+                .and_then(|d| d.to_str().map(str::to_string))
+                .as_deref()
+        );
     }
 }

@@ -261,7 +261,7 @@ fn from_codex(f: codex::Found) -> Option<SessionInput> {
         // waiting Codex session always falls back to the plain-prose scorer.
         formal_question: None,
         helpers: Vec::new(),
-        resumable: true,
+        resumable: f.resumable,
     })
 }
 
@@ -567,6 +567,24 @@ mod tests {
     }
 
     #[test]
+    fn a_codex_placeholder_is_an_idle_desk_that_is_never_offered_for_resuming() {
+        let placeholder = super::codex::Found {
+            session_id: "codex-new-7".to_string(),
+            transcript: super::codex::parse_transcript(Cursor::new(
+                r#"{"timestamp":"t","type":"session_meta","payload":{"id":"x","session_id":"x","cwd":"/home/me/code/app","source":"cli"}}"#,
+            )),
+            title: Some("New Codex session".to_string()),
+            live_pid: Some(7),
+            resumable: false,
+        };
+        let input = from_codex(placeholder).expect("a codex session");
+        assert!(!input.resumable);
+        let d = assemble(Path::new("/home/me"), vec![input], own_floor);
+        assert_eq!(d.sessions[0].title, "New Codex session");
+        assert_eq!(d.sessions[0].state, SessionState::Idle);
+    }
+
+    #[test]
     fn codex_sessions_join_the_same_floor_with_tool_kind_and_prose_questions() {
         let meta = r#"{"timestamp":"2026-09-29T10:00:00.000Z","type":"session_meta","payload":{"id":"c1","session_id":"root1","cwd":"/home/me/code/app","source":"cli"}}"#;
         let user = r#"{"timestamp":"2026-09-29T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]}}"#;
@@ -578,6 +596,7 @@ mod tests {
             transcript: codex_transcript,
             title: Some("Bump check".to_string()),
             live_pid: Some(7),
+            resumable: true,
         };
         let idle: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T09:00:00Z","message":{"id":"m","content":[{"type":"text","text":"All good."}]}}"#;
         let home = Path::new("/home/me");
