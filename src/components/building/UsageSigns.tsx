@@ -8,7 +8,7 @@ import { relativeTime, resetsLabel } from "../../lib/time";
 const REFRESH_MS = 60_000;
 
 interface Props {
-  readonly loadUsage: () => Promise<readonly ToolUsage[]>;
+  readonly loadUsage: (refresh: boolean) => Promise<readonly ToolUsage[]>;
 }
 
 /** Meter colour by how much of the window is used: green, amber from 70%, red from 90%. */
@@ -61,16 +61,16 @@ function Sign({ usage, now }: { readonly usage: ToolUsage; readonly now: Date })
   );
 }
 
-/** Standing signs beside the building: each installed tool's usage limits, as the tool last measured them. */
+/** Standing signs beside the building: each installed tool's usage limits, as the tool last measured them. Re-check has Claude Code measure again. */
 export function UsageSigns({ loadUsage }: Props): React.ReactElement | null {
   const [usage, setUsage] = useState<readonly ToolUsage[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const now = useNow();
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback((fresh: boolean) => {
     setBusy(true);
-    return loadUsage()
+    return loadUsage(fresh)
       .then((next) => {
         setUsage(next);
         setError(null);
@@ -80,15 +80,15 @@ export function UsageSigns({ loadUsage }: Props): React.ReactElement | null {
   }, [loadUsage]);
 
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), REFRESH_MS);
+    void refresh(false);
+    const timer = setInterval(() => void refresh(false), REFRESH_MS);
     return () => clearInterval(timer);
   }, [refresh]);
 
   if (usage === null && error === null) return null;
   return (
     <aside className="usage-signs" aria-label="Usage limits">
-      <button type="button" className="btn" disabled={busy} onClick={() => void refresh()}>
+      <button type="button" className="btn" disabled={busy} onClick={() => void refresh(true)}>
         {busy ? "Checking" : "Re-check"}
       </button>
       {(usage ?? []).map((u) => (

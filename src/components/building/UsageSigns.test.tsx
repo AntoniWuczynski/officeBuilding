@@ -46,14 +46,16 @@ describe("UsageSigns", () => {
     expect(within(agy).queryByRole("meter")).not.toBeInTheDocument();
   });
 
-  it("reads the usage again when Re-check is pressed", async () => {
+  it("asks for a fresh check when Re-check is pressed, and only then", async () => {
     const user = userEvent.setup();
     const loadUsage = vi.fn(load);
     render(<UsageSigns loadUsage={loadUsage} />);
     await screen.findAllByTestId("usage-sign");
     expect(loadUsage).toHaveBeenCalledTimes(1);
+    expect(loadUsage).toHaveBeenLastCalledWith(false);
     await user.click(screen.getByRole("button", { name: "Re-check" }));
     await waitFor(() => expect(loadUsage).toHaveBeenCalledTimes(2));
+    expect(loadUsage).toHaveBeenLastCalledWith(true);
     expect(await screen.findByRole("button", { name: "Re-check" })).toBeEnabled();
   });
 });

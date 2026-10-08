@@ -6,8 +6,8 @@
 )]
 
 use crate::model::{
-    HireRequest, OfficeSnapshot, Project, QuestionAnswer, Session, TerminalBacklog, ToolOptions,
-    ToolUsage,
+    HireRequest, OfficeSnapshot, Project, QuestionAnswer, Session, TerminalBacklog, ToolKind,
+    ToolOptions, ToolUsage,
 };
 use crate::office::Office;
 use crate::watch::SNAPSHOT_EVENT;
@@ -38,15 +38,20 @@ pub async fn hire_options(office: OfficeState<'_>) -> Result<Vec<ToolOptions>, S
         .map_err(|e| format!("the hire options did not load: {e}"))
 }
 
-/// On a blocking thread: finding the installed tools spawns a login shell.
+/// On a blocking thread: finding the installed tools spawns a login shell, and
+/// `refresh` has Claude Code check its usage before the files are read.
 #[tauri::command]
-pub async fn tool_usage() -> Result<Vec<ToolUsage>, String> {
+pub async fn tool_usage(refresh: bool) -> Result<Vec<ToolUsage>, String> {
     let home = dirs::home_dir().ok_or("the home folder is unknown")?;
     tauri::async_runtime::spawn_blocking(move || {
-        crate::usage::tool_usage(&home, &crate::tools::installed())
+        let installed = crate::tools::installed();
+        if refresh && installed.contains(&ToolKind::ClaudeCode) {
+            crate::usage::refresh_claude()?;
+        }
+        Ok(crate::usage::tool_usage(&home, &installed))
     })
     .await
-    .map_err(|e| format!("the usage check did not finish: {e}"))
+    .map_err(|e| format!("the usage check did not finish: {e}"))?
 }
 
 /// On a blocking thread: it waits for the agent to start, to catch one that fails.

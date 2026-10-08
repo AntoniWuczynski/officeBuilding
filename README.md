@@ -54,7 +54,9 @@ sessions as an **office building**:
   appear by themselves.
 - **Usage signs** stand beside the building, one per installed tool, with its
   limit windows (5-hour session, week), the time the tool last measured them
-  and a Re-check button.
+  and a Re-check button. Re-check has Claude Code fetch its usage again
+  (`claude -p /usage`, with no saved session, hooks or MCP servers); the other
+  tools' signs show what they last saved.
 - **Click an employee → their terminal.** App-spawned sessions get a full in-app
   terminal docked under the floor (PTY + xterm.js); closing the panel leaves the
   agent running. Drag the panel's top edge (or focus it and use the arrow keys)

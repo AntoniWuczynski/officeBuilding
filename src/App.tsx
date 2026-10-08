@@ -102,7 +102,7 @@ export function App({ api }: Props): React.ReactElement {
   );
 
   const loadHireOptions = useCallback(() => api.hireOptions(), [api]);
-  const loadUsage = useCallback(() => api.toolUsage(), [api]);
+  const loadUsage = useCallback((refresh: boolean) => api.toolUsage(refresh), [api]);
   const pickFolder = useCallback(() => api.pickFolder(), [api]);
 
   const addFloor = useCallback(

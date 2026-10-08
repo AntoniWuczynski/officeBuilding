@@ -70,8 +70,8 @@ export interface DiscoveryApi {
   /** Tools the app can start, each with its models and per-model efforts. */
   hireOptions(): Promise<readonly ToolOptions[]>;
 
-  /** Usage limits of each installed tool, re-read from the tools' own files on every call. */
-  toolUsage(): Promise<readonly ToolUsage[]>;
+  /** Usage limits of each installed tool, re-read from the tools' own files on every call. `refresh` has Claude Code check its usage first. */
+  toolUsage(refresh: boolean): Promise<readonly ToolUsage[]>;
 
   /** Add an employee: spawn a new agent session on a project. */
   spawnSession(projectId: string, request: HireRequest): Promise<Session>;

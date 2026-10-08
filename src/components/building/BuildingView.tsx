@@ -32,7 +32,7 @@ interface Props {
   readonly onPickFolder: () => Promise<string | null>;
   readonly onAddFloor: (path: string) => Promise<Project>;
   readonly onDemolishFloor: (projectId: string) => Promise<void>;
-  readonly loadUsage: () => Promise<readonly ToolUsage[]>;
+  readonly loadUsage: (refresh: boolean) => Promise<readonly ToolUsage[]>;
 }
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */

@@ -92,8 +92,8 @@ export class TauriApi implements DiscoveryApi {
     return parseWire(hireOptionsSchema, "list of hire options", await call("hire_options"));
   }
 
-  async toolUsage(): Promise<readonly ToolUsage[]> {
-    return parseWire(toolUsageSchema, "list of tool usage", await call("tool_usage"));
+  async toolUsage(refresh: boolean): Promise<readonly ToolUsage[]> {
+    return parseWire(toolUsageSchema, "list of tool usage", await call("tool_usage", { refresh }));
   }
 
   async spawnSession(projectId: string, request: HireRequest): Promise<Session> {

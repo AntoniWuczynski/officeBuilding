@@ -484,7 +484,7 @@ fn parse_agy_models(text: &str) -> Vec<ModelOption> {
 }
 
 /// Run `command` through the login shell, killed after `LIST_TIMEOUT`. Stdout on success.
-fn run_capped(command: &str) -> Option<String> {
+pub(crate) fn run_capped(command: &str) -> Option<String> {
     let mut child = Command::new(pty::login_shell())
         .args(["-l", "-c", command])
         .stdin(Stdio::null())

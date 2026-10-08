@@ -1,5 +1,6 @@
 //! Usage limits per tool, read from what each tool already saves on this Mac.
-//! Nothing is fetched: the numbers are as old as the tool's own last check.
+//! The numbers are as old as the tool's own last check, unless `refresh_claude`
+//! has Claude Code check again first.
 
 use crate::model::{ToolKind, ToolUsage, UsageWindow};
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -167,6 +168,17 @@ fn parse_claude(json: &str, now: DateTime<Utc>) -> ToolUsage {
             .collect(),
         unavailable: None,
     }
+}
+
+/// Has Claude Code fetch its usage again, which it saves to `~/.claude.json`.
+/// No transcript, settings hooks or MCP servers. Within a minute of its last
+/// fetch Claude Code skips it and keeps the saved numbers.
+pub fn refresh_claude() -> Result<(), String> {
+    crate::options::run_capped(
+        "claude -p /usage --no-session-persistence --setting-sources '' --strict-mcp-config",
+    )
+    .map(drop)
+    .ok_or_else(|| "Claude Code did not check its usage".to_owned())
 }
 
 fn claude_usage(home: &Path, now: DateTime<Utc>) -> ToolUsage {
