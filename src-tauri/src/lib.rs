@@ -11,6 +11,7 @@ pub mod project_files;
 pub mod pty;
 pub mod store;
 pub mod tools;
+pub mod usage;
 pub mod watch;
 
 use office::Office;
@@ -64,6 +65,7 @@ pub fn run() -> tauri::Result<()> {
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
             commands::hire_options,
+            commands::tool_usage,
             commands::spawn_session,
             commands::resume_session,
             commands::answer_question,

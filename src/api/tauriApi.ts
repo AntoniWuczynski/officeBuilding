@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { OfficeSnapshot, Project, Session, ToolOptions } from "../types";
+import type { OfficeSnapshot, Project, Session, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
@@ -15,6 +15,7 @@ import {
   terminalBacklogSchema,
   terminalExitSchema,
   terminalOutputSchema,
+  toolUsageSchema,
 } from "./wire";
 
 /** Pushed by src-tauri/src/watch.rs whenever discovery sees a change. */
@@ -89,6 +90,10 @@ export class TauriApi implements DiscoveryApi {
 
   async hireOptions(): Promise<readonly ToolOptions[]> {
     return parseWire(hireOptionsSchema, "list of hire options", await call("hire_options"));
+  }
+
+  async toolUsage(): Promise<readonly ToolUsage[]> {
+    return parseWire(toolUsageSchema, "list of tool usage", await call("tool_usage"));
   }
 
   async spawnSession(projectId: string, request: HireRequest): Promise<Session> {

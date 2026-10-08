@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { OfficeSnapshot, Project, Session, ToolOptions } from "../types";
+import type { OfficeSnapshot, Project, Session, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
 
 // Runtime schemas for everything the Rust backend sends. The `satisfies`
@@ -84,6 +84,15 @@ export const hireOptionsSchema = z.array(
     ultracode: z.boolean().nullable(),
   }),
 ) satisfies z.ZodType<ToolOptions[]>;
+
+export const toolUsageSchema = z.array(
+  z.object({
+    tool: toolKind,
+    checkedAt: z.string().nullable(),
+    windows: z.array(z.object({ id: z.string(), label: z.string(), percent: z.number(), resetsAt: z.string().nullable() })),
+    unavailable: z.string().nullable(),
+  }),
+) satisfies z.ZodType<ToolUsage[]>;
 
 export const folderSchema = z.string().nullable();
 // In-app terminals (src-tauri/src/pty.rs). `seq` counts output chunks, so a

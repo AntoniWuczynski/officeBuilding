@@ -794,3 +794,158 @@
 .signout-error {
   grid-column: 1 / -1;
 }
+
+/* ---- usage signs: standing on the ground beside the building ----
+   The building is centred in the stage, so its right edge sits at 50% + min(23.3%, 278px)
+   (Stage pad.right 187, maxScale 1.7). The signs stand 32px beyond it, on two timber posts. */
+.building-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.building-body > .stage {
+  flex: 1;
+  min-width: 0;
+}
+.usage-signs {
+  position: absolute;
+  z-index: 2;
+  left: calc(50% + min(23.3%, 278px) + 32px);
+  top: 9%;
+  bottom: clamp(20px, 6vh, 60px);
+  width: clamp(190px, 17vw, 232px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  isolation: isolate;
+}
+.usage-signs::before,
+.usage-signs::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 24px;
+  bottom: 0;
+  width: 12px;
+  background: var(--timber);
+  border: 2px solid var(--ink);
+  border-bottom-width: 4px;
+  border-bottom-color: var(--timber-front);
+}
+.usage-signs::before {
+  left: 22px;
+}
+.usage-signs::after {
+  right: 22px;
+}
+.usage-signs > * {
+  flex: none;
+}
+.usage-signs > .btn {
+  align-self: flex-start;
+  margin-left: 22px;
+}
+.usage-sign {
+  padding: 12px 14px 14px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 2px;
+}
+.usage-sign h2 {
+  margin: 0 0 10px;
+  padding-top: 3px;
+  font: 700 24px/1 var(--font-sign);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.usage-sign ul {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.usage-window-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+.usage-window-head small {
+  flex: 1;
+  text-align: right;
+}
+.usage-window-head b {
+  font: 700 16px var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.usage-meter {
+  height: 10px;
+  margin: 3px 0 2px;
+  background: var(--plaster-shade);
+  border: 1px solid var(--ink);
+}
+.usage-meter span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.usage-meter[data-level="wait"] span {
+  background: var(--wait);
+}
+.usage-meter[data-level="fault"] span {
+  background: var(--fault);
+}
+.usage-window small,
+.usage-asof {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.usage-asof {
+  margin: 8px 0 0;
+}
+.usage-sign.is-unavailable {
+  color: var(--off);
+  border-color: var(--off);
+  border-style: dashed;
+}
+.usage-reason {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+@media (max-height: 700px) {
+  .usage-signs {
+    top: 3%;
+    gap: 6px;
+  }
+  .usage-sign {
+    padding: 6px 10px 7px;
+    border-width: 2px;
+  }
+  .usage-sign h2 {
+    margin-bottom: 4px;
+    padding-top: 0;
+    font-size: 22px;
+  }
+  .usage-sign ul {
+    gap: 3px;
+  }
+  .usage-window-head b {
+    font-size: 14px;
+  }
+  .usage-meter {
+    height: 8px;
+    margin: 2px 0 1px;
+  }
+  .usage-asof {
+    margin-top: 3px;
+  }
+  .usage-reason {
+    font-size: 11px;
+    line-height: 1.25;
+  }
+}

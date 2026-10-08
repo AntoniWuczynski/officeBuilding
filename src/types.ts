@@ -171,6 +171,27 @@ export interface ToolOptions {
   readonly ultracode: boolean | null;
 }
 
+/** One usage-limit window of a tool, as the tool itself last measured it. */
+export interface UsageWindow {
+  readonly id: string;
+  /** e.g. "5-hour session", "Week", "Week · Fable". */
+  readonly label: string;
+  /** Share of the window used, 0–100. */
+  readonly percent: number;
+  /** When the window resets (ISO 8601), if the tool says. */
+  readonly resetsAt: string | null;
+}
+
+/** The usage limits of one installed tool, shown on the signs beside the building. */
+export interface ToolUsage {
+  readonly tool: ToolKind;
+  /** When the tool last measured these numbers (ISO 8601): the "as of" time. */
+  readonly checkedAt: string | null;
+  readonly windows: readonly UsageWindow[];
+  /** Why there are no numbers, when there are none. */
+  readonly unavailable: string | null;
+}
+
 /** The full snapshot the UI renders from. Kept flat + normalised. */
 export interface OfficeSnapshot {
   readonly projects: readonly Project[];

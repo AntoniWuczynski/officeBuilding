@@ -7,6 +7,7 @@
 
 use crate::model::{
     HireRequest, OfficeSnapshot, Project, QuestionAnswer, Session, TerminalBacklog, ToolOptions,
+    ToolUsage,
 };
 use crate::office::Office;
 use crate::watch::SNAPSHOT_EVENT;
@@ -37,6 +38,16 @@ pub async fn hire_options(office: OfficeState<'_>) -> Result<Vec<ToolOptions>, S
         .map_err(|e| format!("the hire options did not load: {e}"))
 }
 
+/// On a blocking thread: finding the installed tools spawns a login shell.
+#[tauri::command]
+pub async fn tool_usage() -> Result<Vec<ToolUsage>, String> {
+    let home = dirs::home_dir().ok_or("the home folder is unknown")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::usage::tool_usage(&home, &crate::tools::installed())
+    })
+    .await
+    .map_err(|e| format!("the usage check did not finish: {e}"))
+}
 
 /// On a blocking thread: it waits for the agent to start, to catch one that fails.
 #[tauri::command]

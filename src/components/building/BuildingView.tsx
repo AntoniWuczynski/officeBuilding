@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import type { OfficeSnapshot, Project } from "../../types";
+import type { OfficeSnapshot, Project, ToolUsage } from "../../types";
 import {
   floorLight,
   matchesQuery,
@@ -15,6 +15,7 @@ import { usePresence } from "../../state/usePresence";
 import { Stage } from "../../scene/Stage";
 import { AddFloorDialog } from "./AddFloorDialog";
 import { DemolishDialog } from "./DemolishDialog";
+import { UsageSigns } from "./UsageSigns";
 import { Building, buildingHeight } from "./Building";
 import type { FloorModel } from "./Storey";
 
@@ -31,10 +32,11 @@ interface Props {
   readonly onPickFolder: () => Promise<string | null>;
   readonly onAddFloor: (path: string) => Promise<Project>;
   readonly onDemolishFloor: (projectId: string) => Promise<void>;
+  readonly loadUsage: () => Promise<readonly ToolUsage[]>;
 }
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
@@ -119,28 +121,31 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
         </p>
       ) : null}
 
-      <Stage
-        camera={BUILDING_CAMERA}
-        width={width}
-        depth={STOREY.depth}
-        height={buildingHeight(standing.list.length)}
-        pad={{ left: 210, right: 28, top: 48, bottom: 28 }}
-        fit="width"
-        maxScale={1.7}
-        className="building-stage"
-      >
-        <Building
-          floors={standing.list}
-          animate={animate}
+      <div className="building-body">
+        <Stage
+          camera={BUILDING_CAMERA}
           width={width}
-          name={buildingName}
-          onRename={renameBuilding}
-          onEnter={(projectId, el) => onEnter(projectId, originOf(el))}
-          onAddFloor={() => setAdding(true)}
-          onDemolish={setDemolishing}
-          onGone={standing.done}
-        />
-      </Stage>
+          depth={STOREY.depth}
+          height={buildingHeight(standing.list.length)}
+          pad={{ left: 210, right: 187, top: 48, bottom: 28 }}
+          fit="width"
+          maxScale={1.7}
+          className="building-stage"
+        >
+          <Building
+            floors={standing.list}
+            animate={animate}
+            width={width}
+            name={buildingName}
+            onRename={renameBuilding}
+            onEnter={(projectId, el) => onEnter(projectId, originOf(el))}
+            onAddFloor={() => setAdding(true)}
+            onDemolish={setDemolishing}
+            onGone={standing.done}
+          />
+        </Stage>
+        <UsageSigns loadUsage={loadUsage} />
+      </div>
 
       {adding ? (
         <AddFloorDialog

@@ -52,6 +52,9 @@ sessions as an **office building**:
   model and an effort level the model supports, ultracode for Claude Code, and
   name the task. Model lists come from each tool's own data, so new models
   appear by themselves.
+- **Usage signs** stand beside the building, one per installed tool, with its
+  limit windows (5-hour session, week), the time the tool last measured them
+  and a Re-check button.
 - **Click an employee → their terminal.** App-spawned sessions get a full in-app
   terminal docked under the floor (PTY + xterm.js); closing the panel leaves the
   agent running. Drag the panel's top edge (or focus it and use the arrow keys)
@@ -197,6 +200,7 @@ src-tauri/
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     options.rs            # hireable tools, models and per-model efforts
     tools.rs              # which agent CLIs are installed
+    usage.rs              # each tool's usage-limit windows
     focus.rs              # focus a session's terminal tab, the folder picker
     pty.rs                # in-app terminals for hired agents: PTY, output events, scrollback
     watch.rs              # file watch + tick → office://snapshot

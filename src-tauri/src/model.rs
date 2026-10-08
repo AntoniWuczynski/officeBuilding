@@ -244,6 +244,30 @@ pub struct HireRequest {
     pub ultracode: bool,
 }
 
+/// One usage-limit window of a tool, as the tool itself last measured it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageWindow {
+    pub id: String,
+    /// e.g. "5-hour session", "Week", "Week · Fable".
+    pub label: String,
+    /// Share of the window used, 0–100.
+    pub percent: f64,
+    /// When the window resets (ISO 8601), if the tool says.
+    pub resets_at: Option<String>,
+}
+
+/// The usage limits of one installed tool (`ToolUsage` in types.ts).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolUsage {
+    pub tool: ToolKind,
+    /// When the tool last measured these numbers (ISO 8601): the "as of" time.
+    pub checked_at: Option<String>,
+    pub windows: Vec<UsageWindow>,
+    /// Why there are no numbers, when there are none.
+    pub unavailable: Option<String>,
+}
 
 /// A human's answer to a queued question (`QuestionAnswer` in DiscoveryApi.ts).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

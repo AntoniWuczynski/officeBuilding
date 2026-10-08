@@ -6,6 +6,7 @@ import type {
   Session,
   SessionState,
   ToolOptions,
+  ToolUsage,
 } from "../types";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
@@ -61,6 +62,33 @@ export class MockApi implements DiscoveryApi {
 
   hireOptions(): Promise<readonly ToolOptions[]> {
     return Promise.resolve(this.options);
+  }
+
+  toolUsage(): Promise<readonly ToolUsage[]> {
+    const ago = (minutes: number): string => new Date(this.now().getTime() - minutes * 60_000).toISOString();
+    const ahead = (hours: number): string => new Date(this.now().getTime() + hours * 3_600_000).toISOString();
+    return Promise.resolve([
+      {
+        tool: "claude-code",
+        checkedAt: ago(20),
+        unavailable: null,
+        windows: [
+          { id: "session", label: "Session", percent: 8, resetsAt: ahead(3) },
+          { id: "week", label: "Week", percent: 40, resetsAt: ahead(72) },
+          { id: "week-fable", label: "Week · Fable", percent: 12, resetsAt: ahead(72) },
+        ],
+      },
+      {
+        tool: "codex",
+        checkedAt: ago(1),
+        unavailable: null,
+        windows: [
+          { id: "5h", label: "5-hour", percent: 5, resetsAt: ahead(4) },
+          { id: "week", label: "Week", percent: 9, resetsAt: ahead(96) },
+        ],
+      },
+      { tool: "antigravity", checkedAt: null, windows: [], unavailable: "Antigravity keeps its quota on Google's servers, not on this Mac" },
+    ]);
   }
 
   getSnapshot(): Promise<OfficeSnapshot> {

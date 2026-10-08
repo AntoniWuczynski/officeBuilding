@@ -1,4 +1,4 @@
-import type { OfficeSnapshot, Project, Session, ToolKind, ToolOptions } from "../types";
+import type { OfficeSnapshot, Project, Session, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -69,6 +69,9 @@ export interface DiscoveryApi {
 
   /** Tools the app can start, each with its models and per-model efforts. */
   hireOptions(): Promise<readonly ToolOptions[]>;
+
+  /** Usage limits of each installed tool, re-read from the tools' own files on every call. */
+  toolUsage(): Promise<readonly ToolUsage[]>;
 
   /** Add an employee: spawn a new agent session on a project. */
   spawnSession(projectId: string, request: HireRequest): Promise<Session>;

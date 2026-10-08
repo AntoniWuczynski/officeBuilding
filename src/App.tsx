@@ -102,6 +102,7 @@ export function App({ api }: Props): React.ReactElement {
   );
 
   const loadHireOptions = useCallback(() => api.hireOptions(), [api]);
+  const loadUsage = useCallback(() => api.toolUsage(), [api]);
   const pickFolder = useCallback(() => api.pickFolder(), [api]);
 
   const addFloor = useCallback(
@@ -189,6 +190,7 @@ export function App({ api }: Props): React.ReactElement {
               onPickFolder={pickFolder}
               onAddFloor={addFloor}
               onDemolishFloor={demolishFloor}
+              loadUsage={loadUsage}
             />
           </motion.div>
         ) : (

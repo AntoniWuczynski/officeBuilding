@@ -16,6 +16,7 @@ function view(snapshot: OfficeSnapshot, onDemolishFloor: Demolish = () => Promis
       onPickFolder={() => Promise.resolve(null)}
       onAddFloor={(path) => Promise.resolve({ id: "p-new", name: path, path, sessionIds: [] })}
       onDemolishFloor={onDemolishFloor}
+      loadUsage={() => Promise.resolve([])}
     />
   );
 }
