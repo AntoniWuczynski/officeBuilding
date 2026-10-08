@@ -1,9 +1,9 @@
-# FOUNDER DECISIONS — calls for Antek
+# HUMAN DECISIONS — calls for A Human
 
 A section with no status on its heading is open and shows in Office Building's
 Decisions queue for this floor. Answering it in the app marks the heading
 `DECIDED <date>` and records the answer here. Agent work lives in
-[TODO.md](TODO.md), the founder's actions in [FOUNDER_TODO.md](FOUNDER_TODO.md).
+[TODO.md](TODO.md), the human's actions in [HUMAN_TODO.md](HUMAN_TODO.md).
 
 ## OB-001 — Base the backend on CCC or build our own? — DECIDED 2026-09-29: our own Rust backend
 

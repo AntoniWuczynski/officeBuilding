@@ -1,6 +1,6 @@
 # TODO
 
-Agent work. The founder's actions live in [FOUNDER_TODO.md](FOUNDER_TODO.md) and open calls in [FOUNDER_DECISIONS.md](FOUNDER_DECISIONS.md).
+Agent work. The human's actions live in [HUMAN_TODO.md](HUMAN_TODO.md) and open calls in [HUMAN_DECISIONS.md](HUMAN_DECISIONS.md).
 
 Verification of the Phase-1 scaffold (2026-09-29) against the UX sketch and the chat brief. The sketch defines the flow (UX), not the look; the look is recorded in DESIGN.md.
 
@@ -38,7 +38,7 @@ Open:
 - [x] Hire options read live from `~/.claude/settings.json`, `~/.codex/models_cache.json` and `~/.codex/config.toml`.
 - [x] Raise-window focuses the exact iTerm2 or Terminal.app tab by tty; other terminals are brought forward.
 - [~] OB-005 — Hired agents run in in-app terminals (portable-pty + xterm.js, `src-tauri/src/pty.rs`) instead of Terminal.app. Their desks have full control, and a terminal follows its agent across `/clear`. The agent runs in the user's login shell (zsh, bash, sh or fish, otherwise /bin/zsh) with the launcher's session and terminal identity stripped. A launch that dies before the agent reaches its desk is reported as an error. The replay keeps the last 256 KiB without splitting control sequences and restores terminal modes. Two adversarial verifier rounds ran, and their tests are kept (`verifier_`, `verifier2_`). Residuals:
-  - Not yet exercised in the running app window with a real hire (FOUNDER_TODO OB-018).
+  - Not yet exercised in the running app window with a real hire (HUMAN_TODO OB-018).
   - A launcher that keeps the agent as a child of a shell only returns at the 15 s cap.
   - `office://hire-failed` can fire falsely if an agent exits before any refresh binds it (a very fast `/exit`).
   - fish quoting is unit-tested only (fish is not installed).
@@ -52,7 +52,7 @@ Open:
 - [x] A question asked in prose was lost when a system turn (task notification, peer message) followed it. The detector now reads the agent's latest reply to the human, so only the human's next prompt clears the question.
 - [x] Decisions and TODOs come from each repo's own files (FOUNDER_DECISIONS.md or HUMAN_DECISIONS.md, DECISIONS.md, FOUNDER_TODO.md or HUMAN_TODO.md, TODO.md), falling back to the app's store when a repo has none. Answering a call and ticking an item write back into the file. See FOUNDER_DECISIONS.md OB-002.
 - [x] OB-009 — Very long checklists (one real repo has 2,012 TODO items): done items fold away and the open list is capped at 200 with a count of the rest. Owner: Claude.
-- [ ] OB-010 — MCP server for assistant agents (plan §12) and real agent-to-agent delivery. Blocked on OB-011 (transport and auth) in FOUNDER_DECISIONS.md. Owner: Claude.
+- [ ] OB-010 — MCP server for assistant agents (plan §12) and real agent-to-agent delivery. Blocked on OB-011 (transport and auth) in HUMAN_DECISIONS.md. Owner: Claude.
 - [x] OB-013 — The user can add a floor from the roof sign: pick a repo folder (native folder picker in the app, typed path in the browser) and it becomes a floor, pinned in the app's store, even with no sessions yet (Antek, 2026-09-29). Owner: Claude.
 - [x] OB-012 — App icon re-rendered with transparent corners (every PNG is RGBA with alpha 0 at the corners). Owner: Claude.
 - [~] OB-015 — Rust crate brought up to the Rust rules tightened on 2026-09-29. Done:

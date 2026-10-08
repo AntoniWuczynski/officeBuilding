@@ -1,7 +1,7 @@
-# FOUNDER TODO — actions only Antek can take
+# HUMAN TODO — actions only A Human can take
 
 Agent work lives in [TODO.md](TODO.md). Open calls live in
-[FOUNDER_DECISIONS.md](FOUNDER_DECISIONS.md). Office Building shows this file
+[HUMAN_DECISIONS.md](HUMAN_DECISIONS.md). Office Building shows this file
 on the officeBuilding floor as Human TODO; ticking an item there writes `[x]`
 here.
 
