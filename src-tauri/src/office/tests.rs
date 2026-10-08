@@ -142,6 +142,26 @@ fn sessions_in_our_terminals_get_full_control() {
 }
 
 #[test]
+fn a_resumed_session_moves_to_its_new_terminal() {
+    // The session first ran in t-3, which has exited; resuming it started t-5.
+    let mut owned = BTreeMap::from([("t-3".to_string(), "mine".to_string())]);
+    let children = BTreeMap::from([(100, "t-5".to_string())]);
+    let mut sessions = vec![session("mine", ControlMode::RaiseWindow)];
+    claim_owned(
+        &mut sessions,
+        &mut owned,
+        &children,
+        pids(&[("mine", 100)]),
+        parents,
+    );
+    assert_eq!(
+        owned,
+        BTreeMap::from([("t-5".to_string(), "mine".to_string())])
+    );
+    assert_eq!(sessions[0].control, ControlMode::Full);
+}
+
+#[test]
 fn a_finished_terminal_keeps_its_last_session_and_follows_a_new_one() {
     let mut owned = BTreeMap::from([("t-1".to_string(), "mine".to_string())]);
     // The agent exited: discovery reports it read-only and no terminal is running.

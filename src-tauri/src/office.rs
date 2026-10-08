@@ -153,6 +153,8 @@ fn claim_owned(
         }
     }
     for (terminal, (_, s)) in best {
+        // A resumed session leaves the exited terminal it ran in before.
+        owned.retain(|t, id| id != &s.id || t == &terminal);
         owned.insert(terminal, s.id.clone());
     }
     owned.retain(|_, s| !elsewhere.contains(s));

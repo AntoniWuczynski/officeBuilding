@@ -93,4 +93,5 @@ Open:
   - Not yet reproduced: whether `/new` or a resume inside a running Codex leaves the old rollout open beside the new one, which would make the session ambiguous and drop its desk.
   - `codex exec`/`codex review` runs get the placeholder too, briefly, until their rollout opens.
   Owner: Claude.
+- [~] OB-039 — A session resumed from the sign-out sheet opened its old, exited terminal ("The agent exited with code 0") instead of the one now running it (Antek, 2026-10-08, screenshot). Root cause: an app-owned terminal's binding to its session outlives the agent, so after a resume two terminals claimed the session. `terminal_of` took the first by terminal id, which is usually the dead one. A terminal that claims a session now drops every other terminal's claim on it (`claim_owned`), with a test. Still to check in the real app window. Owner: Claude.
 - [x] Mac-side Phase 2 list in README.md: superseded (2026-09-29). That section now points here, and every item it held is tracked above.
