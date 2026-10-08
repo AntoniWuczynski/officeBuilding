@@ -492,7 +492,7 @@ fn resuming_runs_the_tools_own_resume_with_the_same_model_and_effort() {
             &ended(ToolKind::Codex, Some("gpt-6-astra"), Some("xhigh")),
             zsh
         ),
-        Ok("codex resume 'abc' -m 'gpt-6-astra' -c 'model_reasoning_effort=\"xhigh\"'".to_string())
+        Ok("codex -c check_for_update_on_startup=false resume 'abc' -m 'gpt-6-astra' -c 'model_reasoning_effort=\"xhigh\"'".to_string())
     );
     assert!(resume_command(&ended(ToolKind::Cursor, None, None), zsh).is_err());
 }
@@ -691,24 +691,30 @@ fn codex_launches_as_before_and_ignores_ultracode() {
     let req = hire(ToolKind::Codex, "gpt-5.5", "low", true);
     assert_eq!(
         command(&req, &["low"], "go"),
-        r#"codex -m 'gpt-5.5' -c 'model_reasoning_effort="low"' -- 'go'"#
+        r#"codex -c check_for_update_on_startup=false -m 'gpt-5.5' -c 'model_reasoning_effort="low"' -- 'go'"#
     );
 }
 
 #[test]
 fn codex_omits_the_model_and_effort_flags_when_they_are_default() {
     let req = hire(ToolKind::Codex, "default", "default", false);
-    assert_eq!(command(&req, &["default"], "go"), "codex -- 'go'");
-    assert_eq!(command(&req, &["default"], ""), "codex");
+    assert_eq!(
+        command(&req, &["default"], "go"),
+        "codex -c check_for_update_on_startup=false -- 'go'"
+    );
+    assert_eq!(
+        command(&req, &["default"], ""),
+        "codex -c check_for_update_on_startup=false"
+    );
     let model_only = hire(ToolKind::Codex, "gpt-5.5", "default", false);
     assert_eq!(
         command(&model_only, &["default"], "go"),
-        "codex -m 'gpt-5.5' -- 'go'"
+        "codex -c check_for_update_on_startup=false -m 'gpt-5.5' -- 'go'"
     );
     let effort_only = hire(ToolKind::Codex, "default", "low", false);
     assert_eq!(
         command(&effort_only, &["low"], ""),
-        r#"codex -c 'model_reasoning_effort="low"'"#
+        r#"codex -c check_for_update_on_startup=false -c 'model_reasoning_effort="low"'"#
     );
 }
 

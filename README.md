@@ -103,7 +103,8 @@ MCP surface layered on.
   are discovered too, from `~/.codex/sessions/**/rollout-*.jsonl` (titles from
   `session_index.jsonl`). A Codex session counts as running while a `codex`
   process holds its rollout file open, so threads from the ChatGPT desktop app
-  only ever show as finished.
+  only ever show as finished. Hired and resumed Codex agents skip Codex's
+  update menu.
   Spend is priced at public API list prices (`discovery/pricing.rs`), which is
   what the same work would cost through the API, not what a subscription bills.
 - **Not yet:** answering in the app, the MCP server. See `TODO.md`.

@@ -33,6 +33,10 @@ pub(super) const DESK_ACTIVE: Duration = Duration::from_secs(10);
 const DEFAULT_EFFORT: &str = "default";
 /// The model id that means "the tool's own default": pass no model flag.
 const DEFAULT_MODEL: &str = "default";
+/// Codex otherwise opens on an "Update available!" menu whenever a newer
+/// release is out, and the agent never starts work (`check_for_update_on_startup`
+/// in Codex's config).
+pub(super) const CODEX_NO_UPDATE_CHECK: &str = "-c check_for_update_on_startup=false";
 
 fn tool_label(tool: ToolKind) -> &'static str {
     match tool {
@@ -142,7 +146,7 @@ pub(super) fn launch_command(
                     quote(&format!("model_reasoning_effort=\"{}\"", req.effort))
                 )
             };
-            format!("{binary}{model_flag}{effort}{prompt}")
+            format!("{binary} {CODEX_NO_UPDATE_CHECK}{model_flag}{effort}{prompt}")
         }
         ToolKind::Antigravity => {
             let name = if bare_effort {

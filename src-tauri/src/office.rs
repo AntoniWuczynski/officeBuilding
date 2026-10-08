@@ -240,7 +240,11 @@ fn resume_command(ended: &EndedSession, shell: &str) -> Result<String, String> {
     let mut words = if claude {
         vec!["claude".to_string(), "--resume".to_string()]
     } else {
-        vec!["codex".to_string(), "resume".to_string()]
+        vec![
+            "codex".to_string(),
+            launch::CODEX_NO_UPDATE_CHECK.to_string(),
+            "resume".to_string(),
+        ]
     };
     words.push(quote(&ended.id));
     if let Some(model) = &ended.model {
