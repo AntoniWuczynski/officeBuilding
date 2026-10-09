@@ -322,6 +322,13 @@ fn signed_out(input: SessionInput, root: &Path) -> EndedSession {
     }
 }
 
+/// An ended session whose folder is gone (a deleted checkout, a temporary
+/// folder) has nowhere to resume and no floor worth keeping. A live one stays:
+/// its agent is still at work even if the folder went from under it.
+fn still_there(input: &SessionInput) -> bool {
+    input.live || Path::new(&input.cwd).is_dir()
+}
+
 /// Build floors, desks and questions from every tool's finds. `locate` places a
 /// working directory on its floor (git root in production, identity in tests).
 fn assemble(
@@ -457,6 +464,32 @@ mod tests {
     const ASK: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:01:00Z","message":{"id":"m","content":[{"type":"tool_use","id":"toolu_1","name":"AskUserQuestion","input":{"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]}}]}}"#;
     const PROSE: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:00:00Z","message":{"id":"m","content":[{"type":"text","text":"Fixed it. Should I also bump the version?"}]}}"#;
     const DONE: &str = r#"{"type":"assistant","cwd":"/home/me/code/other","timestamp":"2026-09-29T09:00:00Z","message":{"id":"m","content":[{"type":"text","text":"All done."}]}}"#;
+
+    #[test]
+    fn an_ended_session_in_a_folder_that_is_gone_is_dropped() {
+        let here = std::env::temp_dir().to_string_lossy().into_owned();
+        let line = |cwd: &str| {
+            format!(
+                r#"{{"type":"assistant","cwd":"{cwd}","timestamp":"2026-09-29T09:00:00Z","message":{{"id":"m","content":[{{"type":"text","text":"Done."}}]}}}}"#
+            )
+        };
+        let (kept, gone) = (line(&here), line("/nowhere/deleted-checkout"));
+        let inputs = claude_inputs(vec![
+            found("a", &here, &[&kept], false),
+            found("b", "/nowhere/deleted-checkout", &[&gone], false),
+            found("c", "/nowhere/deleted-checkout", &[&gone], true),
+        ]);
+        let ids: Vec<&str> = inputs
+            .iter()
+            .filter(|i| still_there(i))
+            .map(|i| i.session_id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            vec!["a", "c"],
+            "a live agent keeps its desk even there"
+        );
+    }
 
     #[test]
     fn groups_sessions_into_floors_and_queues_questions() {
