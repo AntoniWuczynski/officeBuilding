@@ -12,7 +12,7 @@ Tokens:
   --ink: #1C1F24 (text, sign borders); --paper: #FFFDF8 (signs, panels); --rule: #CFC7B6
   --signage: #B5532B (enamel sign red: roof sign, primary action only)
   Status, semantic only: --ok #2FBF71 (healthy), --wait #F2B33D (needs you), --fault #E5484D (error), --off #7C8088 (empty or finished)
-  Props (objects in the room, never chrome): --roof #8E887C, --window #AFD3E6, --monitor #2B2E33 / #40444C / #1F2226, --cork #C99A5B / #8C6436, --brass #C9A45C / #8A6D2E, desk plant (agent in a git worktree, Antek 2026-10-06) leaves #6F9A4E / #557A3A, soil #4A3626, pot #B8683F / #96512F, sticky notes #F7E27A / #9FD8F2 / #F6B5C8, --terminal #16181C with #E8E6E1 text
+  Props (objects in the room, never chrome): --roof #8E887C, --window #AFD3E6, --monitor #2B2E33 / #40444C / #1F2226, --cork #C99A5B / #8C6436, --brass #C9A45C / #8A6D2E, desk plant (agent in a git worktree, A Human 2026-10-06) leaves #6F9A4E / #557A3A, soil #4A3626, pot #B8683F / #96512F, sticky notes #F7E27A / #9FD8F2 / #F6B5C8, --terminal #16181C with #E8E6E1 text
   People: shirts, skins and hair from fixed palettes in src/lib/looks.ts, picked per agent id
 Type:
   Signage: "DIN Condensed" (macOS system font, bold), uppercase allowed only on physical signs (roof sign, floor nameplates). Fallback "Arial Narrow", sans-serif.
@@ -24,7 +24,7 @@ Motion:
   Navigation: one camera move per action (dive into a floor, pull back to the building), 450-600ms tween, ease-out, no bounce, no overshoot.
   Agent-to-agent messages: a worker walks a note to the recipient's desk.
   prefers-reduced-motion: character loops stop, camera moves become cuts, walkers teleport.
-Signature device: the metaphor made structural. Every sidebar section is an object in the room and opens its panel: memo pile on the manager's desk = Decisions queue, cork board = Human TODO, whiteboard = AI TODO, meter on the wall = Spend, brass plaque = Info, clipboard sign-out sheet by the door = Signed out (sessions to resume, Antek 2026-10-01), an agent walking a note to a colleague = agent-to-agent message.
+Signature device: the metaphor made structural. Every sidebar section is an object in the room and opens its panel: memo pile on the manager's desk = Decisions queue, cork board = Human TODO, whiteboard = AI TODO, meter on the wall = Spend, brass plaque = Info, clipboard sign-out sheet by the door = Signed out (sessions to resume, A Human 2026-10-01), an agent walking a note to a colleague = agent-to-agent message.
 First-paint emotion: command-play (a management sim: you are in charge, and it is a toy you want to poke). Owner picked "Command and Play"; recorded as one compound.
 Voice: matter-of-fact British English. States in human words: Working, Thinking, Needs you, Stuck, Idle, Finished. Errors say what happened and what to do next. No em dashes in interface copy.
 Dark mode: deferred (daylight only)

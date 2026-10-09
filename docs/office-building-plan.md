@@ -18,7 +18,7 @@ not reinvent.** Everything below was verified against live sources, not assumed.
 
 ### 0.1 The headline finding — `amirfish1/claude-command-center` (CCC)
 
-An **actively-developed, open-source, near-exact prior art** for Antek's idea.
+An **actively-developed, open-source, near-exact prior art** for A Human's idea.
 Verified: github.com/amirfish1/claude-command-center (updated ~weekly, has forks,
 listed in "awesome-agent-orchestrators", live demo at ccc.amirfish.ai/demo).
 
@@ -77,7 +77,7 @@ command center) · agent-sessions (searches Codex/Claude history). **Common
 pattern worth stealing: git-worktree isolation per session.** Our differentiator
 = the **spatial office metaphor** + unified cross-tool + **manager sidebar**.
 
-### 0.6 The key architectural fork (for Antek to decide)
+### 0.6 The key architectural fork (for A Human to decide)
 
 **Option A — Reuse CCC as the backend.** Build the office UI over CCC's data/API
 (or fork it). Fastest to a real, cross-tool, working app; agent↔agent + spend +
@@ -114,7 +114,7 @@ backend swappable either way, so this decision stays cheap and reversible.
 cross-platform so `pnpm -r build` / `pnpm verify` never needs Rust). `tauri:dev`
 / `tauri:build` are separate Mac-only scripts. `src-tauri/target/` gitignored.
 Note: this introduces **Rust** to a pnpm/uv repo — a deliberate, contained
-addition Antek has signed off (desktop app).
+addition A Human has signed off (desktop app).
 
 ---
 
@@ -179,7 +179,7 @@ Clicking the manager/CEO office opens the enlarged sidebar:
 Question queue**. Each question renders as **A) / B) / Other: [input]** (exactly
 the human-in-the-loop pattern) and the answer routes back to the agent (for
 app-spawned / MCP-wired sessions). The sketch's note reads "to be ticked off by
-me" (Antek confirmed, 2026-09-29): the decision queue is answered by the human.
+me" (A Human confirmed, 2026-09-29): the decision queue is answered by the human.
 
 ---
 
@@ -258,9 +258,9 @@ swapping mock → real is a one-line provider change.
 
 ---
 
-## 11. Open decisions for Antek
+## 11. Open decisions for A Human
 
-0. **THE BIG ONE — backend strategy (§0.6): REVISED (Antek, 2026-09-29) →
+0. **THE BIG ONE — backend strategy (§0.6): REVISED (A Human, 2026-09-29) →
    our own Rust backend.** CCC relicensed on 2026-07-28 to a revocable,
    non-commercial, source-available licence that bars competing products (see
    `docs/research/ccc-evaluation.md`). Office Building will be public and never
@@ -283,7 +283,7 @@ swapping mock → real is a one-line provider change.
    PLUS walking-between-desks / reactions) — sexier; the mock layer already drives
    `SessionState`, so richer animation is additive.
 
-## 12. NEW requirement — office-building as an MCP server (Antek, 2026-09-28)
+## 12. NEW requirement — office-building as an MCP server (A Human, 2026-09-28)
 
 The app **exposes its own MCP server** so personal-assistant agents can control the building programmatically —
 not just via the GUI. Proposed MCP tools (mirror the `DiscoveryApi` + actions):
