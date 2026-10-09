@@ -167,16 +167,18 @@ pub enum HookEvent {
     Stop,
     SessionStart,
     Notification,
+    PermissionRequest,
 }
 
 impl HookEvent {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::PreToolUse,
         Self::PostToolUse,
         Self::UserPromptSubmit,
         Self::Stop,
         Self::SessionStart,
         Self::Notification,
+        Self::PermissionRequest,
     ];
 
     #[must_use]
@@ -188,6 +190,7 @@ impl HookEvent {
             Self::Stop => "Stop",
             Self::SessionStart => "SessionStart",
             Self::Notification => "Notification",
+            Self::PermissionRequest => "PermissionRequest",
         }
     }
 

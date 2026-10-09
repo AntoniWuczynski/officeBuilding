@@ -19,7 +19,8 @@ const WRITE_GRACE: Duration = Duration::from_secs(5);
 /// An event this old says nothing about the session now.
 const STALE: Duration = Duration::from_mins(30);
 
-/// The events each tool's feed hooks report. Codex has no `Notification` hook.
+/// The events each tool's feed hooks report. Codex has no `Notification` hook;
+/// its `PermissionRequest` fires just before an approval prompt (docs, checked 2026-10-09).
 #[must_use]
 pub fn events(tool: ToolKind) -> &'static [HookEvent] {
     match tool {
@@ -34,6 +35,7 @@ pub fn events(tool: ToolKind) -> &'static [HookEvent] {
             HookEvent::UserPromptSubmit,
             HookEvent::PreToolUse,
             HookEvent::PostToolUse,
+            HookEvent::PermissionRequest,
             HookEvent::Stop,
         ],
         _ => &[],
@@ -69,7 +71,7 @@ fn state_of(event: HookEvent, payload: &Payload) -> SessionState {
         HookEvent::Notification if payload.notification_type.as_deref() == Some("idle_prompt") => {
             SessionState::Idle
         }
-        HookEvent::Notification => SessionState::WaitingHuman,
+        HookEvent::Notification | HookEvent::PermissionRequest => SessionState::WaitingHuman,
         HookEvent::Stop => SessionState::Idle,
     }
 }
@@ -259,6 +261,29 @@ mod tests {
             !feed.dir().join("Stop.abc123").exists(),
             "dropped once it can no longer be in flight"
         );
+    }
+
+    // Codex fires `PermissionRequest` just before its approval prompt, and nothing in its rollout
+    // shows the wait (a hire sat on "Would you like to run the following command?" as Working).
+    #[test]
+    fn a_codex_approval_prompt_raises_the_agents_hand() {
+        assert!(events(ToolKind::Codex).contains(&HookEvent::PermissionRequest));
+        let mut feed = feed("codex-approval");
+        fire(
+            &feed,
+            HookEvent::PreToolUse,
+            r#"{"session_id":"c1","tool_name":"Bash"}"#,
+        );
+        fire(
+            &feed,
+            HookEvent::PermissionRequest,
+            r#"{"session_id":"c1","tool_name":"Bash","tool_input":{"command":"node /tmp/review.ts","description":null}}"#,
+        );
+        feed.collect(SystemTime::now() + Duration::from_millis(10));
+        let mut sessions = vec![session("c1", "2000-01-01T00:00:00Z")];
+        sessions[0].tool = ToolKind::Codex;
+        feed.apply(&mut sessions);
+        assert_eq!(sessions[0].state, SessionState::WaitingHuman);
     }
 
     #[test]
