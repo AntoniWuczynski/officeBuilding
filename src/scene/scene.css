@@ -863,3 +863,18 @@ button.roof-sign:hover {
 .pod * {
   pointer-events: none;
 }
+
+/* ---- the setup floor's plant room, below ground ----
+   The lobby slab carries the ground line; the basement's slab front is earth. */
+.storey.lobby.is-ground > .iso-box:first-child > .iso-front {
+  border-top: 4px solid var(--leaf);
+}
+.storey.is-plant .storey-slide > .iso-box:first-child > .iso-front {
+  background: var(--soil) !important;
+}
+.nameplate-kind {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}

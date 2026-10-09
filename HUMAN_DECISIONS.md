@@ -21,6 +21,26 @@ agents' DECISIONS.md log), human TODOs from FOUNDER_TODO.md or HUMAN_TODO.md,
 agent TODOs from TODO.md, each falling back to the app's own store when a repo
 has no such file.
 
+## OB-040 — Should the building become a hub for agent harnesses? — DECIDED 2026-10-08: yes, a hub that launches each official CLI
+
+Decided by A Human on 2026-10-08:
+
+- Office Building becomes a hub where the backend (Claude Code, Codex, Antigravity, opencode, Cursor CLI) is swappable. Gemini CLI is deprecated, and Antigravity replaces it. Skills, hooks, MCP servers and plugins are set up once, and each item picks the harnesses it applies to, with an option for all of them.
+- A setup floor is where agents work on that setup.
+- The building runs each tool's own unmodified CLI, so to the vendor it is no different from a terminal. It never runs its own agent loop and never touches login tokens.
+- Existing setups are discovered on first run and then watched.
+- Terminal by default, plus a structured protocol where the harness has an official one (hybrid).
+- rulesync does whatever it can, and our own code does the rest.
+- The building's setup applies only inside the app (A Human, 2026-10-08). It never writes into the real `~/.claude`, `~/.codex` or a project's harness folders. rulesync writes into a staging folder the building owns, which reaches each tool only at launch.
+- Open source and public, never commercial.
+- Follow-up calls (A Human, 2026-10-08):
+  - The setup floor looks different from the rest. It is a plant room in the basement, below the lobby.
+  - Install opencode and Cursor so their support can be checked against the real tools.
+  - Codex skills may come through an overlay `CODEX_HOME` that links back to the real `~/.codex` (including `auth.json`), if a test shows that Codex loads the skills and its sessions still land in the real folder.
+  - Build the hook status feed, Codex app-server desks and ACP desks.
+
+Evidence: `docs/research/harness-hub/`.
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.

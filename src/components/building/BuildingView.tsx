@@ -53,6 +53,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
       counts: sessionCounts(sessions),
       pending: questionsForProject(snapshot, project.id).length,
       dimmed: !matchesQuery(project, query),
+      plant: project.id === snapshot.setupProjectId,
     };
   });
   const standing = usePresence(floors, (f) => f.project.id, animate);

@@ -10,6 +10,8 @@ import { lookFor } from "../../lib/looks";
 import { Billboard, CameraContext, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
+import { materialsFor } from "../../scene/materials";
+import { Duct, Tank, toolboxTop } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
 import { BackWall, LeftWall, ManagerOffice, SignOutStand } from "./RoomObjects";
 import type { RoomObjectsModel } from "./RoomObjects";
@@ -43,10 +45,14 @@ function seatsFor(sessions: readonly Session[]): Map<string, PlanPoint> {
   return new Map(sessions.map((s, i) => [s.id, seatOf(roomDeskSlot(i))]));
 }
 
+/** The plant room's tank, in the front corner: its x, how far it stands from the front, its size. */
+const TANK = { x: 8, back: 46, size: 30 } as const;
+
 const ACTION_WORDS: Record<Session["control"], string> = {
   full: "Open its terminal.",
   "raise-window": "Bring its terminal window to the front.",
   "read-only": "Open its transcript.",
+  structured: "Open its conversation.",
 };
 
 /** The open-plan floor: one desk per session, the hire desk, and the manager's objects. */
@@ -101,11 +107,24 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
   const walking = new Set(walks.map((w) => w.walkerId));
   const receiving = new Set(walks.flatMap((w) => (w.toId === null ? [] : [w.toId])));
   const hireSlot = roomDeskSlot(sessions.length);
+  const toolbox = toolboxTop(TANK.x, depth - TANK.back, TANK.size);
 
   return (
     <>
-      <IsoBox x={0} y={0} w={ROOM.width} d={depth} h={ROOM.slab} top="var(--boards)" front="var(--concrete)" side="var(--concrete-shade)" />
+      <IsoBox x={0} y={0} w={ROOM.width} d={depth} h={ROOM.slab} top={materialsFor(objects.plant).floor} front="var(--concrete)" side="var(--concrete-shade)" />
       <BackWall model={objects} depth={depth} onOpen={onOpenSection} />
+      {objects.plant ? (
+        <>
+          {/* Clear of the whiteboard and the hire desk: the duct over the pipes, the tank in the front corner. */}
+          <Duct x={ROOM.width * 0.66} length={ROOM.width * 0.34} z={ROOM.slab + ROOM.wallHeight - 12} />
+          <Tank x={TANK.x} y={depth - TANK.back} z={ROOM.slab} size={TANK.size} height={ROOM.wallHeight * 0.5} />
+          <Billboard x={toolbox.x} y={toolbox.y} z={ROOM.slab + toolbox.h + 6}>
+            <button type="button" className="memo-tag" data-testid="object-setup" aria-label="Toolbox: the building's setup. Open Setup." onClick={() => onOpenSection("setup")}>
+              Toolbox
+            </button>
+          </Billboard>
+        </>
+      ) : null}
       <LeftWall model={objects} depth={depth} onOpen={onOpenSection} />
       <ManagerOffice model={objects} depth={depth} onOpen={onOpenSection} />
       <SignOutStand model={objects} depth={depth} onOpen={onOpenSection} />

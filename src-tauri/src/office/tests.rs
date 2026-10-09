@@ -10,6 +10,9 @@ fn office(tag: &str) -> (Office, PathBuf) {
             dir.join("home"),
             store,
             Terminals::new(std::sync::Arc::new(|_| {})),
+            Library::new(dir.join("Setup"), dir.join("setup-build")),
+            Feed::new(dir.join("feed")),
+            crate::structured::desks::Desks::new(std::sync::Arc::new(|_| {})),
         ),
         dir,
     )
@@ -197,7 +200,15 @@ fn a_hired_terminal_is_addressable_by_its_session() {
     // Nothing is read or saved here: the store starts empty for a missing file.
     let dir = std::env::temp_dir().join("ob-office-test-missing");
     let store = Store::open(dir.join("store.json")).expect("store");
-    let office = Office::new(dir, store, Terminals::new(std::sync::Arc::new(|_| {})));
+    let setup = Library::new(dir.join("Setup"), dir.join("setup-build"));
+    let office = Office::new(
+        dir,
+        store,
+        Terminals::new(std::sync::Arc::new(|_| {})),
+        setup,
+        Feed::new(std::env::temp_dir().join("ob-office-test-missing-feed")),
+        crate::structured::desks::Desks::new(std::sync::Arc::new(|_| {})),
+    );
     let terminal = office
         .terminals
         .spawn(
@@ -399,6 +410,7 @@ fn hiring_onto_a_floor_whose_folder_is_gone_fails_clearly() {
         model: "claude-opus-5-5".to_string(),
         effort: "high".to_string(),
         ultracode: false,
+        structured: false,
     };
     let err = office.spawn_session(&floor.id, &req).expect_err("gone");
     assert_eq!(
@@ -495,6 +507,7 @@ fn a_task_named_like_a_claude_command_is_refused() {
         model: "claude-opus-5-5".to_string(),
         effort: "high".to_string(),
         ultracode: false,
+        structured: false,
     };
     assert_eq!(
         office.spawn_session(&floor.id, &req),
@@ -535,22 +548,35 @@ fn resuming_runs_the_tools_own_resume_with_the_same_model_and_effort() {
     assert_eq!(
         resume_command(
             &ended(ToolKind::ClaudeCode, Some("claude-opus-5-5"), Some("high")),
-            zsh
+            zsh,
+            &Launch::default()
         ),
         Ok("claude --resume 'abc' --model 'claude-opus-5-5' --effort 'high'".to_string())
     );
     assert_eq!(
-        resume_command(&ended(ToolKind::ClaudeCode, None, None), zsh),
+        resume_command(
+            &ended(ToolKind::ClaudeCode, None, None),
+            zsh,
+            &Launch::default()
+        ),
         Ok("claude --resume 'abc'".to_string())
     );
     assert_eq!(
         resume_command(
             &ended(ToolKind::Codex, Some("gpt-6-astra"), Some("xhigh")),
-            zsh
+            zsh,
+            &Launch::default()
         ),
         Ok("codex -c check_for_update_on_startup=false resume 'abc' -m 'gpt-6-astra' -c 'model_reasoning_effort=\"xhigh\"'".to_string())
     );
-    assert!(resume_command(&ended(ToolKind::Cursor, None, None), zsh).is_err());
+    assert!(
+        resume_command(
+            &ended(ToolKind::Cursor, None, None),
+            zsh,
+            &Launch::default()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -712,11 +738,19 @@ fn hire(tool: ToolKind, model: &str, effort: &str, ultracode: bool) -> HireReque
         model: model.to_string(),
         effort: effort.to_string(),
         ultracode,
+        structured: false,
     }
 }
 
 fn command(req: &HireRequest, efforts: &[&str], task: &str) -> String {
-    launch_command(req, &model(&req.model, efforts), task, ZSH).expect("command")
+    launch_command(
+        req,
+        &model(&req.model, efforts),
+        task,
+        ZSH,
+        &Launch::default(),
+    )
+    .expect("command")
 }
 
 #[test]
@@ -945,6 +979,7 @@ fn a_tool_that_is_not_installed_cannot_be_hired() {
         models: Vec::new(),
         default_model: String::new(),
         ultracode: None,
+        structured: false,
     };
     let options = vec![
         listed(ToolKind::Codex, true),

@@ -2,6 +2,7 @@
 //! Every Tauri command goes through here, so there is one source of truth.
 
 use crate::discovery::{self, Discovered, Discovery};
+use crate::feed::Feed;
 use crate::focus;
 use crate::model::{
     AgentMessage, AnswerVia, ControlMode, EndedSession, HireFailed, HireRequest, OfficeSnapshot,
@@ -11,18 +12,22 @@ use crate::model::{
 use crate::options;
 use crate::project_files::{self, ProjectFiles};
 use crate::pty::{self, Terminals};
+use crate::setup::{Launch, Library};
 use crate::store::Store;
+use crate::structured::{self, desks::Desks};
 use launch::{
     DESK_ACTIVE, Desk, Launched, desk_session, desk_session_id, hireable, is_discovered,
     launch_command,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 struct Inner {
     discovery: Discovery,
+    /// Events from the hooks of agents the app launched.
+    feed: Feed,
     found: Discovered,
     /// Decisions and TODOs from each floor's own files, by project id.
     files: BTreeMap<String, ProjectFiles>,
@@ -45,6 +50,11 @@ pub struct Office {
     home: PathBuf,
     inner: Mutex<Inner>,
     terminals: Terminals,
+    setup: Library,
+    /// Agents driven over their tool's protocol instead of a terminal.
+    structured: Arc<Desks>,
+    /// The setup floor's project id: the library folder is its floor.
+    setup_project_id: String,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -232,18 +242,20 @@ fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<Stri
 }
 
 /// The tool's own resume command for an ended session, on the model and effort it ran with.
-fn resume_command(ended: &EndedSession, shell: &str) -> Result<String, String> {
+/// `setup`'s environment goes before the binary, its options after it.
+fn resume_command(ended: &EndedSession, shell: &str, setup: &Launch) -> Result<String, String> {
     let quote = |s: &str| pty::quote(shell, s);
+    let (env, opts) = (setup.prefix(&quote), setup.args(&quote));
     let claude = match ended.tool {
         ToolKind::ClaudeCode => true,
         ToolKind::Codex => false,
         _ => return Err("only Claude Code and Codex sessions can be resumed so far".to_string()),
     };
     let mut words = if claude {
-        vec!["claude".to_string(), "--resume".to_string()]
+        vec![format!("{env}claude{opts}"), "--resume".to_string()]
     } else {
         vec![
-            "codex".to_string(),
+            format!("{env}codex{opts}"),
             launch::CODEX_NO_UPDATE_CHECK.to_string(),
             "resume".to_string(),
         ]
@@ -271,12 +283,23 @@ fn now_iso() -> String {
 }
 
 impl Office {
-    pub fn new(home: PathBuf, store: Store, terminals: Terminals) -> Self {
+    pub fn new(
+        home: PathBuf,
+        store: Store,
+        terminals: Terminals,
+        setup: Library,
+        feed: Feed,
+        structured: Arc<Desks>,
+    ) -> Self {
         let discovery = Discovery::new(home.clone());
         Self {
+            setup_project_id: discovery::project_id(&discovery::project_root(setup.dir())),
+            setup,
+            structured,
             home,
             inner: Mutex::new(Inner {
                 discovery,
+                feed,
                 found: Discovered::default(),
                 files: BTreeMap::new(),
                 store,
@@ -315,6 +338,12 @@ impl Office {
                     .values()
                     .map(|d| d.root.to_string_lossy().into_owned()),
             )
+            .chain(
+                self.structured
+                    .roots()
+                    .into_iter()
+                    .map(|r| r.to_string_lossy().into_owned()),
+            )
             .collect();
         add_pinned_floors(&mut found, &floors, &self.home);
         for (terminal, desk) in &inner.desks {
@@ -346,6 +375,8 @@ impl Office {
             .hired
             .retain(|terminal, _| !inner.owned.contains_key(terminal));
         reopen_earlier_sessions(&mut found.sessions, &inner.ran_in);
+        inner.feed.collect(SystemTime::now());
+        inner.feed.apply(&mut found.sessions);
         let files: BTreeMap<String, ProjectFiles> = found
             .roots
             .iter()
@@ -397,19 +428,25 @@ impl Office {
                 all
             })
             .collect();
+        let (projects, sessions, ended) = with_structured(&inner.found, &self.structured);
         OfficeSnapshot {
-            projects: inner.found.projects.clone(),
-            sessions: inner.found.sessions.clone(),
-            ended: inner.found.ended.clone(),
+            projects,
+            sessions,
+            ended,
             questions,
             decisions,
             todos,
             messages: r.messages.clone(),
+            setup_project_id: self.setup_project_id.clone(),
         }
     }
 
     pub fn hire_options(&self) -> Vec<ToolOptions> {
-        options::hire_options(&self.home)
+        let mut all = options::hire_options(&self.home);
+        for o in &mut all {
+            o.structured = o.available && structured::supports(o.tool);
+        }
+        all
     }
 
     /// Start an agent in an in-app terminal, in the floor's folder. It appears
@@ -436,6 +473,9 @@ impl Office {
             ));
         }
         let task = req.title.trim();
+        if req.structured {
+            return self.spawn_structured(project_id, &root, req, model, task);
+        }
         if req.tool == ToolKind::Codex && task.is_empty() {
             // Codex writes nothing discovery can see until its first turn.
             return Err(
@@ -448,7 +488,11 @@ impl Office {
                 "“{task}” is also a claude command, so describe the task in a few more words"
             ));
         }
-        let command = launch_command(req, model, task, &pty::login_shell())?;
+        let shell = pty::login_shell();
+        let setup = self
+            .setup
+            .launch(req.tool, &self.home, Some(&self.lock().feed))?;
+        let command = launch_command(req, model, task, &shell, &setup)?;
         let title = if task.is_empty() { "New task" } else { task };
         let launched = if is_discovered(req.tool) {
             Launched::Discovered {
@@ -489,6 +533,9 @@ impl Office {
 
     /// Resume an ended session in an in-app terminal, in the folder it ran in.
     pub fn resume_session(&self, session_id: &str) -> Result<(), String> {
+        if let Some(resumed) = self.resume_structured(session_id) {
+            return resumed;
+        }
         let (ended, dir) = {
             let inner = self.lock();
             let ended = inner.found.ended.iter().find(|e| e.id == session_id);
@@ -501,7 +548,11 @@ impl Office {
                 }
             }
         };
-        let command = resume_command(&ended, &pty::login_shell())?;
+        let shell = pty::login_shell();
+        let setup = self
+            .setup
+            .launch(ended.tool, &self.home, Some(&self.lock().feed))?;
+        let command = resume_command(&ended, &shell, &setup)?;
         self.launch(&dir, &command, Launched::Discovered { title: ended.title })
             .map(drop)
     }
@@ -897,5 +948,8 @@ fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
 }
 
 mod launch;
+mod setup;
+mod structured_desks;
+use structured_desks::with_structured;
 #[cfg(test)]
 mod tests;

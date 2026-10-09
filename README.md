@@ -52,6 +52,37 @@ sessions as an **office building**:
   model and an effort level the model supports, ultracode for Claude Code, and
   name the task. Model lists come from each tool's own data, so new models
   appear by themselves.
+- **The Setup floor** is a plant room in the basement, below the lobby. It holds
+  the building's own skills, instructions, MCP servers and hooks, and you pick
+  which tools each one goes to (or all of them). The building hands them only to
+  the agents it starts, and never changes your own `~/.claude`, `~/.codex` or
+  other tool folders:
+  - Claude Code gets a generated `--plugin-dir` and `--append-system-prompt-file`.
+  - Codex gets an overlay `CODEX_HOME`, which links back to your real one, and
+    `-c` options. It asks you to trust the building's hooks once, with `/hooks`.
+  - Antigravity gets `--add-dir` (skills and instructions).
+  - opencode gets `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG_CONTENT`.
+  - Cursor gets `--plugin-dir` (skills only).
+
+  The floor's folder (`Setup/` in the app's data folder) is the library itself:
+  `skills/`, `instructions/` and `setup.json`. Agents you hire there can edit it.
+  Its toolbox opens the Setup panel, which also lists what each tool already has
+  (skills, MCP servers, hooks and plugins), updates when those files change, and
+  can copy a tool's own skill, MCP server (started by a command or reached over
+  HTTP), instructions file or hook into the building, one at a time or everything
+  a tool has left at once.
+  [`docs/harness-hub-plan.md`](docs/harness-hub-plan.md) has the details.
+- **Exact desk states from hooks.** Agents the app starts (Claude Code, and Codex
+  once its hooks are trusted) report each hook event to the building, so a
+  permission prompt shows as a raised hand straight away.
+- **Desks without a terminal.** Hiring Codex, opencode or Cursor can tick
+  "Without a terminal". The building then talks to the agent over its own
+  protocol (Codex's app-server, the Agent Client Protocol for opencode and
+  Cursor), and clicking the desk opens a conversation panel: the transcript,
+  tool calls, approvals to allow or decline (with fields to fill in when the
+  agent asks a question or an MCP server asks for a form), and a box for the
+  next message. An ended one waits on the sign-out sheet, and Resume reopens its
+  conversation on the same desk.
 - **Usage signs** stand beside the building, one per installed tool, with its
   limit windows (5-hour session, week), the time the tool last measured them
   and a Re-check button. Re-check has Claude Code fetch its usage again

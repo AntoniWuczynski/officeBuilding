@@ -28,6 +28,7 @@ dirs = "5"
 libc = "0.2"
 # Pseudo-terminals for agents hired from the app.
 portable-pty = "0.9"
+toml = "=1.1.6"
 
 [features]
 # by default Tauri v2 apps enable no extra features here

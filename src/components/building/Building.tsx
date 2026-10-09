@@ -24,35 +24,43 @@ export function buildingHeight(floorCount: number): number {
   return (floorCount + 1) * STOREY.height + 32;
 }
 
-/** The cutaway: lobby at the bottom, one storey per project, roof on top. */
+/**
+ * The cutaway: the setup floor's plant room in the basement, then the lobby,
+ * one storey per project, and the roof on top.
+ */
 export function Building({ floors, animate, width, name, onRename, onEnter, onAddFloor, onDemolish, onGone }: BuildingProps): React.ReactElement {
   const n = floors.length;
+  const basement = floors.filter((f) => f.item.plant);
+  const above = floors.filter((f) => !f.item.plant);
+  const lobby = basement.length;
+  const storey = ({ key, item, phase }: Present<FloorModel>, level: number): React.ReactElement => (
+    <Storey
+      key={key}
+      level={level}
+      width={width}
+      floor={item}
+      phase={phase}
+      animate={animate}
+      onEnter={onEnter}
+      onDemolish={onDemolish}
+      onGone={onGone}
+    />
+  );
   return (
     <>
-      <Lobby width={width} />
-      {floors.map(({ key, item, phase }, k) => (
-        <Storey
-          key={key}
-          level={n - k}
-          width={width}
-          floor={item}
-          phase={phase}
-          animate={animate}
-          onEnter={onEnter}
-          onDemolish={onDemolish}
-          onGone={onGone}
-        />
-      ))}
+      {basement.map((f) => storey(f, 0))}
+      <Lobby width={width} level={lobby} />
+      {above.map((f, k) => storey(f, n - k))}
       <Roof width={width} level={n + 1} name={name} onRename={onRename} onAddFloor={onAddFloor} />
     </>
   );
 }
 
-function Lobby({ width }: { readonly width: number }): React.ReactElement {
+function Lobby({ width, level }: { readonly width: number; readonly level: number }): React.ReactElement {
   const wallH = STOREY.height - STOREY.slab;
-  const style: StyleWithVars = { "--z": "0px" };
+  const style: StyleWithVars = { "--z": `${level * STOREY.height}px` };
   return (
-    <div className="storey lobby" style={style}>
+    <div className={level > 0 ? "storey lobby is-ground" : "storey lobby"} style={style}>
       <IsoBox x={0} y={0} w={width} d={STOREY.depth} h={STOREY.slab} top="var(--boards)" front="var(--concrete)" side="var(--concrete-shade)" />
       <Wall axis="back" x={0} y={0} z={STOREY.slab} length={width} height={wallH} background="var(--window-wall)" className="wall-windows" />
       <Wall axis="left" x={0} y={0} z={STOREY.slab} length={STOREY.depth} height={wallH} background="var(--plaster-shade)" />

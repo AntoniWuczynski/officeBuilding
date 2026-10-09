@@ -94,4 +94,36 @@ Open:
   - `codex exec`/`codex review` runs get the placeholder too, briefly, until their rollout opens.
   Owner: Claude.
 - [~] OB-039 — A session resumed from the sign-out sheet opened its old, exited terminal ("The agent exited with code 0") instead of the one now running it (A Human, 2026-10-08, screenshot). Root cause: an app-owned terminal's binding to its session outlives the agent, so after a resume two terminals claimed the session. `terminal_of` took the first by terminal id, which is usually the dead one. A terminal that claims a session now drops every other terminal's claim on it (`claim_owned`), with a test. Still to check in the real app window. Owner: Claude.
+- [~] OB-041 — Harness hub (OB-040). Plan and per-tool routes in `docs/harness-hub-plan.md`, driver notes in `docs/research/harness-hub/`. Built:
+  - The setup floor, a plant room in the basement. Its library holds skills, instructions, MCP servers and hooks, each aimed at chosen tools.
+  - The Setup panel: a watched inventory of each tool's own setup, with "Copy in".
+  - Launch-only injection for all five tools.
+  - The hook status feed.
+  - Structured desks: Codex app-server, and ACP for opencode and Cursor, opened in a conversation panel.
+  Checked:
+  - Rust tests (210, plus 6 live tests through real Codex, opencode and Cursor) and TS tests (190).
+  - Each launch route by hand with a probe.
+  - The browser build's panels.
+  - A dev run of the app (floor created).
+  rulesync was not used: there was nothing it could do from a staging folder (the plan has the reasons).
+  Residuals:
+  - Not yet checked in the real app window: a hire that uses the building's setup, a structured hire, and Codex's own session file merging into its structured desk.
+  - Codex's hooks (the building's and the status feed) run only after A Human trusts them once with `/hooks`.
+  Owner: Claude.
+- [~] OB-042 — Harness hub, second pass (OB-040). Built:
+  - **Model lists:** opencode (`opencode models`, after "Tool default") and Cursor (`cursor-agent models`, with Cursor's default chosen), cached like Antigravity's.
+  - **Copy in for instructions and hooks:** a tool's instructions file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.config/opencode/AGENTS.md`, `~/.gemini/GEMINI.md`) and its hooks one by one, aimed at the other tools.
+  - **Resuming a structured desk:** an ended one joins its floor's sign-out sheet. Resume reopens the conversation on the same desk, through Codex's `thread/resume` or ACP's `session/load`, with the history replayed.
+  - **Typed answers:** an approval can carry fields (text, secret, number, yes or no, a pick-list with "other"). This covers Codex questions (several at once, free text, secrets) and MCP forms (sent in their JSON types).
+  - **Cursor's blocking requests:** `cursor/ask_question` (pick-lists, then Send, Skip or Cancel) and `cursor/create_plan` (Accept, Reject or Cancel). Its to-do, task and image notifications show as notes.
+  - **Fixed:** the ChatGPT desktop app's `codex exec-server` no longer gets a "New Codex session" desk.
+  Checked:
+  - Rust: 217 tests, plus live resumes through real Codex and opencode.
+  - TS: 192 tests, including a field answered with an answer of its own.
+  Residuals:
+  - Cursor did not call `cursor/ask_question` in a live run (it asked in text), so that path follows Cursor's docs and the unit tests only.
+  - Structured desks are kept in memory: after the app restarts, a Codex conversation resumes in a terminal from discovery's sheet, and an opencode or Cursor one cannot be resumed.
+  - Not yet seen in the real app window.
+  Owner: Claude.
+- [ ] OB-043 — No launch option exists today for Antigravity's MCP servers and hooks, or for Cursor's MCP servers, hooks and instructions. Checked 2026-10-08 against `agy --help` and Cursor's `--plugin-dir`. Revisit when the tools add one. Owner: Claude.
 - [x] Mac-side Phase 2 list in README.md: superseded (2026-09-29). That section now points here, and every item it held is tracked above.

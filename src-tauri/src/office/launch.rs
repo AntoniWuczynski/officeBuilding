@@ -5,6 +5,7 @@ use crate::model::{
     ControlMode, HireRequest, ModelOption, Session, SessionState, Spend, ToolKind, ToolOptions,
 };
 use crate::pty;
+use crate::setup::Launch;
 use crate::tools;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -103,14 +104,18 @@ pub(super) fn desk_session(terminal: &str, desk: &Desk, idle: Duration) -> Sessi
 /// (`--model`, `--effort`, `--settings <file-or-json>`), `codex`, `agy --help`
 /// (`--model`, `-i`), opencode's CLI docs (`--model`) and Cursor's CLI docs
 /// (`--model`). The last two take no prompt: their interactive-with-prompt
-/// form is unconfirmed, so the task only names the desk.
+/// form is unconfirmed, so the task only names the desk. `setup`'s environment
+/// goes before the binary, its options after it.
 pub(super) fn launch_command(
     req: &HireRequest,
     model: &ModelOption,
     task: &str,
     shell: &str,
+    setup: &Launch,
 ) -> Result<String, String> {
     let quote = |s: &str| pty::quote(shell, s);
+    let env = setup.prefix(&quote);
+    let setup = setup.args(&quote);
     let bare_effort = req.effort == DEFAULT_EFFORT;
     // `--` ends the options, so a task starting with `-` stays the prompt.
     let prompt = if task.is_empty() {
@@ -127,7 +132,7 @@ pub(super) fn launch_command(
                 format!(" --effort {}", quote(&req.effort))
             };
             format!(
-                "{binary} --model {}{effort} --settings {}{prompt}",
+                "{env}{binary}{setup} --model {}{effort} --settings {}{prompt}",
                 quote(&model.id),
                 quote(&format!("{{\"ultracode\":{}}}", req.ultracode))
             )
@@ -146,7 +151,7 @@ pub(super) fn launch_command(
                     quote(&format!("model_reasoning_effort=\"{}\"", req.effort))
                 )
             };
-            format!("{binary} {CODEX_NO_UPDATE_CHECK}{model_flag}{effort}{prompt}")
+            format!("{env}{binary}{setup} {CODEX_NO_UPDATE_CHECK}{model_flag}{effort}{prompt}")
         }
         ToolKind::Antigravity => {
             let name = if bare_effort {
@@ -165,11 +170,13 @@ pub(super) fn launch_command(
             } else {
                 format!(" -i={}", quote(task))
             };
-            format!("{binary} --model {}{prompt}", quote(&name))
+            format!("{env}{binary}{setup} --model {}{prompt}", quote(&name))
         }
-        ToolKind::Opencode | ToolKind::Cursor if model.id == DEFAULT_MODEL => binary.to_string(),
+        ToolKind::Opencode | ToolKind::Cursor if model.id == DEFAULT_MODEL => {
+            format!("{env}{binary}{setup}")
+        }
         ToolKind::Opencode | ToolKind::Cursor => {
-            format!("{binary} --model {}", quote(&model.id))
+            format!("{env}{binary}{setup} --model {}", quote(&model.id))
         }
         ToolKind::Unknown => return Err("that tool cannot be hired".to_string()),
     })

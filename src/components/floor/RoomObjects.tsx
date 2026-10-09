@@ -5,6 +5,7 @@ import { ROOM } from "../../lib/layout";
 import { MANAGER_LOOK } from "../../lib/looks";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
+import { materialsFor } from "../../scene/materials";
 import { Person } from "../../scene/Person";
 import type { Section } from "./sections";
 
@@ -19,6 +20,8 @@ export interface RoomObjectsModel {
   readonly spend: Spend;
   /** Agents that left recently: lines on the sign-out sheet. */
   readonly signedOut: number;
+  /** The setup floor: built as a plant room. */
+  readonly plant: boolean;
 }
 
 interface ObjectsProps {
@@ -38,7 +41,16 @@ export function BackWall({ model, onOpen }: ObjectsProps): React.ReactElement {
   const open = model.aiTodos.filter((t) => !t.done);
   const shown = model.aiTodos.slice(0, 3);
   return (
-    <Wall axis="back" x={0} y={0} z={ROOM.slab} length={ROOM.width} height={ROOM.wallHeight} background="var(--window-wall)" className="wall-windows">
+    <Wall
+      axis="back"
+      x={0}
+      y={0}
+      z={ROOM.slab}
+      length={ROOM.width}
+      height={ROOM.wallHeight}
+      background={materialsFor(model.plant).backWall}
+      className={materialsFor(model.plant).backClass}
+    >
       <button
         type="button"
         className="whiteboard"
@@ -76,7 +88,7 @@ export function BackWall({ model, onOpen }: ObjectsProps): React.ReactElement {
 export function LeftWall({ model, depth, onOpen }: ObjectsProps): React.ReactElement {
   const open = model.humanTodos.filter((t) => !t.done);
   return (
-    <Wall axis="left-upright" x={0} y={depth} z={ROOM.slab} length={depth} height={ROOM.wallHeight} background="var(--plaster-shade)">
+    <Wall axis="left-upright" x={0} y={depth} z={ROOM.slab} length={depth} height={ROOM.wallHeight} background={materialsFor(model.plant).leftWall}>
       <button
         type="button"
         className="corkboard"

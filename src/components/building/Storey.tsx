@@ -7,6 +7,8 @@ import { lookFor, MANAGER_LOOK } from "../../lib/looks";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
+import { materialsFor } from "../../scene/materials";
+import { Duct, Tank } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
 import { DemolishIcon } from "../icons";
 import { usePresence } from "../../state/usePresence";
@@ -21,6 +23,8 @@ export interface FloorModel {
   readonly pending: number;
   /** Search does not match: the floor dims but keeps its place in the building. */
   readonly dimmed: boolean;
+  /** The setup floor: a plant room below the lobby. */
+  readonly plant: boolean;
 }
 
 interface StoreyProps {
@@ -53,7 +57,8 @@ const WALL_H = STOREY.height - STOREY.slab;
 /** One storey of the cutaway: a room you can see into. Click it to go inside. */
 export function Storey({ level, width, floor, phase, animate, onEnter, onDemolish, onGone }: StoreyProps): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null);
-  const { project, sessions, light, counts, pending, dimmed } = floor;
+  const { project, sessions, light, counts, pending, dimmed, plant } = floor;
+  const look = materialsFor(plant);
   const shown = sessions.slice(0, storeyDeskCount(sessions.length));
   const overflow = sessions.length - shown.length;
   const seats = usePresence(shown, (s) => s.id, animate);
@@ -64,7 +69,7 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
   return (
     <div
       ref={ref}
-      className={`storey light-${light}${dimmed ? " is-dim" : ""}${phase === "here" ? "" : ` is-${phase}`}`}
+      className={`storey light-${light}${plant ? " is-plant" : ""}${dimmed ? " is-dim" : ""}${phase === "here" ? "" : ` is-${phase}`}`}
       style={style}
       data-testid="storey"
       data-project={project.id}
@@ -98,13 +103,19 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
         w={width}
         d={STOREY.depth}
         h={STOREY.slab}
-        top="var(--boards)"
+        top={look.floor}
         front="var(--concrete)"
         side="var(--concrete-shade)"
         frontContent={<b className="status-strip" />}
       />
-      <Wall axis="back" x={0} y={0} z={STOREY.slab} length={width} height={WALL_H} background="var(--window-wall)" className="wall-windows" />
-      <Wall axis="left" x={0} y={0} z={STOREY.slab} length={STOREY.depth} height={WALL_H} background="var(--plaster-shade)" />
+      <Wall axis="back" x={0} y={0} z={STOREY.slab} length={width} height={WALL_H} background={look.backWall} className={look.backClass} />
+      <Wall axis="left" x={0} y={0} z={STOREY.slab} length={STOREY.depth} height={WALL_H} background={look.leftWall} />
+      {plant ? (
+        <>
+          <Duct x={0} length={width - STOREY.managerWidth} z={STOREY.slab + WALL_H - 14} />
+          <Tank x={6} y={6} z={STOREY.slab} size={30} height={WALL_H * 0.62} />
+        </>
+      ) : null}
 
       {seats.list.map(({ key, item, phase: seat }, i) =>
         seat === "leaving" ? (
@@ -156,10 +167,12 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
         >
           <i className="lamp" aria-hidden />
           <span className="nameplate-name">{project.name}</span>
+          {plant ? <span className="nameplate-kind">Plant room</span> : null}
           <span className="nameplate-count">
             {counts.active}/{counts.total}
           </span>
         </button>
+        {plant ? null : (
         <button
           type="button"
           className="demolish-btn"
@@ -174,6 +187,7 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
         >
           <DemolishIcon />
         </button>
+        )}
       </Billboard>
     </div>
   );

@@ -15,6 +15,13 @@ const common = {
 
 export function SectionIcon({ section }: { readonly section: Section }): React.ReactElement {
   switch (section) {
+    case "setup": // toolbox
+      return (
+        <svg {...common}>
+          <rect x="3" y="8" width="16" height="10" />
+          <path d="M8 8V5h6v3M3 12h16M10 11v2h2v-2" />
+        </svg>
+      );
     case "info": // brass plaque
       return (
         <svg {...common}>

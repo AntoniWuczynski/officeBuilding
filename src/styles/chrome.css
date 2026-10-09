@@ -843,6 +843,18 @@
 .usage-signs > * {
   flex: none;
 }
+.usage-signs > .usage-signs-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+}
+.usage-signs-list > * {
+  flex: none;
+}
 .usage-signs > .btn {
   align-self: flex-start;
   margin-left: 22px;

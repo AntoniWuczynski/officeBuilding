@@ -68,7 +68,7 @@ describe("TauriApi", () => {
       .mockResolvedValueOnce("/Users/me/code/app")
       .mockResolvedValueOnce(null);
     await api.hireOptions();
-    const request = { tool: "codex", title: "x", model: "gpt-5.5", effort: "high", ultracode: false } as const;
+    const request = { tool: "codex", title: "x", model: "gpt-5.5", effort: "high", ultracode: false, structured: false } as const;
     await expect(api.spawnSession("p-1", request)).resolves.toEqual(session);
     await api.answerQuestion("q-1", { kind: "option", optionId: "o-1" });
     await api.tickTodo("t-1");

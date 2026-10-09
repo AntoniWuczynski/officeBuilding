@@ -11,13 +11,12 @@
 //! * Antigravity: `agy models` (one `Base name (Effort)` per line, run through the
 //!   login shell, capped at 20 s, cached for 10 minutes) and
 //!   `~/.gemini/antigravity-cli/settings.json` (`model`).
-//! * opencode: `opencode models [provider]` exists (<https://opencode.ai/docs/cli/>)
-//!   but its output format is not documented, so it is not parsed.
-//! * Cursor: `--list-models` / `agent models` exist
-//!   (<https://cursor.com/docs/cli/reference/parameters>) but their output format
-//!   is not documented, so it is not parsed.
+//! * opencode: `opencode models` and Cursor: `cursor-agent models`, through the
+//!   login shell with the same cap and cache (formats in `listed.rs`).
 //!
 //! Tools whose models cannot be listed get a single "Tool default" model.
+
+mod listed;
 
 use crate::model::{EffortOption, ModelOption, ToolKind, ToolOptions};
 use crate::{pty, tools};
@@ -65,6 +64,7 @@ fn unavailable(tool: ToolKind) -> ToolOptions {
         models: Vec::new(),
         default_model: String::new(),
         ultracode: None,
+        structured: false,
     }
 }
 
@@ -81,6 +81,7 @@ fn tool_default(tool: ToolKind) -> ToolOptions {
         }],
         default_model: "default".into(),
         ultracode: None,
+        structured: false,
     }
 }
 
@@ -326,6 +327,7 @@ fn build_claude(catalog: &Catalog, settings: &ClaudeSettings) -> ToolOptions {
         models,
         default_model,
         ultracode: Some(settings.ultracode),
+        structured: false,
     }
 }
 
@@ -437,6 +439,7 @@ pub fn codex_options(cache: &Value, config: Option<&str>) -> Option<ToolOptions>
         models,
         default_model,
         ultracode: None,
+        structured: false,
     })
 }
 
@@ -508,17 +511,17 @@ pub(crate) fn run_capped(command: &str) -> Option<String> {
     }
 }
 
-/// When `agy models` last ran, and its output (`None` if it failed).
-type AgyRun = (Instant, Option<String>);
+/// When a listing command last ran, and its output (`None` if it failed).
+type ListingRun = (Instant, Option<String>);
 
-static AGY_CACHE: OnceLock<Mutex<Option<AgyRun>>> = OnceLock::new();
+static LISTINGS: OnceLock<Mutex<HashMap<&'static str, ListingRun>>> = OnceLock::new();
 
-/// `agy models` output, reused for ten minutes, or one minute after a failure
-/// so a signed-out user does not wait for the command on every open.
-fn agy_models_text() -> Option<String> {
-    let cache = AGY_CACHE.get_or_init(|| Mutex::new(None));
-    let mut slot = cache.lock().ok()?;
-    if let Some((at, text)) = slot.as_ref() {
+/// A model-listing command's output, reused for ten minutes, or one minute
+/// after a failure so a signed-out user does not wait for it on every open.
+fn listing(command: &'static str) -> Option<String> {
+    let cache = LISTINGS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut runs = cache.lock().ok()?;
+    if let Some((at, text)) = runs.get(command) {
         let ttl = if text.is_some() {
             LIST_CACHE_TTL
         } else {
@@ -528,8 +531,8 @@ fn agy_models_text() -> Option<String> {
             return text.clone();
         }
     }
-    let text = run_capped("agy models");
-    *slot = Some((Instant::now(), text.clone()));
+    let text = run_capped(command);
+    runs.insert(command, (Instant::now(), text.clone()));
     text
 }
 
@@ -571,6 +574,7 @@ fn build_antigravity(listing: Option<&str>, settings_model: Option<&str>) -> Too
         models,
         default_model,
         ultracode: None,
+        structured: false,
     }
 }
 
@@ -578,7 +582,7 @@ fn antigravity_options(home: &Path) -> ToolOptions {
     let settings: Option<AgySettings> =
         read_json(&home.join(".gemini/antigravity-cli/settings.json"));
     build_antigravity(
-        agy_models_text().as_deref(),
+        listing("agy models").as_deref(),
         settings.and_then(|s| s.model).as_deref(),
     )
 }
@@ -606,7 +610,10 @@ pub fn hire_options(home: &Path) -> Vec<ToolOptions> {
                 ToolKind::ClaudeCode => claude_options(home),
                 ToolKind::Codex => codex_or_default(home),
                 ToolKind::Antigravity => antigravity_options(home),
-                ToolKind::Opencode | ToolKind::Cursor => tool_default(tool),
+                ToolKind::Opencode => listed::options(tool, listing("opencode models").as_deref()),
+                ToolKind::Cursor => {
+                    listed::options(tool, listing("cursor-agent models").as_deref())
+                }
                 ToolKind::Unknown => unavailable(tool),
             }
         })

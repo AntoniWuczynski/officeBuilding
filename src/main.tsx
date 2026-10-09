@@ -4,6 +4,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { App } from "./App";
 import type { DiscoveryApi } from "./api/DiscoveryApi";
 import { MockApi } from "./api/mockApi";
+import { makeDemoSnapshot } from "./api/mockData";
 import { TauriApi } from "./api/tauriApi";
 import "./index.css";
 
@@ -16,7 +17,7 @@ if (container === null) {
 // browser (pnpm dev): the mock office with its demo simulation.
 function makeApi(): DiscoveryApi {
   if (isTauri()) return new TauriApi();
-  const mock = new MockApi();
+  const mock = new MockApi(makeDemoSnapshot());
   mock.startSimulation();
   return mock;
 }

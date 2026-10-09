@@ -19,6 +19,25 @@
     linear-gradient(90deg, var(--plaster) 0 14px, transparent 14px) 0 0 / 44px 100% repeat-x,
     linear-gradient(var(--plaster) 0 20%, var(--window) 20% 68%, var(--plaster) 68%);
 
+  /* the setup floor's plant room */
+  --plant-floor: #9e998e;
+  --block: #a8a59b;
+  --pipe: #4f6d77;
+  --pipe-hot: #b5532b;
+  --pipe-wall:
+    linear-gradient(transparent 18%, var(--ink) 18% 19%, var(--pipe) 19% 27%, var(--ink) 27% 28%, transparent 28%),
+    linear-gradient(transparent 38%, var(--ink) 38% 39%, var(--pipe-hot) 39% 45%, var(--ink) 45% 46%, transparent 46%),
+    linear-gradient(90deg, transparent 0 46px, rgba(0, 0, 0, 0.12) 46px 48px) 0 0 / 48px 100% repeat-x,
+    linear-gradient(transparent 0 22px, rgba(0, 0, 0, 0.12) 22px 24px) 0 0 / 100% 24px repeat-y,
+    var(--block);
+  --pegboard: radial-gradient(circle, rgba(0, 0, 0, 0.32) 1.4px, transparent 1.8px) 0 0 / 9px 9px, #c8a97c;
+  --duct: #a3acb1;
+  --duct-top: #bcc4c8;
+  --duct-side: #8d969b;
+  --tank: #7d9aa3;
+  --tank-top: #98b3bb;
+  --tank-side: #66828b;
+
   /* props */
   --monitor: #2b2e33;
   --monitor-top: #40444c;

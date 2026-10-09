@@ -10,6 +10,8 @@ use crate::model::{
     ToolOptions, ToolUsage,
 };
 use crate::office::Office;
+use crate::setup::{ItemKind, SetupView, Targets};
+use crate::structured::desks::Backlog;
 use crate::watch::SNAPSHOT_EVENT;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -52,6 +54,76 @@ pub async fn tool_usage(refresh: bool) -> Result<Vec<ToolUsage>, String> {
     })
     .await
     .map_err(|e| format!("the usage check did not finish: {e}"))?
+}
+
+/// On a blocking thread: finding the installed tools spawns a login shell.
+#[tauri::command]
+pub async fn setup_view(office: OfficeState<'_>) -> Result<SetupView, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.setup_view())
+        .await
+        .map_err(|e| format!("the setup did not load: {e}"))
+}
+
+#[tauri::command]
+pub async fn import_setup_item(
+    office: OfficeState<'_>,
+    from: ToolKind,
+    kind: ItemKind,
+    name: String,
+) -> Result<SetupView, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.import_setup_item(from, kind, &name))
+        .await
+        .map_err(|e| format!("the copy did not finish: {e}"))?
+}
+
+#[tauri::command]
+pub async fn set_setup_targets(
+    office: OfficeState<'_>,
+    kind: ItemKind,
+    name: String,
+    targets: Targets,
+) -> Result<SetupView, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.set_setup_targets(kind, &name, targets))
+        .await
+        .map_err(|e| format!("the setup did not save: {e}"))?
+}
+
+#[tauri::command]
+pub fn structured_backlog(office: OfficeState<'_>, session_id: String) -> Result<Backlog, String> {
+    office.structured_backlog(&session_id)
+}
+
+#[tauri::command]
+pub fn structured_prompt(
+    office: OfficeState<'_>,
+    session_id: String,
+    text: String,
+) -> Result<(), String> {
+    office.structured_prompt(&session_id, &text)
+}
+
+#[tauri::command]
+pub fn structured_answer(
+    office: OfficeState<'_>,
+    session_id: String,
+    approval_id: String,
+    choice_id: String,
+    values: crate::structured::Values,
+) -> Result<(), String> {
+    office.structured_answer(&session_id, &approval_id, &choice_id, &values)
+}
+
+#[tauri::command]
+pub fn structured_cancel(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
+    office.structured_cancel(&session_id)
+}
+
+#[tauri::command]
+pub fn structured_stop(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
+    office.structured_stop(&session_id)
 }
 
 /// On a blocking thread: it waits for the agent to start, to catch one that fails.

@@ -91,9 +91,12 @@ export function UsageSigns({ loadUsage }: Props): React.ReactElement | null {
       <button type="button" className="btn" disabled={busy} onClick={() => void refresh(true)}>
         {busy ? "Checking" : "Re-check"}
       </button>
-      {(usage ?? []).map((u) => (
-        <Sign key={u.tool} usage={u} now={now} />
-      ))}
+      {/* Scrolls when the window is too short for every sign; the posts stay put. */}
+      <div className="usage-signs-list">
+        {(usage ?? []).map((u) => (
+          <Sign key={u.tool} usage={u} now={now} />
+        ))}
+      </div>
       {error === null ? null : (
         <p className="form-error" role="alert">
           Could not read usage: {error}. Try again.

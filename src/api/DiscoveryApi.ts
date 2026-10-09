@@ -1,4 +1,4 @@
-import type { OfficeSnapshot, Project, Session, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -13,6 +13,8 @@ export interface HireRequest {
   readonly effort: string;
   /** Run with ultracode on (Claude Code only, a setting beside the effort). */
   readonly ultracode: boolean;
+  /** Run as a structured desk instead of in a terminal (tools whose options say they can). */
+  readonly structured: boolean;
 }
 
 /** A hired agent that exited before it reached a desk. */
@@ -73,6 +75,18 @@ export interface DiscoveryApi {
   /** Usage limits of each installed tool, re-read from the tools' own files on every call. `refresh` has Claude Code check its usage first. */
   toolUsage(refresh: boolean): Promise<readonly ToolUsage[]>;
 
+  /** The setup floor's items and each harness's own setup, re-read on every call. */
+  setupView(): Promise<SetupView>;
+
+  /** Hear when anything the Setup panel shows may have changed on disk. Returns an unsubscribe. */
+  subscribeSetupChanges(listener: () => void): () => void;
+
+  /** Copy one of a tool's own skills or MCP servers into the building's setup; resolves to the new view. */
+  importSetupItem(from: ToolKind, kind: SetupItemKind, name: string): Promise<SetupView>;
+
+  /** Aim one of the building's setup items at `targets`; resolves to the new view. */
+  setSetupTargets(kind: SetupItemKind, name: string, targets: Targets): Promise<SetupView>;
+
   /** Add an employee: spawn a new agent session on a project. */
   spawnSession(projectId: string, request: HireRequest): Promise<Session>;
 
@@ -132,6 +146,24 @@ export interface DiscoveryApi {
    * terminal, in the folder it ran in. Resolves once the agent has started.
    */
   resumeSession(sessionId: string): Promise<void>;
+
+  /** A `structured` desk's conversation so far. */
+  structuredBacklog(sessionId: string): Promise<ConversationBacklog>;
+
+  /** Hear every change to a `structured` desk. Returns an unsubscribe. */
+  subscribeStructured(sessionId: string, listener: (update: ConversationUpdate) => void): () => void;
+
+  /** Send the human's message to a `structured` desk as its next turn. */
+  structuredPrompt(sessionId: string, text: string): Promise<void>;
+
+  /** Answer a `structured` desk's open approval with one of its choices and the fields' values, by field id. */
+  structuredAnswer(sessionId: string, approvalId: string, choiceId: string, values: Readonly<Record<string, string>>): Promise<void>;
+
+  /** Stop the turn a `structured` desk is running. */
+  structuredCancel(sessionId: string): Promise<void>;
+
+  /** End a `structured` desk's agent; the desk leaves once it has stopped. */
+  structuredStop(sessionId: string): Promise<void>;
 
   /** Send keystrokes to a `full`-control session's terminal. */
   writeTerminal(sessionId: string, data: string): Promise<void>;

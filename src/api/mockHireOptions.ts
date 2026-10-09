@@ -38,6 +38,7 @@ export function makeHireOptions(): readonly ToolOptions[] {
     {
       tool: "claude-code",
       available: true,
+      structured: false,
       ultracode: false,
       defaultModel: "claude-opus-5-5",
       models: [
@@ -50,6 +51,7 @@ export function makeHireOptions(): readonly ToolOptions[] {
     {
       tool: "codex",
       available: true,
+      structured: true,
       ultracode: null,
       defaultModel: "gpt-6-astra",
       models: [
@@ -63,6 +65,7 @@ export function makeHireOptions(): readonly ToolOptions[] {
     {
       tool: "antigravity",
       available: true,
+      structured: false,
       ultracode: null,
       defaultModel: "Gemini 3.6 Flash",
       models: [
@@ -73,7 +76,7 @@ export function makeHireOptions(): readonly ToolOptions[] {
         { id: "GPT-OSS 120B", label: "GPT-OSS 120B", efforts: AGY_MEDIUM, defaultEffort: "medium" },
       ],
     },
-    { tool: "opencode", available: false, ultracode: null, defaultModel: "", models: [] },
-    { tool: "cursor", available: false, ultracode: null, defaultModel: "", models: [] },
+    { tool: "opencode", available: false, structured: false, ultracode: null, defaultModel: "", models: [] },
+    { tool: "cursor", available: false, structured: false, ultracode: null, defaultModel: "", models: [] },
   ];
 }

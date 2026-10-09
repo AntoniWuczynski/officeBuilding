@@ -3,6 +3,8 @@
 @import "./scene/scene.css";
 @import "./scene/construction.css";
 @import "./styles/chrome.css";
+@import "./styles/setup.css";
+@import "./styles/conversation.css";
 
 html,
 body,

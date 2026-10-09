@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import type { DiscoveryApi, HireRequest, QuestionAnswer } from "./api/DiscoveryApi";
@@ -11,6 +11,7 @@ import type { ScreenOrigin } from "./components/building/BuildingView";
 import { FloorView } from "./components/floor/FloorView";
 import type { Section } from "./components/floor/sections";
 import { TerminalApiContext } from "./components/floor/TerminalPanel";
+import { ConversationApiContext } from "./components/floor/Conversation";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
 import { message } from "./lib/errors";
@@ -103,6 +104,10 @@ export function App({ api }: Props): React.ReactElement {
 
   const loadHireOptions = useCallback(() => api.hireOptions(), [api]);
   const loadUsage = useCallback((refresh: boolean) => api.toolUsage(refresh), [api]);
+  const setup = useMemo(
+    () => ({ load: () => api.setupView(), subscribe: api.subscribeSetupChanges.bind(api), onSetTargets: api.setSetupTargets.bind(api), onImport: api.importSetupItem.bind(api) }),
+    [api],
+  );
   const pickFolder = useCallback(() => api.pickFolder(), [api]);
 
   const addFloor = useCallback(
@@ -217,6 +222,7 @@ export function App({ api }: Props): React.ReactElement {
               onAnswer={answer}
               onTick={tick}
               onResume={resume}
+              setup={setup}
             />
           </motion.div>
         )}
@@ -227,10 +233,12 @@ export function App({ api }: Props): React.ReactElement {
   return (
     <MotionConfig reducedMotion="user">
       <TerminalApiContext value={api}>
+      <ConversationApiContext value={api}>
         <div className="app">
           {body}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </ConversationApiContext>
       </TerminalApiContext>
     </MotionConfig>
   );

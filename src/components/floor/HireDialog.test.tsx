@@ -63,12 +63,26 @@ describe("HireDialog ultracode", () => {
     await user.click(await screen.findByLabelText("Codex"));
     expect(screen.queryByRole("switch", { name: "Ultracode" })).not.toBeInTheDocument();
     await user.click(screen.getByTestId("hire-submit"));
-    expect(onHire).toHaveBeenCalledWith(expect.objectContaining({ tool: "codex", ultracode: false }));
+    expect(onHire).toHaveBeenCalledWith(expect.objectContaining({ tool: "codex", ultracode: false, structured: false }));
   });
 
   it("starts on when the tool's default is on", async () => {
     const [claude, ...rest] = makeHireOptions();
     open([{ ...(claude as ToolOptions), ultracode: true }, ...rest]);
     expect(await screen.findByRole("switch", { name: "Ultracode" })).toBeChecked();
+  });
+});
+
+describe("HireDialog structured desks", () => {
+  it("offers to run without a terminal only for tools that can, and sends the choice", async () => {
+    const user = userEvent.setup();
+    const { onHire } = open();
+    await screen.findByLabelText("Claude Code");
+    expect(screen.queryByRole("switch", { name: "Without a terminal" })).toBeNull();
+    await user.click(screen.getByLabelText("Codex"));
+    await user.click(screen.getByRole("switch", { name: "Without a terminal" }));
+    await user.type(screen.getByPlaceholderText("What should they work on?"), "port it");
+    await user.click(screen.getByRole("button", { name: /hire/i }));
+    expect(onHire).toHaveBeenCalledWith(expect.objectContaining({ tool: "codex", structured: true }));
   });
 });

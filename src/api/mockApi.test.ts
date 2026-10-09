@@ -52,7 +52,7 @@ describe("MockApi", () => {
     const api = new MockApi(makeSeedSnapshot(), fixedNow);
     const listener = vi.fn();
     api.subscribe(listener);
-    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "  port the renderer ", model: "gpt-5.5", effort: "high", ultracode: false });
+    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "  port the renderer ", model: "gpt-5.5", effort: "high", ultracode: false, structured: false });
     expect(session).toMatchObject({ projectId: "p-arcade", tool: "codex", state: "thinking", control: "full", title: "port the renderer", model: "gpt-5.5", effort: "high", lastActivityAt: NOW.toISOString() });
     const snap = await api.getSnapshot();
     expect(snap.projects.find((p) => p.id === "p-arcade")?.sessionIds).toContain(session.id);
@@ -61,7 +61,7 @@ describe("MockApi", () => {
 
   it("spawnSession names an untitled task and rejects bad requests", async () => {
     const api = new MockApi();
-    const ok = { tool: "claude-code", title: "   ", model: "claude-opus-5-5", effort: "high", ultracode: false } as const;
+    const ok = { tool: "claude-code", title: "   ", model: "claude-opus-5-5", effort: "high", ultracode: false, structured: false } as const;
     await expect(api.spawnSession("p-arcade", ok)).resolves.toMatchObject({ title: "New task" });
     await expect(api.spawnSession("nope", ok)).rejects.toThrow(/unknown project/);
     await expect(api.spawnSession("p-arcade", { ...ok, model: "gpt-5.5" })).rejects.toThrow(/not a model the app can start/);

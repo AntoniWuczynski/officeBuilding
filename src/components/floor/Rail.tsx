@@ -1,20 +1,20 @@
 import { SectionIcon } from "../icons";
-import { SECTIONS } from "./sections";
 import type { Section } from "./sections";
 
 interface RailProps {
+  readonly sections: readonly { readonly id: Section; readonly label: string }[];
   readonly active: Section | null;
   /** Small count per section (open items, waiting decisions, spend). */
-  readonly badges: Readonly<Record<Section, string | null>>;
+  readonly badges: Readonly<Partial<Record<Section, string | null>>>;
   readonly onSelect: (section: Section | null) => void;
 }
 
 /** The sketch's collapsed sidebar: always visible, click to enlarge a section. */
-export function Rail({ active, badges, onSelect }: RailProps): React.ReactElement {
+export function Rail({ sections, active, badges, onSelect }: RailProps): React.ReactElement {
   return (
     <nav className="rail" aria-label="Manager's office">
-      {SECTIONS.map(({ id, label }) => {
-        const badge = badges[id];
+      {sections.map(({ id, label }) => {
+        const badge = badges[id] ?? null;
         const on = active === id;
         return (
           <button

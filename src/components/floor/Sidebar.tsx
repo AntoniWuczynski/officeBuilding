@@ -18,6 +18,8 @@ import {
 import { relativeTime } from "../../lib/time";
 import { CloseIcon } from "../icons";
 import { DecisionsPanel } from "./DecisionsPanel";
+import { SetupPanel } from "./SetupPanel";
+import type { SetupProps } from "./SetupPanel";
 import { SignOutSheet } from "./SignOutSheet";
 import { sectionLabel } from "./sections";
 import type { Section } from "./sections";
@@ -32,10 +34,11 @@ interface Props {
   readonly onTick: (todoId: string) => void;
   readonly onOpenSession: (session: Session) => void;
   readonly onResume: (sessionId: string) => Promise<void>;
+  readonly setup: SetupProps;
 }
 
 /** The enlarged sidebar: one of the manager's sections for this floor. */
-export function Sidebar({ section, project, snapshot, now, onClose, onAnswer, onTick, onOpenSession, onResume }: Props): React.ReactElement {
+export function Sidebar({ section, project, snapshot, now, onClose, onAnswer, onTick, onOpenSession, onResume, setup }: Props): React.ReactElement {
   return (
     <motion.aside
       className="sidebar"
@@ -61,14 +64,17 @@ export function Sidebar({ section, project, snapshot, now, onClose, onAnswer, on
         onTick={onTick}
         onOpenSession={onOpenSession}
         onResume={onResume}
+        setup={setup}
       />
     </motion.aside>
   );
 }
 
-function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpenSession, onResume }: Omit<Props, "onClose">): React.ReactElement {
+function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpenSession, onResume, setup }: Omit<Props, "onClose">): React.ReactElement {
   const sessions = sessionsForProject(snapshot, project.id);
   switch (section) {
+    case "setup":
+      return <SetupPanel {...setup} />;
     case "decisions":
       return (
         <DecisionsPanel

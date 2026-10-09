@@ -10,6 +10,7 @@ import { CloseIcon } from "../icons";
 import { shellPaths } from "../../lib/shell";
 import { message } from "../../lib/errors";
 import { readPref, writePref } from "../../lib/prefs";
+import { Conversation } from "./Conversation";
 
 export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal" | "subscribeFileDrops">;
 
@@ -74,8 +75,9 @@ interface Props {
 
 /**
  * The session's terminal, docked under the floor:
- *  full       the agent's live in-app terminal (closing the panel leaves it running)
- *  read-only  transcript notice
+ *  full        the agent's live in-app terminal (closing the panel leaves it running)
+ *  structured  the conversation with an agent the app drives over its protocol
+ *  read-only   transcript notice
  * raise-window sessions never open here: clicking them raises their own window.
  */
 export function TerminalPanel({ session, onClose }: Props): React.ReactElement {
@@ -91,7 +93,7 @@ export function TerminalPanel({ session, onClose }: Props): React.ReactElement {
       style={{ height, maxHeight: `calc(100% - ${FLOOR_ROOM}px)` }}
       data-testid="terminal-panel"
       data-session={session.id}
-      aria-label={`Terminal: ${session.title}`}
+      aria-label={`${session.control === "structured" ? "Conversation" : "Terminal"}: ${session.title}`}
       initial={{ y: 40, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 40, opacity: 0 }}
@@ -118,7 +120,9 @@ export function TerminalPanel({ session, onClose }: Props): React.ReactElement {
           <CloseIcon />
         </button>
       </header>
-      {!live ? (
+      {session.control === "structured" ? (
+        <Conversation sessionId={session.id} />
+      ) : !live ? (
         <p className="terminal-note" data-testid="read-only-note">
           This session was started outside the app and has no window to raise. Showing its transcript read-only.
         </p>

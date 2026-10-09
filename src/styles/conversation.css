@@ -1,0 +1,113 @@
+/* ---- a structured desk's conversation, inside the docked terminal panel ---- */
+.conversation {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 10px 14px;
+  gap: 8px;
+  color: var(--terminal-text);
+  background: var(--terminal);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.conversation-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.conversation-log > li {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.conversation-user {
+  align-self: flex-end;
+  max-width: 80%;
+  padding: 6px 10px;
+  border-radius: 2px;
+  background: #2b3340;
+}
+.conversation-thought,
+.conversation-hint {
+  color: #9aa0a8;
+  font-style: italic;
+}
+.conversation-notice {
+  color: var(--wait);
+}
+.conversation-tool summary {
+  cursor: pointer;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+.conversation-tool-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9aa0a8;
+}
+.conversation-tool.is-failed .conversation-tool-status {
+  color: var(--signage);
+}
+.conversation pre {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  max-height: 220px;
+  overflow: auto;
+  background: #0f1114;
+  font: 12px/1.4 "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+.conversation-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 2px solid var(--wait);
+  background: #23262c;
+}
+.conversation-choices,
+.conversation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.conversation-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+}
+.conversation-input textarea {
+  resize: vertical;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+}
+.conversation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.conversation-field.is-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.conversation-field input:not([type="checkbox"]),
+.conversation-field select {
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+}

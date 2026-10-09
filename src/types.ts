@@ -27,7 +27,8 @@ export type SessionState =
 export type ControlMode =
   | "full" //        app-spawned: interactive PTY inside the app
   | "raise-window" // discovered/hand-started: click raises its original terminal
-  | "read-only"; //  fallback: transcript view only
+  | "read-only" //   fallback: transcript view only
+  | "structured"; // app-driven over the tool's protocol: opens a conversation panel
 
 /** Traffic-light for a floor (project), aggregated from its sessions. */
 export type FloorLight = "green" | "yellow" | "red" | "off";
@@ -169,6 +170,61 @@ export interface ToolOptions {
   readonly defaultModel: string;
   /** Null when the tool has no ultracode; otherwise its default (Claude Code). */
   readonly ultracode: boolean | null;
+  /** It can run as a structured desk: no terminal, typed messages and approvals. */
+  readonly structured: boolean;
+}
+
+export type ToolStatus = "pending" | "running" | "done" | "failed";
+
+/** One line of a structured desk's transcript; a later entry with the same id replaces it. */
+export type ConversationEntry =
+  | { readonly kind: "user"; readonly id: string; readonly text: string }
+  | { readonly kind: "agent"; readonly id: string; readonly text: string }
+  | { readonly kind: "thought"; readonly id: string; readonly text: string }
+  | { readonly kind: "tool"; readonly id: string; readonly title: string; readonly status: ToolStatus; readonly detail: string }
+  | { readonly kind: "notice"; readonly id: string; readonly text: string };
+
+/** What a field of an approval takes. */
+export type FieldKind =
+  | { readonly kind: "text" }
+  | { readonly kind: "secret" }
+  | { readonly kind: "number" }
+  | { readonly kind: "boolean" }
+  | { readonly kind: "pick"; readonly options: readonly string[]; readonly other: boolean };
+
+/** Something the human fills in before answering: a question's answer, a form field. */
+export interface ApprovalField {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: FieldKind;
+  readonly required: boolean;
+}
+
+/** The agent asks before doing something, or asks a question; a choice that lets it go ahead sends the fields' values. */
+export interface Approval {
+  readonly id: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly fields: readonly ApprovalField[];
+  readonly choices: readonly { readonly id: string; readonly label: string; readonly allow: boolean }[];
+}
+
+/** A structured desk as its conversation panel opens on it. */
+export interface ConversationBacklog {
+  readonly transcript: readonly ConversationEntry[];
+  readonly state: SessionState;
+  readonly approval: Approval | null;
+  /** Why the agent is gone, once it is. */
+  readonly ended: string | null;
+}
+
+/** A change to a structured desk, pushed while its panel is open. */
+export interface ConversationUpdate {
+  readonly sessionId: string;
+  readonly entry: ConversationEntry | null;
+  readonly state: SessionState;
+  readonly approval: Approval | null;
+  readonly ended: string | null;
 }
 
 /** One usage-limit window of a tool, as the tool itself last measured it. */
@@ -202,4 +258,63 @@ export interface OfficeSnapshot {
   readonly decisions: readonly Decision[];
   readonly todos: readonly TodoItem[];
   readonly messages: readonly AgentMessage[];
+  /** The setup floor's project id (it may not be standing). */
+  readonly setupProjectId: string;
+}
+
+/** Which harnesses a setup item applies to. */
+export type Targets = { readonly kind: "all" } | { readonly kind: "only"; readonly tools: readonly ToolKind[] };
+
+export type SetupItemKind = "skill" | "instructions" | "mcp-server" | "hook";
+
+/** Whether a harness can take an item kind from the building at launch. */
+/** Whether a harness can take an item kind from the building at launch; `note` says what the human still has to do. */
+export type Support = { readonly kind: "supported"; readonly note: string | null } | { readonly kind: "unsupported"; readonly reason: string };
+
+export interface SkillInfo {
+  readonly name: string;
+  readonly description: string;
+}
+
+/** One of a tool's own command hooks; `id` (`<event>:<n>`) names it for copying. */
+export interface HookInfo {
+  readonly id: string;
+  readonly event: string;
+  readonly matcher: string | null;
+  readonly command: string;
+}
+
+export interface PluginInfo {
+  readonly name: string;
+  readonly enabled: boolean;
+}
+
+/** What one harness already has at user level. A list is null when it is not read yet. */
+export interface HarnessSetup {
+  readonly tool: ToolKind;
+  readonly installed: boolean;
+  readonly skills: readonly SkillInfo[] | null;
+  readonly mcpServers: readonly string[] | null;
+  readonly hooks: readonly HookInfo[] | null;
+  readonly plugins: readonly PluginInfo[] | null;
+  /** The tool's user-level instructions file, when it has one; null when the app does not know where it is. */
+  readonly instructions: readonly string[] | null;
+  readonly support: Readonly<Record<SetupItemKind, Support>>;
+}
+
+/** One of the building's setup items. */
+export interface SetupItem {
+  readonly kind: SetupItemKind;
+  readonly name: string;
+  /** A skill's description, the first line of instructions, a server's command, a hook's event and command. */
+  readonly description: string;
+  readonly targets: Targets;
+}
+
+/** The setup floor: the building's own items and each harness's inventory. */
+export interface SetupView {
+  readonly items: readonly SetupItem[];
+  readonly harnesses: readonly HarnessSetup[];
+  /** What in the library could not be used, in words. */
+  readonly problems: readonly string[];
 }

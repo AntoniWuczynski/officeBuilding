@@ -51,5 +51,15 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "t-7", projectId: "p-shop", text: "Fix the orders ingest dedupe", done: false, assignee: "ai", sourceFile: null },
     ],
     messages: [],
+    setupProjectId: "p-setup",
+  };
+}
+
+/** The seed plus the setup floor, as the browser build shows it (tests keep the plain seed). */
+export function makeDemoSnapshot(): OfficeSnapshot {
+  const seed = makeSeedSnapshot();
+  return {
+    ...seed,
+    projects: [...seed.projects, { id: seed.setupProjectId, name: "Setup", path: "~/Library/Application Support/com.wuczynski.office-building/Setup", sessionIds: [] }],
   };
 }

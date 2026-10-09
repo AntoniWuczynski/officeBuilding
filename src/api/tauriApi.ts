@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { OfficeSnapshot, Project, Session, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
@@ -10,7 +10,10 @@ import {
   hireOptionsSchema,
   parseWire,
   projectSchema,
+  conversationBacklogSchema,
+  conversationUpdateSchema,
   sessionSchema,
+  setupViewSchema,
   snapshotSchema,
   terminalBacklogSchema,
   terminalExitSchema,
@@ -25,6 +28,10 @@ const TERMINAL_OUTPUT_EVENT = "office://terminal-output";
 const TERMINAL_EXIT_EVENT = "office://terminal-exit";
 /** Pushed by src-tauri/src/office.rs when a hired agent exits before reaching a desk. */
 const HIRE_FAILED_EVENT = "office://hire-failed";
+/** Pushed by src-tauri/src/watch.rs when a tool's setup or the building's library changes. */
+const SETUP_EVENT = "office://setup-changed";
+/** Pushed by src-tauri/src/lib.rs after every change to a structured desk. */
+const STRUCTURED_EVENT = "office://structured";
 
 type TerminalLive =
   | ({ readonly kind: "output" } & z.infer<typeof terminalOutputSchema>)
@@ -94,6 +101,18 @@ export class TauriApi implements DiscoveryApi {
 
   async toolUsage(refresh: boolean): Promise<readonly ToolUsage[]> {
     return parseWire(toolUsageSchema, "list of tool usage", await call("tool_usage", { refresh }));
+  }
+
+  async setupView(): Promise<SetupView> {
+    return parseWire(setupViewSchema, "setup", await call("setup_view"));
+  }
+
+  async importSetupItem(from: ToolKind, kind: SetupItemKind, name: string): Promise<SetupView> {
+    return parseWire(setupViewSchema, "setup", await call("import_setup_item", { from, kind, name }));
+  }
+
+  async setSetupTargets(kind: SetupItemKind, name: string, targets: Targets): Promise<SetupView> {
+    return parseWire(setupViewSchema, "setup", await call("set_setup_targets", { kind, name, targets }));
   }
 
   async spawnSession(projectId: string, request: HireRequest): Promise<Session> {
@@ -199,6 +218,10 @@ export class TauriApi implements DiscoveryApi {
     };
   }
 
+  subscribeSetupChanges(listener: () => void): () => void {
+    return follow((deliver) => listen<unknown>(SETUP_EVENT, () => deliver(undefined)), () => listener());
+  }
+
   subscribeHireFailures(listener: (failure: HireFailure) => void): () => void {
     return follow(
       (deliver) =>
@@ -221,6 +244,37 @@ export class TauriApi implements DiscoveryApi {
         }),
       listener,
     );
+  }
+
+  async structuredBacklog(sessionId: string): Promise<ConversationBacklog> {
+    return parseWire(conversationBacklogSchema, "conversation", await call("structured_backlog", { sessionId }));
+  }
+
+  subscribeStructured(sessionId: string, listener: (update: ConversationUpdate) => void): () => void {
+    return follow(
+      (deliver) =>
+        listen<unknown>(STRUCTURED_EVENT, (event) => {
+          const r = conversationUpdateSchema.safeParse(event.payload);
+          if (r.success && r.data.sessionId === sessionId) deliver(r.data);
+        }),
+      listener,
+    );
+  }
+
+  async structuredPrompt(sessionId: string, text: string): Promise<void> {
+    await call("structured_prompt", { sessionId, text });
+  }
+
+  async structuredAnswer(sessionId: string, approvalId: string, choiceId: string, values: Readonly<Record<string, string>>): Promise<void> {
+    await call("structured_answer", { sessionId, approvalId, choiceId, values });
+  }
+
+  async structuredCancel(sessionId: string): Promise<void> {
+    await call("structured_cancel", { sessionId });
+  }
+
+  async structuredStop(sessionId: string): Promise<void> {
+    await call("structured_stop", { sessionId });
   }
 
   async resumeSession(sessionId: string): Promise<void> {

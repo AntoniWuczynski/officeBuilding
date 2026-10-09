@@ -1,16 +1,24 @@
 import type {
   AgentMessage,
+  ConversationBacklog,
+  ConversationUpdate,
   Decision,
   OfficeSnapshot,
   Project,
   Session,
   SessionState,
+  SetupItemKind,
+  SetupView,
+  Targets,
+  ToolKind,
   ToolOptions,
   ToolUsage,
 } from "../types";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions } from "./mockHireOptions";
+import { makeSetupView } from "./mockSetup";
+import { MockConversations } from "./mockConversation";
 
 type Listener = (snapshot: OfficeSnapshot) => void;
 
@@ -53,11 +61,61 @@ export class MockApi implements DiscoveryApi {
   private seq = 0;
   private readonly now: () => Date;
   private readonly options: readonly ToolOptions[] = makeHireOptions();
+  private setup: SetupView = makeSetupView();
+  /** A structured desk's state follows its conversation; one that ends leaves its floor. */
+  private readonly conversations = new MockConversations((sessionId, state) => {
+    if (state === null) {
+      this.commit({
+        ...this.snapshot,
+        sessions: this.snapshot.sessions.filter((x) => x.id !== sessionId),
+        projects: this.snapshot.projects.map((p) => ({ ...p, sessionIds: p.sessionIds.filter((x) => x !== sessionId) })),
+      });
+      return;
+    }
+    this.commit({ ...this.snapshot, sessions: this.snapshot.sessions.map((x) => (x.id === sessionId ? { ...x, state } : x)) });
+  });
   private readonly shells = new Map<string, FakeShell>();
 
   constructor(seed: OfficeSnapshot = makeSeedSnapshot(), now: () => Date = () => new Date()) {
     this.snapshot = seed;
     this.now = now;
+  }
+
+  setupView(): Promise<SetupView> {
+    return Promise.resolve(this.setup);
+  }
+
+  /** Copies get the names src-tauri/src/setup/import.rs gives them. */
+  importSetupItem(from: ToolKind, kind: SetupItemKind, name: string): Promise<SetupView> {
+    const harness = this.setup.harnesses.find((h) => h.tool === from);
+    const hook = harness?.hooks?.find((h) => h.id === name);
+    const found: { readonly name: string; readonly description: string } | undefined =
+      kind === "skill"
+        ? harness?.skills?.find((s) => s.name === name)
+        : kind === "mcp-server"
+          ? harness?.mcpServers?.includes(name) === true
+            ? { name, description: "npx" }
+            : undefined
+          : kind === "instructions"
+            ? harness?.instructions?.includes(name) === true
+              ? { name: `${from}-instructions`, description: `From ${name}` }
+              : undefined
+            : hook === undefined
+              ? undefined
+              : { name: `${from}-${name.replace(":", "-").toLowerCase()}`, description: `${hook.event}: ${hook.command}` };
+    if (found === undefined) return Promise.reject(new Error(`${name} is not one of that tool's own`));
+    if (this.setup.items.some((i) => i.kind === kind && i.name === found.name)) return Promise.reject(new Error(`the building already has ${found.name}`));
+    const tools = this.setup.harnesses.filter((h) => h.tool !== from && h.support[kind].kind === "supported").map((h) => h.tool);
+    this.setup = { ...this.setup, items: [...this.setup.items, { kind, name: found.name, description: found.description, targets: { kind: "only", tools } }] };
+    return Promise.resolve(this.setup);
+  }
+
+  setSetupTargets(kind: SetupItemKind, name: string, targets: Targets): Promise<SetupView> {
+    if (!this.setup.items.some((i) => i.kind === kind && i.name === name)) {
+      return Promise.reject(new Error(`there is no ${kind} called ${name}`));
+    }
+    this.setup = { ...this.setup, items: this.setup.items.map((i) => (i.kind === kind && i.name === name ? { ...i, targets } : i)) };
+    return Promise.resolve(this.setup);
   }
 
   hireOptions(): Promise<readonly ToolOptions[]> {
@@ -119,6 +177,9 @@ export class MockApi implements DiscoveryApi {
     if (request.ultracode && tool?.ultracode === null) {
       return Promise.reject(new Error(`${request.tool} has no ultracode`));
     }
+    if (request.structured && tool?.structured !== true) {
+      return Promise.reject(new Error(`${request.tool} can only run in a terminal`));
+    }
     const id = this.nextId("s-new");
     const session: Session = {
       id,
@@ -126,7 +187,7 @@ export class MockApi implements DiscoveryApi {
       projectId,
       title: request.title.trim() === "" ? "New task" : request.title.trim(),
       state: "thinking",
-      control: "full",
+      control: request.structured ? "structured" : "full",
       model: model.id,
       effort: request.effort,
       lastActivityAt: this.stamp(),
@@ -143,7 +204,37 @@ export class MockApi implements DiscoveryApi {
       projects,
       sessions: [...this.snapshot.sessions, session],
     });
+    if (request.structured) this.conversations.start(id, request.title.trim());
     return Promise.resolve(session);
+  }
+
+  structuredBacklog(sessionId: string): Promise<ConversationBacklog> {
+    const b = this.conversations.backlog(sessionId);
+    return b instanceof Error ? Promise.reject(b) : Promise.resolve(b);
+  }
+
+  subscribeStructured(sessionId: string, listener: (update: ConversationUpdate) => void): () => void {
+    return this.conversations.subscribe(sessionId, listener);
+  }
+
+  structuredPrompt(sessionId: string, text: string): Promise<void> {
+    const e = this.conversations.prompt(sessionId, text.trim());
+    return e === null ? Promise.resolve() : Promise.reject(e);
+  }
+
+  structuredAnswer(sessionId: string, approvalId: string, choiceId: string, values: Readonly<Record<string, string>>): Promise<void> {
+    const e = this.conversations.answer(sessionId, approvalId, choiceId, values);
+    return e === null ? Promise.resolve() : Promise.reject(e);
+  }
+
+  structuredCancel(sessionId: string): Promise<void> {
+    this.conversations.cancel(sessionId);
+    return Promise.resolve();
+  }
+
+  structuredStop(sessionId: string): Promise<void> {
+    this.conversations.stop(sessionId);
+    return Promise.resolve();
   }
 
   /** The agent walks back in at once, thinking, in its own (fake) terminal. */
@@ -337,6 +428,11 @@ export class MockApi implements DiscoveryApi {
   }
 
   /** The demo's hires always reach their desks, so there is nothing to report. */
+  /** The demo's setup only changes through the panel itself. */
+  subscribeSetupChanges(_listener: () => void): () => void {
+    return () => {};
+  }
+
   subscribeHireFailures(_listener: (failure: HireFailure) => void): () => void {
     return () => {};
   }

@@ -32,6 +32,8 @@ pub enum ControlMode {
     Full,
     RaiseWindow,
     ReadOnly,
+    /// Driven by the app over the tool's protocol: it opens a conversation panel.
+    Structured,
 }
 
 /// Dollars at API list prices. `unpriced_tokens` (part of `tokens`) came from
@@ -201,6 +203,8 @@ pub struct OfficeSnapshot {
     pub decisions: Vec<Decision>,
     pub todos: Vec<TodoItem>,
     pub messages: Vec<AgentMessage>,
+    /// The setup floor's project id (it may not be standing).
+    pub setup_project_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -230,6 +234,8 @@ pub struct ToolOptions {
     pub default_model: String,
     /// None when the tool has no ultracode; otherwise its default (Claude Code).
     pub ultracode: Option<bool>,
+    /// It can run as a structured desk (no terminal, typed messages and approvals).
+    pub structured: bool,
 }
 
 /// Everything needed to start a new agent session (`HireRequest` in DiscoveryApi.ts).
@@ -242,6 +248,9 @@ pub struct HireRequest {
     /// Run with ultracode on (Claude Code only, a setting beside the effort).
     #[serde(default)]
     pub ultracode: bool,
+    /// Run as a structured desk instead of in a terminal (tools whose options say they can).
+    #[serde(default)]
+    pub structured: bool,
 }
 
 /// One usage-limit window of a tool, as the tool itself last measured it.

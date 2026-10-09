@@ -21,6 +21,7 @@ interface Choice {
   readonly model: string;
   readonly effort: string;
   readonly ultracode: boolean;
+  readonly structured: boolean;
 }
 
 function defaultsFor(tool: ToolOptions): Choice {
@@ -31,6 +32,7 @@ function defaultsFor(tool: ToolOptions): Choice {
     model: model?.id ?? "",
     effort: model?.defaultEffort ?? "",
     ultracode: tool.ultracode ?? false,
+    structured: false,
   };
 }
 
@@ -194,25 +196,20 @@ export function HireDialog({
                 </label>
               ))}
             </fieldset>
-            {tool.ultracode === null ? null : (
+            {tool.ultracode === null && !tool.structured ? null : (
               <div className="choice choice-end">
-                <label
-                  className={classes(
-                    "choice-toggle",
-                    choice.ultracode && "is-on",
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    checked={choice.ultracode}
+                {tool.ultracode === null ? null : (
+                  <Toggle label="Ultracode" checked={choice.ultracode} disabled={busy} onChange={(on) => setChoice({ ...choice, ultracode: on })} />
+                )}
+                {tool.structured ? (
+                  <Toggle
+                    label="Without a terminal"
+                    title="The building talks to the agent directly: its messages and approvals show in a conversation panel"
+                    checked={choice.structured}
                     disabled={busy}
-                    onChange={(e) =>
-                      setChoice({ ...choice, ultracode: e.target.checked })
-                    }
+                    onChange={(on) => setChoice({ ...choice, structured: on })}
                   />
-                  Ultracode
-                </label>
+                ) : null}
               </div>
             )}
           </div>
@@ -257,5 +254,26 @@ export function HireDialog({
         </button>
       </div>
     </form>
+  );
+}
+
+function Toggle({
+  label,
+  title,
+  checked,
+  disabled,
+  onChange,
+}: {
+  readonly label: string;
+  readonly title?: string;
+  readonly checked: boolean;
+  readonly disabled: boolean;
+  readonly onChange: (on: boolean) => void;
+}): React.ReactElement {
+  return (
+    <label className={classes("choice-toggle", checked && "is-on")} title={title}>
+      <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      {label}
+    </label>
   );
 }

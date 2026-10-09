@@ -23,7 +23,9 @@ import { Room } from "./Room";
 import type { RoomObjectsModel } from "./RoomObjects";
 import { Sidebar } from "./Sidebar";
 import { TerminalPanel } from "./TerminalPanel";
+import { sectionsFor } from "./sections";
 import type { Section } from "./sections";
+import type { SetupProps } from "./SetupPanel";
 
 interface Props {
   readonly project: Project;
@@ -40,11 +42,15 @@ interface Props {
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
   readonly onTick: (todoId: string) => void;
   readonly onResume: (sessionId: string) => Promise<void>;
+  readonly setup: SetupProps;
 }
 
 /** The sketch's project screen: the open-plan floor, its search and tally, the rail and panels. */
 export function FloorView(props: Props): React.ReactElement {
-  const { project, snapshot, now, section, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, loadHireOptions, onHire, onAnswer, onTick, onResume } = props;
+  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, loadHireOptions, onHire, onAnswer, onTick, onResume, setup } = props;
+  const setupFloor = snapshot.setupProjectId === project.id;
+  // Only the setup floor has a Setup panel, even if one was left open on it.
+  const section = props.section === "setup" && !setupFloor ? null : props.section;
   const [query, setQuery] = useState("");
   const [hireOpen, setHireOpen] = useState(false);
 
@@ -68,6 +74,7 @@ export function FloorView(props: Props): React.ReactElement {
     aiTodos,
     spend,
     signedOut: ended.length,
+    plant: setupFloor,
   };
 
   const badge = (n: number): string | null => (n > 0 ? String(n) : null);
@@ -158,11 +165,13 @@ export function FloorView(props: Props): React.ReactElement {
               onTick={onTick}
               onOpenSession={onOpenSession}
               onResume={onResume}
+              setup={setup}
             />
           )}
         </AnimatePresence>
 
         <Rail
+          sections={sectionsFor(setupFloor)}
           active={section}
           onSelect={onSection}
           badges={{
