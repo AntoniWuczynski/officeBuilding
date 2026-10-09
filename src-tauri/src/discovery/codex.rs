@@ -51,8 +51,11 @@
 //! appears and it becomes that session. Two kinds of `codex` process are not
 //! sessions and never get one: cwd `/` (the desktop app's), and any whose
 //! arguments name the `app-server` or `mcp-server` subcommand (IDE extensions
-//! and the desktop app run those from a workspace). A process holding more than
-//! one top-level rollout stays ambiguous: not live, no placeholder.
+//! and the desktop app run those from a workspace). Nor is any `codex` started,
+//! at any depth, by another `codex`: a session's browser tool runs `node_repl`,
+//! which starts `codex sandbox` helpers in the session's folder (seen
+//! 2026-10-09). A process holding more than one top-level rollout stays
+//! ambiguous: not live, no placeholder.
 
 use super::collect_jsonl;
 use super::pricing::{self, CodexUsage};
@@ -322,6 +325,8 @@ pub struct CodexSource {
     keep_finished: Duration,
     cache: HashMap<PathBuf, (SystemTime, u64, Transcript)>,
     live_pids: HashMap<String, i32>,
+    /// The running `codex` pids; tests swap in none, so a real session on the Mac stays out.
+    pub(crate) list_pids: fn() -> Vec<i32>,
 }
 
 impl CodexSource {
@@ -332,6 +337,7 @@ impl CodexSource {
             keep_finished: Duration::from_hours(12),
             cache: HashMap::new(),
             live_pids: HashMap::new(),
+            list_pids: list_codex_pids,
         }
     }
 
@@ -352,7 +358,7 @@ impl CodexSource {
 
     /// Every live session, plus finished ones written to recently.
     pub fn scan(&mut self, now: SystemTime) -> Vec<Found> {
-        self.scan_with(now, list_codex_pids())
+        self.scan_with(now, (self.list_pids)())
     }
 
     /// `scan`, with the running `codex` pids supplied instead of queried from the OS.

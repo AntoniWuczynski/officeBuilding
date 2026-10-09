@@ -157,6 +157,12 @@ impl Discovery {
         assemble(&self.home, inputs, locate)
     }
 
+    /// Leave out the `codex` processes really running, which no test's home owns.
+    #[cfg(test)]
+    pub fn ignore_running_codex(&mut self) {
+        self.codex.list_pids = Vec::new;
+    }
+
     /// Pid of a running session, for focusing its terminal window.
     #[must_use]
     pub fn pid_of(&self, session_id: &str) -> Option<i32> {

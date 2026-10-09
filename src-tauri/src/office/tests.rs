@@ -5,17 +5,16 @@ fn office(tag: &str) -> (Office, PathBuf) {
     let dir = std::env::temp_dir().join(format!("ob-office-{}-{tag}", std::process::id()));
     std::fs::create_dir_all(dir.join("home")).expect("mkdir");
     let store = Store::open(dir.join("store.json")).expect("store");
-    (
-        Office::new(
-            dir.join("home"),
-            store,
-            Terminals::new(std::sync::Arc::new(|_| {})),
-            Library::new(dir.join("Setup"), dir.join("setup-build")),
-            Feed::new(dir.join("feed")),
-            crate::structured::desks::Desks::new(std::sync::Arc::new(|_| {})),
-        ),
-        dir,
-    )
+    let office = Office::new(
+        dir.join("home"),
+        store,
+        Terminals::new(std::sync::Arc::new(|_| {})),
+        Library::new(dir.join("Setup"), dir.join("setup-build")),
+        Feed::new(dir.join("feed")),
+        crate::structured::desks::Desks::new(std::sync::Arc::new(|_| {})),
+    );
+    office.lock().discovery.ignore_running_codex();
+    (office, dir)
 }
 
 #[test]

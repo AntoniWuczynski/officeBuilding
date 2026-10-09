@@ -9,29 +9,46 @@ use std::process::Command;
 /// Pids of the `codex` processes running right now, via `ps` (name match).
 /// Never panics: an unavailable `ps` just yields none.
 pub fn list_codex_pids() -> Vec<i32> {
-    let Ok(out) = Command::new("ps").args(["-axo", "pid=,comm="]).output() else {
+    let Ok(out) = Command::new("ps")
+        .args(["-axo", "pid=,ppid=,comm="])
+        .output()
+    else {
         return Vec::new();
     };
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut result = Vec::new();
-    for line in text.lines() {
-        let line = line.trim_start();
-        let mut parts = line.splitn(2, char::is_whitespace);
-        let Some(pid_str) = parts.next() else {
+    outermost_codex_pids(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The `codex` pids in `ps -o pid=,ppid=,comm=` output that no other `codex`
+/// started. A session runs helpers as `codex` too (`codex sandbox`, under its
+/// browser tool's `node_repl`); they belong to that session, not a desk of their own.
+fn outermost_codex_pids(ps: &str) -> Vec<i32> {
+    let mut parent: HashMap<i32, i32> = HashMap::new();
+    let mut codex: Vec<i32> = Vec::new();
+    for line in ps.lines() {
+        let Some((pid, rest)) = line.trim_start().split_once(char::is_whitespace) else {
             continue;
         };
-        let Some(comm) = parts.next().map(str::trim_start) else {
+        let Some((started_by, comm)) = rest.trim_start().split_once(char::is_whitespace) else {
             continue;
         };
-        if comm.rsplit('/').next() != Some("codex") {
+        let (Ok(pid), Ok(started_by)) = (pid.parse::<i32>(), started_by.parse::<i32>()) else {
             continue;
+        };
+        parent.insert(pid, started_by);
+        if comm.trim_start().rsplit('/').next() == Some("codex") {
+            codex.push(pid);
         }
-        let Ok(pid) = pid_str.parse::<i32>() else {
-            continue;
-        };
-        result.push(pid);
     }
-    result
+    let is_codex: HashSet<i32> = codex.iter().copied().collect();
+    codex
+        .into_iter()
+        .filter(|pid| {
+            // Bounded, so a pid reused mid-listing cannot loop the walk.
+            !std::iter::successors(parent.get(pid).copied(), |p| parent.get(p).copied())
+                .take(parent.len())
+                .any(|p| is_codex.contains(&p))
+        })
+        .collect()
 }
 
 /// A running `codex` process, its working directory, and the top-level
@@ -224,6 +241,22 @@ mod tests {
         ));
         // lsof could not read the cwd (the process went away): nothing to show.
         assert!(!is_interactive_session(None, "codex"));
+    }
+
+    // Seen on this Mac: a session's browser tool runs `node_repl`, which starts two
+    // `codex sandbox` helpers in the session's folder. Each became a "New Codex session" desk.
+    #[test]
+    fn a_codex_started_by_another_codex_is_not_a_session_of_its_own() {
+        let ps = "    1     0 /sbin/launchd\n\
+                  84939     1 /Applications/Office Building.app/Contents/MacOS/office-building\n\
+                  97236 84939 codex\n\
+                  98055 97236 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl\n \
+                  8710 98055 /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex\n \
+                  8711 98055 /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex\n\
+                  49031     1 /Applications/ChatGPT.app/Contents/MacOS/ChatGPT\n\
+                  49232 49031 /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex\n\
+                  50000     1 /usr/bin/codexish\n";
+        assert_eq!(outermost_codex_pids(ps), vec![97236, 49232]);
     }
 
     #[test]
