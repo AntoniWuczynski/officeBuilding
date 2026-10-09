@@ -75,6 +75,17 @@ export const MARA = {
   "upper-arm-r": { src: new URL("../../assets/cast/mara/upper-arm-r.png", import.meta.url).href, w: 36, h: 85 },
 } as const;
 
+export const PETS = {
+  "cat-body": { src: new URL("../../assets/cast/pets/cat-body.png", import.meta.url).href, w: 70, h: 92 },
+  "cat-head": { src: new URL("../../assets/cast/pets/cat-head.png", import.meta.url).href, w: 83, h: 83 },
+  "cat-tail": { src: new URL("../../assets/cast/pets/cat-tail.png", import.meta.url).href, w: 44, h: 93 },
+  "dog-body": { src: new URL("../../assets/cast/pets/dog-body.png", import.meta.url).href, w: 68, h: 85 },
+  "dog-head": { src: new URL("../../assets/cast/pets/dog-head.png", import.meta.url).href, w: 102, h: 81 },
+  "dog-tail": { src: new URL("../../assets/cast/pets/dog-tail.png", import.meta.url).href, w: 29, h: 83 },
+  "owl-body": { src: new URL("../../assets/cast/pets/owl-body.png", import.meta.url).href, w: 73, h: 94 },
+  "owl-head": { src: new URL("../../assets/cast/pets/owl-head.png", import.meta.url).href, w: 78, h: 80 },
+  "shell": { src: new URL("../../assets/cast/pets/shell.png", import.meta.url).href, w: 104, h: 68 },
+} as const;
 
 export const THEO = {
   "chair": { src: new URL("../../assets/cast/theo/chair.png", import.meta.url).href, w: 69, h: 69 },

@@ -115,8 +115,20 @@ export interface Session {
   readonly spend: Spend;
   /** Sub-agents (plain or in a workflow) still working for this session. */
   readonly helpers: readonly Helper[];
+  /** What it left running, each beside its desk: shells as seashells, everything else as a pet. */
+  readonly pets: readonly Pet[];
   /** It works in a linked git worktree of its floor's repo: a plant sits on its desk. */
   readonly worktree: boolean;
+}
+
+/** A shell running a background or long command, Claude Code's `Monitor` watching one, a browser the agent drives, or any other program it started. */
+export type PetKind = "shell" | "monitor" | "browser" | "process";
+
+export interface Pet {
+  readonly id: string;
+  readonly kind: PetKind;
+  /** The command, or a monitor's description, shortened. */
+  readonly label: string;
 }
 
 /** A session whose agent has left: listed on its floor's sign-out sheet to resume. */

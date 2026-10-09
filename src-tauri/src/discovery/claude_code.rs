@@ -8,6 +8,7 @@
 //!   calls and any unanswered `AskUserQuestion`.
 
 use super::collect_jsonl;
+use super::pets::MonitorCall;
 use super::pricing;
 use super::rules::{LastBlock, Signals};
 use crate::model::{Helper, SessionState, Spend};
@@ -72,6 +73,8 @@ pub struct Transcript {
     pub finished: bool,
     /// Started by a script or the SDK (`claude -p`, entrypoint `sdk-*`), not by a person.
     pub scripted: bool,
+    /// Its `Monitor` calls, so a running one shows as a monitor pet, not a shell.
+    pub monitors: Vec<MonitorCall>,
 }
 
 /// Whether a process exists (signal 0 probes without sending anything).
@@ -185,6 +188,7 @@ impl ParserState {
                 question: None,
                 finished: false,
                 scripted: false,
+                monitors: Vec::new(),
             },
             open: HashSet::new(),
             usage_by_message: HashMap::new(),
@@ -342,6 +346,23 @@ impl ParserState {
                             }
                             Some("StructuredOutput") => {
                                 self.structured_output = Some(tool_id.to_string());
+                            }
+                            Some("Monitor") => {
+                                let field = |name: &str| {
+                                    block
+                                        .get("input")
+                                        .and_then(|i| i.get(name))
+                                        .and_then(Value::as_str)
+                                        .map(str::to_string)
+                                };
+                                if let (Some(command), Some(description)) =
+                                    (field("command"), field("description"))
+                                {
+                                    self.t.monitors.push(MonitorCall {
+                                        command,
+                                        description,
+                                    });
+                                }
                             }
                             _ => {}
                         }

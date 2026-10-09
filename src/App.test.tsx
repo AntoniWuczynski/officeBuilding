@@ -783,6 +783,24 @@ describe("live updates and failures", () => {
     expect(screen.getByTestId("walk")).toHaveClass("walk-leave");
   });
 
+  it("what an agent left running sits in front of its desk, and pops out once it ends", async () => {
+    const api = new PushableApi();
+    renderApp(api);
+    await enter("p-shop");
+    expect(screen.getByRole("img", { name: "Shell: pnpm dev --port 5183" })).toHaveAttribute("data-kind", "shell");
+    expect(screen.getByRole("img", { name: "Monitor: deploy errors" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Browser: node_repl" })).toBeInTheDocument();
+    const seed = makeSeedSnapshot();
+    act(() => {
+      api.push({ ...seed, sessions: seed.sessions.map((s) => (s.id === "s-1" ? { ...s, pets: s.pets.filter((p) => p.kind !== "shell") } : s)) });
+    });
+    const leaving = screen.getByRole("img", { name: "Shell: pnpm dev --port 5183" });
+    expect(leaving).toHaveClass("is-leaving");
+    fireEvent.animationEnd(leaving, { animationName: "pet-pop-out" });
+    expect(screen.queryByRole("img", { name: "Shell: pnpm dev --port 5183" })).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("pet")).toHaveLength(3);
+  });
+
   it("returns to the building if the floor disappears", async () => {
     const api = new PushableApi();
     renderApp(api);

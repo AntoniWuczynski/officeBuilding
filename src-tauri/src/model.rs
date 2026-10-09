@@ -79,6 +79,8 @@ pub struct Session {
     pub spend: Spend,
     /// Sub-agents (plain or in a workflow) still working for this session.
     pub helpers: Vec<Helper>,
+    /// What it left running: shells, monitors and other programs, each beside its desk.
+    pub pets: Vec<Pet>,
     /// It works in a linked git worktree of its floor's repo.
     pub worktree: bool,
 }
@@ -105,6 +107,29 @@ pub struct Helper {
     pub state: SessionState,
     /// It works in a linked git worktree (an isolated sub-agent's own checkout).
     pub worktree: bool,
+}
+
+/// A program a session left running (see `discovery::pets`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Pet {
+    pub id: String,
+    pub kind: PetKind,
+    /// The command, or a monitor's description, shortened.
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PetKind {
+    /// A shell running a background or long command: drawn as a seashell.
+    Shell,
+    /// Claude Code's `Monitor` tool watching a command.
+    Monitor,
+    /// A browser the agent drives.
+    Browser,
+    /// Any other program it started.
+    Process,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

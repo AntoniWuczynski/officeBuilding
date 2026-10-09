@@ -17,6 +17,7 @@ import { Person, Walker } from "../../scene/Person";
 import { BackWall, LeftWall, ManagerOffice, SignOutStand } from "./RoomObjects";
 import type { RoomObjectsModel } from "./RoomObjects";
 import type { Section } from "./sections";
+import { Pets } from "./Pets";
 import { Pod, PodScale } from "./Pod";
 import { WorkerCard } from "./WorkerCard";
 
@@ -157,6 +158,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
             <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} />
             <Pod desk={desk} z={ROOM.slab} helpers={s.helpers} walking={walking} />
+            <Pets desk={desk} z={ROOM.slab} pets={s.pets} />
             {walking.has(s.id) ? null : (
               <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
                 <button

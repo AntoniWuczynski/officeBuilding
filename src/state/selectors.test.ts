@@ -41,6 +41,7 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
     pendingQuestionIds: over.pendingQuestionIds ?? [],
     spend: over.spend ?? { usd: 0, tokens: 0, unpricedTokens: 0 },
     helpers: over.helpers ?? [],
+    pets: over.pets ?? [],
     worktree: over.worktree ?? false,
   };
 }

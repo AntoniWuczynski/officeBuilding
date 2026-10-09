@@ -79,6 +79,7 @@ fn session(id: &str, control: ControlMode) -> Session {
         pending_question_ids: Vec::new(),
         spend: Spend::default(),
         helpers: Vec::new(),
+        pets: Vec::new(),
         worktree: false,
     }
 }

@@ -3,11 +3,12 @@
 
 pub mod claude_code;
 pub mod codex;
+pub mod pets;
 pub mod pricing;
 pub mod rules;
 
 use crate::model::{
-    AnswerVia, ControlMode, EndedSession, Helper, Project, Question, QuestionOption, Session,
+    AnswerVia, ControlMode, EndedSession, Helper, Pet, Project, Question, QuestionOption, Session,
     SessionState, Spend, ToolKind,
 };
 use rules::Signals;
@@ -134,6 +135,8 @@ pub struct Discovery {
     home: PathBuf,
     claude: claude_code::ClaudeSource,
     codex: codex::CodexSource,
+    /// The OS's process listing, for each session's pets; tests swap in none.
+    read_processes: fn() -> Vec<pets::ProcessRow>,
 }
 
 impl Discovery {
@@ -142,17 +145,25 @@ impl Discovery {
         Self {
             claude: claude_code::ClaudeSource::new(home.clone()),
             codex: codex::CodexSource::new(home.clone()),
+            read_processes: pets::read_table,
             home,
         }
     }
 
     pub fn scan(&mut self, now: SystemTime) -> Discovered {
+        let table = (self.read_processes)();
         let inputs = self
             .claude
             .scan(now)
             .into_iter()
-            .filter_map(from_claude)
-            .chain(self.codex.scan(now).into_iter().filter_map(from_codex))
+            .filter_map(|f| from_claude(f, &table))
+            .chain(
+                self.codex
+                    .scan(now)
+                    .into_iter()
+                    .filter_map(|f| from_codex(f, &table)),
+            )
+            .filter(still_there)
             .collect();
         assemble(&self.home, inputs, locate)
     }
@@ -161,6 +172,7 @@ impl Discovery {
     #[cfg(test)]
     pub fn ignore_running_codex(&mut self) {
         self.codex.list_pids = Vec::new;
+        self.read_processes = Vec::new;
     }
 
     /// Pid of a running session, for focusing its terminal window.
@@ -198,11 +210,12 @@ struct SessionInput {
     /// Otherwise a waiting state falls back to the plain-prose scorer.
     formal_question: Option<FormalQuestionInput>,
     helpers: Vec<Helper>,
+    pets: Vec<Pet>,
     /// A person started it, so once it ends it can be offered to resume.
     resumable: bool,
 }
 
-fn from_claude(f: claude_code::Found) -> Option<SessionInput> {
+fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<SessionInput> {
     let cwd = f
         .transcript
         .cwd
@@ -243,12 +256,17 @@ fn from_claude(f: claude_code::Found) -> Option<SessionInput> {
         spend: f.transcript.spend,
         signals,
         formal_question,
+        pets: f
+            .live
+            .as_ref()
+            .map(|l| pets::pets_of(l.pid, table, &f.transcript.monitors))
+            .unwrap_or_default(),
         helpers: f.helpers,
         resumable: !f.transcript.scripted,
     })
 }
 
-fn from_codex(f: codex::Found) -> Option<SessionInput> {
+fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInput> {
     let cwd = f.transcript.cwd.clone()?;
     let signals = codex::signals(&f.transcript, f.live_pid);
     Some(SessionInput {
@@ -267,6 +285,10 @@ fn from_codex(f: codex::Found) -> Option<SessionInput> {
         // waiting Codex session always falls back to the plain-prose scorer.
         formal_question: None,
         helpers: Vec::new(),
+        pets: f
+            .live_pid
+            .map(|pid| pets::pets_of(pid, table, &[]))
+            .unwrap_or_default(),
         resumable: f.resumable,
     })
 }
@@ -383,6 +405,7 @@ fn assemble(
             pending_question_ids: pending,
             spend: input.spend,
             helpers: input.helpers,
+            pets: input.pets,
             worktree,
         });
     }
@@ -464,7 +487,10 @@ mod tests {
     }
 
     fn claude_inputs(founds: Vec<Found>) -> Vec<SessionInput> {
-        founds.into_iter().filter_map(from_claude).collect()
+        founds
+            .into_iter()
+            .filter_map(|f| from_claude(f, &[]))
+            .collect()
     }
 
     const ASK: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:01:00Z","message":{"id":"m","content":[{"type":"tool_use","id":"toolu_1","name":"AskUserQuestion","input":{"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]}}]}}"#;
@@ -616,7 +642,7 @@ mod tests {
             live_pid: Some(7),
             resumable: false,
         };
-        let input = from_codex(placeholder).expect("a codex session");
+        let input = from_codex(placeholder, &[]).expect("a codex session");
         assert!(!input.resumable);
         let d = assemble(Path::new("/home/me"), vec![input], own_floor);
         assert_eq!(d.sessions[0].title, "New Codex session");
@@ -640,7 +666,7 @@ mod tests {
         let idle: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T09:00:00Z","message":{"id":"m","content":[{"type":"text","text":"All good."}]}}"#;
         let home = Path::new("/home/me");
         let mut inputs = claude_inputs(vec![found("s1", "/home/me/code/app", &[idle], true)]);
-        inputs.extend(from_codex(codex_found));
+        inputs.extend(from_codex(codex_found, &[]));
         let d = assemble(home, inputs, own_floor);
 
         assert_eq!(d.projects.len(), 1);
