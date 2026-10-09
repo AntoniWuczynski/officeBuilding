@@ -13,3 +13,6 @@ coverage/
 
 # /brag's launch-video output
 brag-output/
+
+# Review and audit reports: kept locally, not published
+reports/
