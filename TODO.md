@@ -27,6 +27,7 @@ Open:
 - [x] Hiring picks tool, model and effort (efforts are per model, as in Codex's models cache). A Human, 2026-09-29.
 - [x] OB-004 — Hover slide on storeys could flicker at a storey's very edge (the room moved out from under the pointer). A transparent hit box now holds the hover in place while the room slides. Preventive fix: the flicker was not reproducible before it, and a Chromium sweep of 186 pointer positions shows 0 hover changes while the pointer is still. Owner: Claude.
 - [~] OB-032 — A session working in a linked git worktree (an `isolation: "worktree"` sub-agent's checkout, or a session that `cd`s into one) sits on its main checkout's floor instead of a floor named after the worktree, with a potted plant on its desk. A sub-agent in a worktree gets a smaller plant on its tiny desk (A Human, 2026-10-06). Verified: Rust and TS tests, a real scan (a session that had moved to its worktree's own floor moved back), Chromium screenshots. Residual: not yet looked at in the Tauri app (WebKit), which Playwright's WebKit cannot stand in for. Owner: Claude.
+- [~] OB-047 — Sub-agents walk in from the door to their tiny desk and out again when they finish, like the agents do (A Human, 2026-10-09). Drawn at the pod's scale. Their desk stands empty while they walk. They walk out with their agent when its session ends. No walk once the pod is too small to seat people, or with reduced motion. Vitest covers it. Still to check in the real app window. Owner: Claude.
 
 ## Backend (next)
 

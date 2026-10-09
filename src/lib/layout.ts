@@ -48,6 +48,8 @@ export const POD = {
   maxCell: 26,
   /** Smallest cell that still seats a person. */
   personCell: 15,
+  /** A helper's desk, as a share of its cell's side. */
+  deskShare: 0.78,
 } as const;
 
 export interface Region {
@@ -94,6 +96,18 @@ export function podFor(desk: Slot, count: number): Pod {
     y: region.y + Math.floor(i / cols) * cell,
   }));
   return { region, cell, slots, hidden: count - shown };
+}
+
+/** Where someone stands at a desk, and how large they are drawn (1 at a full desk). */
+export interface Seat {
+  readonly at: Slot;
+  readonly scale: number;
+}
+
+/** Where a helper stands at its tiny desk in `slot`, or null once the pod is too small to seat people. */
+export function podSeatOf(pod: Pod, slot: Slot): Seat | null {
+  if (pod.cell < POD.personCell) return null;
+  return { at: { x: slot.x + pod.cell * POD.deskShare * 0.62, y: slot.y - 1 }, scale: pod.cell / 40 };
 }
 
 /** Where a seated worker stands: just behind the desk, facing the camera. */

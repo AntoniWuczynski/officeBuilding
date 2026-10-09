@@ -1,5 +1,5 @@
 import type { Helper } from "../../types";
-import { POD, podFor } from "../../lib/layout";
+import { POD, podFor, podSeatOf } from "../../lib/layout";
 import type { Slot } from "../../lib/layout";
 import { poseForState } from "../../lib/animation";
 import { lookFor } from "../../lib/looks";
@@ -13,6 +13,8 @@ interface Props {
   readonly desk: Slot;
   readonly z: number;
   readonly helpers: readonly Helper[];
+  /** Helpers on their way in or out: their desks stand empty meanwhile. */
+  readonly walking: ReadonlySet<string>;
 }
 
 /**
@@ -20,21 +22,19 @@ interface Props {
  * shrink as the team grows, drop their people once too small to seat one, and
  * past POD.cap the rest show as a count.
  */
-export function Pod({ desk, z, helpers }: Props): React.ReactElement | null {
+export function Pod({ desk, z, helpers, walking }: Props): React.ReactElement | null {
   if (helpers.length === 0) return null;
   const pod = podFor(desk, helpers.length);
-  const w = pod.cell * 0.78;
+  const w = pod.cell * POD.deskShare;
   const d = pod.cell * 0.5;
   const h = Math.max(1.5, pod.cell * 0.24);
-  const seated = pod.cell >= POD.personCell;
-  const ratio = pod.cell / 40;
-  const scale: StyleWithVars = { "--pod-scale": String(ratio) };
   const bottom = Math.max(...pod.slots.map((s) => s.y)) + pod.cell;
   return (
     <div className="group pod" data-testid="pod">
       {pod.slots.map((slot, i) => {
         const helper = helpers[i];
         if (helper === undefined) return null;
+        const seat = podSeatOf(pod, slot);
         return (
           <div key={helper.id} className="group">
             <IsoBox
@@ -50,14 +50,14 @@ export function Pod({ desk, z, helpers }: Props): React.ReactElement | null {
               className="pod-desk"
               topContent={<b className={`pod-led led-${helper.state}`} data-testid="pod-desk" />}
             />
-            {seated && helper.worktree ? <Plant x={slot.x + w * 0.12} y={slot.y + d * 0.1} z={z + h} scale={ratio} /> : null}
-            {seated ? (
-              <Billboard x={slot.x + w * 0.62} y={slot.y - 1} z={z}>
-                <span className="pod-person" style={scale}>
+            {seat !== null && helper.worktree ? <Plant x={slot.x + w * 0.12} y={slot.y + d * 0.1} z={z + h} scale={seat.scale} /> : null}
+            {seat === null || walking.has(helper.id) ? null : (
+              <Billboard x={seat.at.x} y={seat.at.y} z={z}>
+                <PodScale scale={seat.scale}>
                   <Person look={lookFor(helper.id)} pose={poseForState(helper.state)} />
-                </span>
+                </PodScale>
               </Billboard>
-            ) : null}
+            )}
           </div>
         );
       })}
@@ -69,5 +69,15 @@ export function Pod({ desk, z, helpers }: Props): React.ReactElement | null {
         </Billboard>
       )}
     </div>
+  );
+}
+
+/** Draws a full-size figure at a helper's size. */
+export function PodScale({ scale, children }: { readonly scale: number; readonly children: React.ReactNode }): React.ReactElement {
+  const style: StyleWithVars = { "--pod-scale": String(scale) };
+  return (
+    <span className="pod-person" style={style} data-testid="pod-helper">
+      {children}
+    </span>
   );
 }

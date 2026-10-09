@@ -5,7 +5,8 @@ import { STATE_LABEL, TOOL_LABEL, helpersLine, sessionMatches } from "../../stat
 import { poseForState } from "../../lib/animation";
 import { headsLeft } from "../../lib/iso";
 import type { PlanPoint } from "../../lib/iso";
-import { DESK, ROOM, doorOf, floorSpotOf, roomDeskSlot, seatOf } from "../../lib/layout";
+import { DESK, ROOM, doorOf, floorSpotOf, podFor, podSeatOf, roomDeskSlot, seatOf } from "../../lib/layout";
+import type { Seat } from "../../lib/layout";
 import { lookFor } from "../../lib/looks";
 import { Billboard, CameraContext, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
@@ -16,7 +17,7 @@ import { Person, Walker } from "../../scene/Person";
 import { BackWall, LeftWall, ManagerOffice, SignOutStand } from "./RoomObjects";
 import type { RoomObjectsModel } from "./RoomObjects";
 import type { Section } from "./sections";
-import { Pod } from "./Pod";
+import { Pod, PodScale } from "./Pod";
 import { WorkerCard } from "./WorkerCard";
 
 interface Walk {
@@ -26,6 +27,8 @@ interface Walk {
   readonly toId: string | null;
   readonly from: PlanPoint;
   readonly to: PlanPoint;
+  /** 1 for an agent, smaller for a helper bound for a tiny desk. */
+  readonly scale: number;
 }
 
 interface RoomProps {
@@ -41,8 +44,25 @@ interface RoomProps {
   readonly onHire: () => void;
 }
 
-function seatsFor(sessions: readonly Session[]): Map<string, PlanPoint> {
-  return new Map(sessions.map((s, i) => [s.id, seatOf(roomDeskSlot(i))]));
+/** Every agent's seat, and each helper's while its pod is big enough to seat one. */
+function seatsFor(sessions: readonly Session[]): Map<string, Seat> {
+  const seats = new Map<string, Seat>();
+  sessions.forEach((s, i) => {
+    const desk = roomDeskSlot(i);
+    seats.set(s.id, { at: seatOf(desk), scale: 1 });
+    const pod = podFor(desk, s.helpers.length);
+    pod.slots.forEach((slot, j) => {
+      const helper = s.helpers[j];
+      const seat = podSeatOf(pod, slot);
+      if (helper !== undefined && seat !== null) seats.set(helper.id, seat);
+    });
+  });
+  return seats;
+}
+
+/** Agents and their helpers, seated or not. */
+function workerIds(sessions: readonly Session[]): string[] {
+  return sessions.flatMap((s) => [s.id, ...s.helpers.map((h) => h.id)]);
 }
 
 /** The plant room's tank, in the front corner: its x, how far it stands from the front, its size. */
@@ -59,9 +79,9 @@ const ACTION_WORDS: Record<Session["control"], string> = {
 export function Room({ sessions, depth, query, now, messages, objects, hiring, onOpenSession, onOpenSection, onHire }: RoomProps): React.ReactElement {
   const reduced = useReducedMotion() ?? false;
   const seenMessages = useRef<Set<string>>(new Set(messages.map((m) => m.id)));
-  const seenSessions = useRef<Set<string>>(new Set(sessions.map((s) => s.id)));
-  // Where each agent sat last time, so one whose session ends can walk out from there.
-  const lastSeats = useRef<Map<string, PlanPoint>>(seatsFor(sessions));
+  const seenWorkers = useRef<Set<string>>(new Set(workerIds(sessions)));
+  // Where each agent and helper sat last time, so one that finishes can walk out from there.
+  const lastSeats = useRef<Map<string, Seat>>(seatsFor(sessions));
   const [walks, setWalks] = useState<readonly Walk[]>([]);
   const [card, setCard] = useState<{ readonly sessionId: string; readonly x: number; readonly y: number } | null>(null);
   const showCard = (sessionId: string, el: HTMLElement): void => {
@@ -80,20 +100,20 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
       const from = seats.get(m.fromSessionId);
       const to = seats.get(m.toSessionId);
       if (!reduced && from !== undefined && to !== undefined) {
-        fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from, to });
+        fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from: from.at, to: to.at, scale: 1 });
       }
     }
-    for (const s of sessions) {
-      if (seenSessions.current.has(s.id)) continue;
-      seenSessions.current.add(s.id);
-      const seat = seats.get(s.id);
+    for (const id of workerIds(sessions)) {
+      if (seenWorkers.current.has(id)) continue;
+      seenWorkers.current.add(id);
+      const seat = seats.get(id);
       if (!reduced && seat !== undefined) {
-        fresh.push({ id: `arrive-${s.id}`, kind: "arrive", walkerId: s.id, toId: null, from: doorOf(depth), to: seat });
+        fresh.push({ id: `arrive-${id}`, kind: "arrive", walkerId: id, toId: null, from: doorOf(depth), to: seat.at, scale: seat.scale });
       }
     }
     for (const [id, seat] of lastSeats.current) {
       if (!reduced && !seats.has(id)) {
-        fresh.push({ id: `leave-${id}`, kind: "leave", walkerId: id, toId: null, from: seat, to: doorOf(depth) });
+        fresh.push({ id: `leave-${id}`, kind: "leave", walkerId: id, toId: null, from: seat.at, to: doorOf(depth), scale: seat.scale });
       }
     }
     lastSeats.current = seats;
@@ -136,7 +156,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
         return (
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
             <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} />
-            <Pod desk={desk} z={ROOM.slab} helpers={s.helpers} />
+            <Pod desk={desk} z={ROOM.slab} helpers={s.helpers} walking={walking} />
             {walking.has(s.id) ? null : (
               <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
                 <button
@@ -182,6 +202,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
 function WalkView({ walk, depth, onDone }: { readonly walk: Walk; readonly depth: number; readonly onDone: (id: string) => void }): React.ReactElement {
   const cam = useContext(CameraContext);
   const left = headsLeft(cam, ROOM.width, depth, walk.from, walk.to);
+  const walker = <Walker look={lookFor(walk.walkerId)} carrying={walk.kind === "note"} />;
   const style: StyleWithVars = {
     "--fx": `${walk.from.x}px`,
     "--fy": `${walk.from.y}px`,
@@ -199,7 +220,7 @@ function WalkView({ walk, depth, onDone }: { readonly walk: Walk; readonly depth
       }}
     >
       <Billboard x={0} y={0}>
-        <Walker look={lookFor(walk.walkerId)} carrying={walk.kind === "note"} />
+        {walk.scale === 1 ? walker : <PodScale scale={walk.scale}>{walker}</PodScale>}
       </Billboard>
     </div>
   );

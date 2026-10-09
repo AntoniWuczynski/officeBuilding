@@ -5,7 +5,7 @@ import { App } from "./App";
 import { MockApi } from "./api/mockApi";
 import { makeSeedSnapshot } from "./api/mockData";
 import type { DiscoveryApi, HireFailure } from "./api/DiscoveryApi";
-import type { OfficeSnapshot } from "./types";
+import type { OfficeSnapshot, Session } from "./types";
 
 /** A MockApi with a working folder picker, as in the desktop app. */
 class PickerApi extends MockApi {
@@ -744,11 +744,43 @@ describe("live updates and failures", () => {
     act(() => {
       api.push({ ...seed, sessions: seed.sessions.filter((s) => s.id !== "s-1") });
     });
-    const walk = screen.getByTestId("walk");
+    // Its three helpers walk out with it.
+    const walks = screen.getAllByTestId("walk");
+    expect(walks).toHaveLength(4);
+    const walk = walks.find((w) => within(w).queryByTestId("pod-helper") === null);
+    if (walk === undefined) throw new Error("the agent's own walk is missing");
     expect(walk).toHaveClass("walk-leave");
     expect(screen.queryByRole("button", { name: /audit checkout/ })).not.toBeInTheDocument();
     fireEvent.animationEnd(walk);
-    expect(screen.queryByTestId("walk")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("walk")).toHaveLength(3);
+  });
+
+  it("a helper walks in from the door to its tiny desk, and out again once it finishes", async () => {
+    const api = new PushableApi();
+    renderApp(api);
+    await enter("p-shop");
+    const seed = makeSeedSnapshot();
+    const withHelpers = (change: (helpers: Session["helpers"]) => Session["helpers"]): OfficeSnapshot => ({
+      ...seed,
+      sessions: seed.sessions.map((s) => (s.id === "s-1" ? { ...s, helpers: change(s.helpers) } : s)),
+    });
+    act(() => {
+      api.push(withHelpers((h) => [...h, { id: "s-1-new", state: "running", worktree: false }]));
+    });
+    const arrive = screen.getByTestId("walk");
+    expect(arrive).toHaveClass("walk-arrive");
+    expect(within(arrive).getByTestId("pod-helper")).toBeInTheDocument();
+    // The helper is on its way, so its desk stands empty: four desks, three seated.
+    const pod = screen.getByTestId("pod");
+    expect(within(pod).getAllByTestId("pod-desk")).toHaveLength(4);
+    expect(within(pod).getAllByTestId("pod-helper")).toHaveLength(3);
+    fireEvent.animationEnd(arrive);
+    expect(within(pod).getAllByTestId("pod-helper")).toHaveLength(4);
+
+    act(() => {
+      api.push(withHelpers((h) => h));
+    });
+    expect(screen.getByTestId("walk")).toHaveClass("walk-leave");
   });
 
   it("returns to the building if the floor disappears", async () => {
