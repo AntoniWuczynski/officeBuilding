@@ -108,14 +108,15 @@ pub fn probe(pid: i32, sessions_dir: &Path, top_level: &HashSet<String>) -> Proc
 
 /// Whether a running `codex` is an interactive session of its own, from its
 /// cwd and command line. The `ChatGPT` desktop app's embedded codex has cwd
-/// `/`; IDE extensions and the desktop app run `app-server` / `mcp-server`
-/// from a workspace cwd. None of those is a desk.
+/// `/`; IDE extensions and the desktop app run `app-server` / `mcp-server` /
+/// `exec-server` (the desktop app's cloud runner) from a workspace cwd. None of
+/// those is a desk.
 #[must_use]
 pub fn is_interactive_session(cwd: Option<&str>, args: &str) -> bool {
     cwd.is_some_and(|c| c != "/")
         && !args
             .split_whitespace()
-            .any(|word| matches!(word, "app-server" | "mcp-server"))
+            .any(|word| matches!(word, "app-server" | "mcp-server" | "exec-server"))
 }
 
 fn process_args(pid: i32) -> String {
@@ -211,6 +212,10 @@ mod tests {
         assert!(!is_interactive_session(
             Some("/code/app"),
             "codex mcp-server"
+        ));
+        assert!(!is_interactive_session(
+            Some("/Users/me"),
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex exec-server --remote https://example.invalid/api"
         ));
         // A prompt that merely contains the word inside another word is a session.
         assert!(is_interactive_session(
