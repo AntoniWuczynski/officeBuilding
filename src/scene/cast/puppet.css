@@ -1,0 +1,379 @@
+/* South Park-style cut-outs of realistic people (Person.tsx, rig.ts). Pieces
+   hold a pose and snap between keyframes (steps), so the motion is quick and
+   jerky rather than smooth. Every pose has a resting transform too, which is
+   all that shows with reduced motion. */
+
+.puppet {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 0;
+  height: 0;
+}
+.pp-rig {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: scale(var(--pp-k, 0.15));
+  transform-origin: 0 0;
+}
+.pp {
+  position: absolute;
+  display: block;
+}
+.pp > img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+.pp-blink {
+  opacity: 0;
+  animation: pp-blink 4.3s steps(1) infinite;
+}
+.pp-note {
+  position: absolute;
+  left: -14px;
+  bottom: -30px;
+  width: 44px;
+  height: 56px;
+  background: var(--paper, #fffdf8);
+  border: 3px solid #8c8c8c;
+  transform: rotate(12deg);
+}
+
+/* ---- typing: forearms strike the keys in bursts, head and shoulders keep time ---- */
+.pose-typing .pp-arm-a {
+  transform: rotate(20deg);
+}
+.pose-typing .pp-arm-b {
+  transform: rotate(-20deg);
+}
+.pose-typing .pp-fore-a {
+  transform: rotate(-74deg) scaleY(0.66);
+  animation: pp-type-a 2.4s steps(1) infinite;
+}
+.pose-typing .pp-fore-b {
+  transform: rotate(74deg) scaleY(0.66);
+  animation: pp-type-b 2.4s steps(1) infinite;
+}
+.pose-typing .pp-head {
+  animation: pp-type-head 1.2s steps(1) infinite;
+}
+.pose-typing .pp-torso {
+  animation: pp-type-torso 0.6s steps(1) infinite;
+}
+
+/* ---- thinking: hand on the chin, head tilting this way and that ---- */
+.pose-thinking .pp-arm-a {
+  transform: rotate(8deg);
+}
+.pose-thinking .pp-fore-a {
+  transform: rotate(-60deg) scaleY(0.7);
+}
+.pose-thinking .pp-arm-b {
+  transform: rotate(-30deg);
+}
+.pose-thinking .pp-fore-b {
+  transform: rotate(192deg) scaleY(0.86);
+  animation: pp-scratch 1.8s steps(1) infinite;
+}
+.pose-thinking .pp-head {
+  transform: rotate(-7deg);
+  animation: pp-ponder 3.2s steps(1) infinite;
+}
+
+/* ---- waiting on a human: arm straight up, waving hard ---- */
+.pose-hand-up .pp-arm-b {
+  transform: rotate(-162deg);
+  animation: pp-wave-arm 0.5s steps(1) infinite;
+}
+.pose-hand-up .pp-fore-b {
+  transform: rotate(-8deg);
+  animation: pp-wave-hand 0.25s steps(1) infinite;
+}
+.pose-hand-up .pp-arm-a {
+  transform: rotate(6deg);
+}
+.pose-hand-up .pp-head {
+  animation: pp-hop 0.5s steps(1) infinite;
+}
+.pose-hand-up .pp-torso {
+  animation: pp-hop 0.5s steps(1) infinite;
+}
+
+/* ---- idle and finished: sitting back, now and then looking around ---- */
+.pose-idle .pp-torso,
+.pose-finished .pp-torso {
+  transform: rotate(-3deg);
+}
+.pose-idle .pp-arm-a {
+  transform: rotate(4deg);
+}
+.pose-idle .pp-arm-b {
+  transform: rotate(-4deg);
+}
+.pose-idle .pp-head {
+  animation: pp-look 5s steps(1) infinite;
+}
+.pose-finished .pp-head {
+  transform: rotate(10deg) translateY(4px);
+}
+
+/* ---- stuck: flat on the floor, eyes shut, a leg twitching ---- */
+/* Lying down a person is long: drawn a little smaller so they stay on their floor. */
+.pose-stuck .pp-rig {
+  transform: rotate(-90deg) scale(calc(var(--pp-k, 0.15) * 0.8));
+}
+.pose-stuck .pp-blink {
+  opacity: 1;
+  animation: none;
+}
+.pose-stuck .pp-arm-a {
+  transform: rotate(28deg);
+}
+.pose-stuck .pp-arm-b {
+  transform: rotate(-28deg);
+}
+.pose-stuck .pp-leg-a {
+  transform: rotate(8deg);
+}
+.pose-stuck .pp-leg-b {
+  transform: rotate(-6deg);
+  animation: pp-twitch 2.6s steps(1) infinite;
+}
+
+/* ---- walking: legs and arms swing, the whole body bobs ---- */
+.walker .puppet {
+  animation: pp-bob 0.36s steps(1) infinite;
+}
+.walker .pp-leg-a {
+  animation: pp-stride 0.72s steps(1) infinite;
+}
+.walker .pp-leg-b {
+  animation: pp-stride 0.72s steps(1) infinite reverse;
+}
+.walker .pp-arm-a {
+  animation: pp-swing 0.72s steps(1) infinite reverse;
+}
+.walker .pp-arm-b {
+  animation: pp-swing 0.72s steps(1) infinite;
+}
+
+@keyframes pp-blink {
+  0% {
+    opacity: 0;
+  }
+  95% {
+    opacity: 1;
+  }
+}
+@keyframes pp-type-a {
+  0% {
+    transform: rotate(-74deg) scaleY(0.6);
+  }
+  8% {
+    transform: rotate(-70deg) scaleY(0.74);
+  }
+  16% {
+    transform: rotate(-80deg) scaleY(0.6);
+  }
+  24% {
+    transform: rotate(-66deg) scaleY(0.72);
+  }
+  32% {
+    transform: rotate(-76deg) scaleY(0.58);
+  }
+  40% {
+    transform: rotate(-72deg) scaleY(0.76);
+  }
+  48% {
+    transform: rotate(-82deg) scaleY(0.6);
+  }
+  56% {
+    transform: rotate(-68deg) scaleY(0.74);
+  }
+  64% {
+    transform: rotate(-74deg) scaleY(0.62);
+  }
+  72%,
+  100% {
+    transform: rotate(-70deg) scaleY(0.68);
+  }
+}
+@keyframes pp-type-b {
+  0% {
+    transform: rotate(72deg) scaleY(0.74);
+  }
+  8% {
+    transform: rotate(80deg) scaleY(0.6);
+  }
+  16% {
+    transform: rotate(68deg) scaleY(0.74);
+  }
+  24% {
+    transform: rotate(78deg) scaleY(0.58);
+  }
+  32% {
+    transform: rotate(70deg) scaleY(0.76);
+  }
+  40% {
+    transform: rotate(82deg) scaleY(0.6);
+  }
+  48% {
+    transform: rotate(66deg) scaleY(0.72);
+  }
+  56% {
+    transform: rotate(76deg) scaleY(0.6);
+  }
+  64% {
+    transform: rotate(72deg) scaleY(0.74);
+  }
+  72%,
+  100% {
+    transform: rotate(70deg) scaleY(0.68);
+  }
+}
+@keyframes pp-type-head {
+  0% {
+    transform: rotate(-3deg) translateY(0);
+  }
+  25% {
+    transform: rotate(2deg) translateY(3px);
+  }
+  50% {
+    transform: rotate(-1deg) translateY(-2px);
+  }
+  75% {
+    transform: rotate(4deg) translateY(2px);
+  }
+}
+@keyframes pp-type-torso {
+  0% {
+    transform: rotate(-1deg);
+  }
+  50% {
+    transform: rotate(1deg) translateY(2px);
+  }
+}
+@keyframes pp-scratch {
+  0% {
+    transform: rotate(192deg) scaleY(0.86);
+  }
+  60% {
+    transform: rotate(198deg) scaleY(0.82);
+  }
+  70% {
+    transform: rotate(186deg) scaleY(0.88);
+  }
+  80% {
+    transform: rotate(198deg) scaleY(0.82);
+  }
+  90% {
+    transform: rotate(190deg) scaleY(0.86);
+  }
+}
+@keyframes pp-ponder {
+  0% {
+    transform: rotate(-7deg);
+  }
+  40% {
+    transform: rotate(-11deg) translateY(2px);
+  }
+  70% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes pp-wave-arm {
+  0% {
+    transform: rotate(-162deg);
+  }
+  50% {
+    transform: rotate(-148deg);
+  }
+}
+@keyframes pp-wave-hand {
+  0% {
+    transform: rotate(-26deg);
+  }
+  50% {
+    transform: rotate(22deg);
+  }
+}
+@keyframes pp-hop {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+@keyframes pp-look {
+  0% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(-6deg) translateX(-2px);
+  }
+  55% {
+    transform: rotate(0deg);
+  }
+  80% {
+    transform: rotate(7deg) translateX(2px);
+  }
+}
+@keyframes pp-twitch {
+  0% {
+    transform: rotate(-6deg);
+  }
+  88% {
+    transform: rotate(-14deg);
+  }
+  92% {
+    transform: rotate(-4deg);
+  }
+  96% {
+    transform: rotate(-12deg);
+  }
+}
+@keyframes pp-bob {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes pp-stride {
+  0% {
+    transform: rotate(-18deg);
+  }
+  25% {
+    transform: rotate(-6deg);
+  }
+  50% {
+    transform: rotate(16deg);
+  }
+  75% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes pp-swing {
+  0% {
+    transform: rotate(-14deg);
+  }
+  25% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+  75% {
+    transform: rotate(4deg);
+  }
+}
+

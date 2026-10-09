@@ -298,27 +298,6 @@ button.roof-sign:hover {
   display: block;
   transition: transform 120ms linear;
 }
-.person svg {
-  display: block;
-  overflow: visible;
-}
-.p-arm,
-.p-body,
-.p-wave,
-.w-leg,
-.w-flip {
-  transform-box: fill-box;
-}
-.pose-typing .p-arm {
-  animation: tap 0.22s ease-in-out infinite alternate;
-}
-.pose-typing .p-arm-r {
-  animation-delay: 0.11s;
-}
-.pose-hand-up .p-wave {
-  transform-origin: 50% 100%;
-  animation: wave 0.9s ease-in-out infinite;
-}
 .person.pose-stuck {
   left: -17px;
   width: 34px;
@@ -328,20 +307,8 @@ button.roof-sign:hover {
   left: -12px;
   bottom: 10px;
 }
-.pose-idle .p-body {
-  transform-origin: 50% 100%;
-  animation: breathe 3.2s ease-in-out infinite;
-}
-.pose-thinking .p-body {
-  transform-origin: 50% 100%;
-  animation: breathe 2s ease-in-out infinite;
-}
 .pose-finished {
   opacity: 0.45;
-}
-.pose-finished .p-body {
-  transform-origin: 50% 100%;
-  transform: rotate(-8deg) translateY(1px);
 }
 
 .bubble {
@@ -495,20 +462,9 @@ button.roof-sign:hover {
   width: 22px;
   height: 38px;
 }
-.walker svg {
-  display: block;
-  overflow: visible;
-}
-.w-leg {
-  transform-origin: 50% 0;
-}
-.w-leg-a {
-  animation: leg 0.42s ease-in-out infinite alternate;
-}
-.w-leg-b {
-  animation: leg 0.42s ease-in-out infinite alternate-reverse;
-}
 .w-flip {
+  position: absolute;
+  inset: 0;
   transform-origin: 50% 50%;
 }
 .walk-note .w-flip {
@@ -712,25 +668,6 @@ button.roof-sign:hover {
 }
 
 /* ---- keyframes ---- */
-@keyframes tap {
-  to {
-    transform: translateY(-1.8px);
-  }
-}
-@keyframes wave {
-  0%,
-  100% {
-    transform: rotate(-12deg);
-  }
-  50% {
-    transform: rotate(14deg);
-  }
-}
-@keyframes breathe {
-  50% {
-    transform: scaleY(1.04);
-  }
-}
 @keyframes blink {
   50% {
     opacity: 0;
@@ -762,14 +699,6 @@ button.roof-sign:hover {
   }
   50% {
     opacity: 1;
-  }
-}
-@keyframes leg {
-  from {
-    transform: rotate(-16deg);
-  }
-  to {
-    transform: rotate(16deg);
   }
 }
 @keyframes walk-note {

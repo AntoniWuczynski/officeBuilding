@@ -13,14 +13,14 @@ Tokens:
   --signage: #B5532B (enamel sign red: roof sign, primary action only)
   Status, semantic only: --ok #2FBF71 (healthy), --wait #F2B33D (needs you), --fault #E5484D (error), --off #7C8088 (empty or finished)
   Props (objects in the room, never chrome): --roof #8E887C, --window #AFD3E6, --monitor #2B2E33 / #40444C / #1F2226, --cork #C99A5B / #8C6436, --brass #C9A45C / #8A6D2E, desk plant (agent in a git worktree, A Human 2026-10-06) leaves #6F9A4E / #557A3A, soil #4A3626, pot #B8683F / #96512F, sticky notes #F7E27A / #9FD8F2 / #F6B5C8, --terminal #16181C with #E8E6E1 text
-  People: shirts, skins and hair from fixed palettes in src/lib/looks.ts, picked per agent id
+  People: realistic cut-outs (A Human 2026-10-09): a fixed cast of seven characters drawn by Codex's image generation as front-facing parts sheets (art/cast/raw), cut by art/cast/cut.py into src/assets/cast. Each agent id picks one of six workers (src/lib/looks.ts); the manager is always the seventh. Realistic pictures, cartoon motion.
 Type:
   Signage: "DIN Condensed" (macOS system font, bold), uppercase allowed only on physical signs (roof sign, floor nameplates). Fallback "Arial Narrow", sans-serif.
   Numerals: "DIN Alternate" bold for counts and floor numbers (tabular). Fallback the mono stack.
   Interface text: the macOS system face (-apple-system). Recorded decision: it is a native desktop app and the chrome speaks the platform's voice.
   Code, paths, terminal: "SF Mono", Menlo, monospace.
 Motion:
-  Characters: looping CSS animations that encode session state (typing, hand-up wave, thinking dots, idle breathing, finished slump). A stuck agent (error) lies flat on the floor in front of the desk with X for eyes and a blinking red "!" (owner request, 2026-09-29). Semantic, not decorative.
+  Characters: South Park-style cut-out animation (A Human 2026-10-09): flat pieces hinged at shoulder, elbow, neck and hips that snap between keyframes (steps), quick and exaggerated, never smooth. The loops encode session state: typing in bursts with forearms striking the keyboard, hand on chin when thinking, arm up and waving when it needs you, sitting back and looking round when idle, slumped when finished. Upper arms tuck behind the torso and forearms sit in front of it. A stuck agent (error) lies flat on the floor in front of the desk, eyes shut, with a blinking red "!" (owner request, 2026-09-29). Semantic, not decorative.
   Navigation: one camera move per action (dive into a floor, pull back to the building), 450-600ms tween, ease-out, no bounce, no overshoot.
   Agent-to-agent messages: a worker walks a note to the recipient's desk.
   prefers-reduced-motion: character loops stop, camera moves become cuts, walkers teleport.

@@ -7,8 +7,8 @@ describe("lookFor", () => {
     expect(lookFor("s-1")).toEqual(lookFor("s-1"));
   });
   it("varies across ids", () => {
-    const shirts = new Set(["s-1", "s-2", "s-3", "s-4", "s-5", "s-6", "s-7", "s-8"].map((id) => lookFor(id).shirt));
-    expect(shirts.size).toBeGreaterThan(2);
+    const cast = new Set(["s-1", "s-2", "s-3", "s-4", "s-5", "s-6", "s-7", "s-8"].map((id) => lookFor(id).name));
+    expect(cast.size).toBeGreaterThan(2);
   });
   it("hashString is FNV-1a", () => {
     expect(hashString("")).toBe(0x811c9dc5);

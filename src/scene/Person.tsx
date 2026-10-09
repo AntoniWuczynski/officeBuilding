@@ -1,5 +1,8 @@
 import type { Pose } from "../lib/animation";
 import type { Look } from "../lib/looks";
+import { rig } from "./cast/rig";
+import type { Part, Placed } from "./cast/rig";
+import type { StyleWithVars } from "./Iso";
 
 function Bubble({ pose }: { readonly pose: Pose }): React.ReactElement | null {
   switch (pose) {
@@ -32,6 +35,63 @@ function NoteBubble(): React.ReactElement {
   );
 }
 
+/** One cut-out piece: its picture, and the pieces hinged to it. */
+function Piece({ at, part, className, children }: { readonly at: Placed; readonly part?: Part; readonly className: string; readonly children?: React.ReactNode }): React.ReactElement {
+  const style: StyleWithVars = { left: at.left, top: at.top, width: at.w, height: at.h, transformOrigin: `${at.ox}px ${at.oy}px` };
+  return (
+    <span className={`pp ${className}`} style={style}>
+      {part === undefined ? null : <img src={part.src} alt="" draggable={false} />}
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A South Park-style cut-out of a realistic person (art/cast): flat pieces that
+ * snap between poses. Seated at a desk, or standing (walking, or flat on the
+ * floor when stuck), with legs.
+ */
+function Puppet({ look, standing, carrying = false }: { readonly look: Look; readonly standing: boolean; readonly carrying?: boolean }): React.ReactElement {
+  const p = look.parts;
+  const r = rig(p, standing);
+  const [armA, armB] = r.upperArm;
+  const [foreA, foreB] = r.forearm;
+  const [legA, legB] = r.leg;
+  return (
+    <span className="puppet" aria-hidden>
+      <span className="pp-rig">
+        <Piece at={r.torso} className="pp-torso">
+          {standing ? null : <Piece at={r.chair} part={p.chair} className="pp-chair" />}
+          <Piece at={r.pelvis} className="pp-pelvis">
+            {standing ? (
+              <>
+                <Piece at={legA} part={p["leg-r"]} className="pp-leg pp-leg-a" />
+                <Piece at={legB} part={p["leg-l"]} className="pp-leg pp-leg-b" />
+              </>
+            ) : null}
+            <img src={p.pelvis.src} alt="" draggable={false} />
+          </Piece>
+          <Piece at={r.head} part={p.head} className="pp-head">
+            <img className="pp-blink" src={p["head-closed"].src} alt="" draggable={false} />
+          </Piece>
+          {/* Upper arms tuck behind the shirt; a second, bare copy of each arm carries its forearm in front. */}
+          <Piece at={armA} part={p["upper-arm-r"]} className="pp-arm pp-arm-a" />
+          <Piece at={armB} part={p["upper-arm-l"]} className="pp-arm pp-arm-b" />
+          <img src={p.torso.src} alt="" draggable={false} />
+          <Piece at={armA} className="pp-arm pp-arm-a">
+            <Piece at={foreA} part={p["forearm-r"]} className="pp-fore pp-fore-a" />
+          </Piece>
+          <Piece at={armB} className="pp-arm pp-arm-b">
+            <Piece at={foreB} part={p["forearm-l"]} className="pp-fore pp-fore-b">
+              {carrying ? <i className="pp-note" /> : null}
+            </Piece>
+          </Piece>
+        </Piece>
+      </span>
+    </span>
+  );
+}
+
 interface PersonProps {
   readonly look: Look;
   readonly pose: Pose;
@@ -39,54 +99,13 @@ interface PersonProps {
   readonly receiving?: boolean;
 }
 
-/** A stuck agent (error): flat on the floor, X for eyes (owner request, 2026-09-29). */
-function Down({ look }: { readonly look: Look }): React.ReactElement {
-  return (
-    <svg viewBox="0 0 34 14" width="34" height="14" aria-hidden>
-      <rect x="23" y="5.5" width="11" height="3.2" rx="1.6" fill="#2F3440" />
-      <rect x="23" y="9" width="10" height="3.2" rx="1.6" fill="#2F3440" />
-      <rect x="9" y="3.5" width="15" height="10" rx="3.5" fill={look.shirt} />
-      <rect x="11" y="0.6" width="9" height="3.2" rx="1.6" fill={look.shirt} transform="rotate(-18 15 2)" />
-      <circle cx="5.2" cy="8.4" r="4.4" fill={look.skin} />
-      <path d="M1 7.2a4.4 4.4 0 0 1 3-3.1" stroke={look.hair} strokeWidth="2.2" fill="none" />
-      <path d="M3.4 6.8l1.8 1.8M5.2 6.8L3.4 8.6M6.2 8.6l1.8 1.8M8 8.6L6.2 10.4" stroke="#1C1F24" strokeWidth=".8" />
-    </svg>
-  );
-}
-
-/** A seated employee. The pose loops encode the session state (DESIGN.md, motion). */
+/** An employee at their desk, or flat on the floor when stuck. The pose encodes the session state (DESIGN.md, motion). */
 export function Person({ look, pose, receiving = false }: PersonProps): React.ReactElement {
-  if (pose === "stuck") {
-    return (
-      <span className="person pose-stuck" data-pose={pose}>
-        <Bubble pose={pose} />
-        {receiving ? <NoteBubble /> : null}
-        <Down look={look} />
-      </span>
-    );
-  }
-  const hand =
-    pose === "hand-up" ? (
-      <g className="p-wave">
-        <rect x="14.6" y="1.5" width="3.2" height="11" rx="1.6" fill={look.shirt} />
-        <circle cx="16.2" cy="2.4" r="1.9" fill={look.skin} />
-      </g>
-    ) : (
-      <rect className="p-arm p-arm-r" x="14.6" y="12" width="3.2" height="9" rx="1.6" fill={look.shirt} />
-    );
   return (
     <span className={`person pose-${pose}`} data-pose={pose}>
       <Bubble pose={pose} />
       {receiving ? <NoteBubble /> : null}
-      <svg viewBox="0 0 20 30" width="20" height="30" aria-hidden>
-        <g className="p-body">
-          <rect className="p-arm p-arm-l" x="2.2" y="12" width="3.2" height="9" rx="1.6" fill={look.shirt} />
-          {hand}
-          <rect x="5" y="11" width="10" height="14" rx="3.5" fill={look.shirt} />
-          <circle cx="10" cy="6.5" r="4.4" fill={look.skin} />
-          <path d="M5.6 6.4a4.4 4.4 0 0 1 8.8 0q-4.4-2.4-8.8 0z" fill={look.hair} />
-        </g>
-      </svg>
+      <Puppet look={look} standing={pose === "stuck"} />
     </span>
   );
 }
@@ -95,18 +114,9 @@ export function Person({ look, pose, receiving = false }: PersonProps): React.Re
 export function Walker({ look, carrying }: { readonly look: Look; readonly carrying: boolean }): React.ReactElement {
   return (
     <span className="walker">
-      <svg viewBox="0 0 22 38" width="22" height="38" aria-hidden>
-        <g className="w-flip">
-          <rect className="w-leg w-leg-a" x="6" y="24" width="3.4" height="12" rx="1.6" fill="#2F3440" />
-          <rect className="w-leg w-leg-b" x="11" y="24" width="3.4" height="12" rx="1.6" fill="#2F3440" />
-          <rect x="5" y="11" width="11" height="15" rx="3.5" fill={look.shirt} />
-          {carrying ? (
-            <rect x="14.5" y="13" width="7" height="9" fill="#FFFDF8" stroke="#8C8C8C" strokeWidth=".6" transform="rotate(10 18 17)" />
-          ) : null}
-          <circle cx="10.5" cy="6.5" r="4.4" fill={look.skin} />
-          <path d="M6.1 6.4a4.4 4.4 0 0 1 8.8 0q-4.4-2.4-8.8 0z" fill={look.hair} />
-        </g>
-      </svg>
+      <span className="w-flip">
+        <Puppet look={look} standing carrying={carrying} />
+      </span>
     </span>
   );
 }

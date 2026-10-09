@@ -29,7 +29,9 @@ export function Desk({ x, y, z, led, plant = false }: DeskProps): React.ReactEle
         side="var(--monitor-side)"
         frontContent={<b className={led === undefined ? "led" : `led led-${led}`} />}
       />
-      {plant ? <Plant x={x + 17} y={y + 2} z={z + DESK.h} /> : null}
+      {/* The keyboard the worker behind the desk types on. */}
+      <IsoBox x={x + 20} y={y + 1} z={z + DESK.h} w={12} d={5} h={1.2} top="var(--monitor-top)" front="var(--monitor)" side="var(--monitor-side)" />
+      {plant ? <Plant x={x + 15} y={y + 2} z={z + DESK.h} /> : null}
     </>
   );
 }
