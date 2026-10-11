@@ -1,6 +1,6 @@
 # Office Building
 
-![The building: one floor per repo, lit by status](docs/screenshots/building.png)
+![The building: one floor per repo, lit by status, with the usage signs beside it](docs/screenshots/building.png)
 
 A macOS desktop app (Tauri v2) that visualises and orchestrates coding-agent
 sessions as an **office building**:
@@ -97,22 +97,21 @@ sessions as an **office building**:
   to make it taller, and it keeps that height the next time it opens.
   Discovered / hand-started sessions raise their **original native terminal
   window** instead.
-- Sessions are **auto-discovered** from each tool's on-disk store (Claude Code
-  first, then Codex, then opencode / antigravity), so terminals you started by
-  hand still appear in the building.
-- The app also exposes its **own MCP server** so assistant agents can drive the building programmatically.
+- **Claude Code and Codex sessions are auto-discovered** from each tool's
+  on-disk store, so terminals you started by hand still appear in the building.
+  Antigravity, opencode and Cursor agents appear when you hire them from the app.
 
 | A floor | Its Decisions queue |
 | --- | --- |
-| ![A floor with three agents, one stuck](docs/screenshots/floor.png) | ![The Decisions panel open on a floor](docs/screenshots/decisions.png) |
+| ![A floor: agents at desks, subagents at tiny desks, pets, one agent stuck on the floor](docs/screenshots/floor.png) | ![The Decisions panel open on a floor](docs/screenshots/decisions.png) |
+| **Hiring an agent** | **The Setup floor** |
+| ![The hire dialog: tool, model, effort, ultracode and task](docs/screenshots/hire.png) | ![The Setup floor with its panel open: skills, instructions, MCP servers and hooks per tool](docs/screenshots/setup.png) |
 
 The screenshots show the browser build's mock data.
 
 The visual identity (tokens, type, motion, the 3D rig's constraints) is recorded
 in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
-[`docs/office-building-plan.md`](docs/office-building-plan.md). The backend
-is based on `claude-command-center` (CCC) with our own office UI, sidebar, and
-MCP surface layered on.
+[`docs/office-building-plan.md`](docs/office-building-plan.md).
 
 ## Status
 
@@ -144,7 +143,11 @@ MCP surface layered on.
   Hired and resumed Codex agents skip Codex's update menu.
   Spend is priced at public API list prices (`discovery/pricing.rs`), which is
   what the same work would cost through the API, not what a subscription bills.
-- **Not yet:** answering in the app, the MCP server. See `TODO.md`.
+- **Not yet:** answering a terminal agent's own question from the Decisions
+  panel (answer it in the agent's terminal instead), and the app's own MCP
+  server for assistant agents. See `TODO.md`. Calls from a repo's decision
+  files, and approvals on desks without a terminal, are already answered in
+  the app.
 
 The backend is our own. CCC (claude-command-center) moved to a non-commercial,
 source-available licence on 2026-07-28, so we port logic only from its last MIT
@@ -235,10 +238,15 @@ src/
 src-tauri/
   src/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
-    discovery/            # Claude Code and Codex sources, state rules, pets, floor assembly
+    discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly
     office.rs             # discovery + the app's own records behind one lock
+    office/               # launching agents in terminals, the Setup floor, structured desks
+    project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
-    options.rs            # hireable tools, models and per-model efforts
+    options.rs, options/  # hireable tools, models and per-model efforts, tools' own model lists
+    setup/                # the Setup floor's library, each tool's inventory, import, injection
+    structured/           # desks without a terminal: Codex app-server and ACP clients
+    feed.rs               # the hook status feed from agents the app launches
     tools.rs              # which agent CLIs are installed
     usage.rs              # each tool's usage-limit windows
     focus.rs              # focus a session's terminal tab, the folder picker
