@@ -1,5 +1,7 @@
 # Office Building
 
+https://github.com/user-attachments/assets/014d3175-0087-4394-9d78-803fc617f775
+
 ![The building: one floor per repo, lit by status, with the usage signs beside it](docs/screenshots/building.png)
 
 A macOS desktop app (Tauri v2) that visualises and orchestrates coding-agent

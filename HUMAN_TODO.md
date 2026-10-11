@@ -14,3 +14,10 @@ here.
       low effort, a small task) on a floor and check it: the desk appears,
       clicking it opens the in-app terminal, typing works, and `/exit` ends
       it. Agents can't drive the Tauri window, so only you can run this.
+
+- [x] OB-051 — Put the launch video in the README with an inline player. Done
+      2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
+      comment box in Chrome (nothing posted) and put the `user-attachments`
+      link at the top of the README. The video stays out of git
+      (`brag-output/` ignores itself). A re-cut needs a fresh upload and a new
+      link.
