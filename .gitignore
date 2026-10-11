@@ -11,9 +11,6 @@ coverage/
 # Private terms for the sensitive-information hooks (scripts/check-sensitive.ts)
 .githooks/*.local.txt
 
-# /brag's launch-video output
-brag-output/
-
 # Review and audit reports: kept locally, not published
 reports/
 
