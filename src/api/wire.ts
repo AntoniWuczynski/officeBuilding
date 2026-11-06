@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupView, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
 
 // Runtime schemas for everything the Rust backend sends. The `satisfies`
@@ -33,6 +33,8 @@ export const projectSchema = z.object({
   path: z.string(),
   sessionIds: z.array(z.string()),
 }) satisfies z.ZodType<Project>;
+
+export const shellSchema = z.object({ id: z.string(), projectId: z.string(), number: z.number(), startedAt: z.string() }) satisfies z.ZodType<Shell>;
 
 export const snapshotSchema = z.object({
   projects: z.array(projectSchema),
@@ -73,6 +75,7 @@ export const snapshotSchema = z.object({
     z.object({ id: z.string(), fromSessionId: z.string(), toSessionId: z.string(), text: z.string(), sentAt: z.string() }),
   ),
   setupProjectId: z.string(),
+  shells: z.array(shellSchema),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [

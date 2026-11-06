@@ -42,12 +42,17 @@ interface Props {
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
   readonly onTick: (todoId: string) => void;
   readonly onResume: (sessionId: string) => Promise<void>;
+  /** Show one of the floor's shells in the terminal panel. */
+  readonly onOpenShell: (shellId: string) => void;
+  /** Open a new shell on this floor and show it. */
+  readonly onNewShell: () => Promise<void>;
+  readonly onEndShell: (shellId: string) => Promise<void>;
   readonly setup: SetupProps;
 }
 
 /** The sketch's project screen: the open-plan floor, its search and tally, the rail and panels. */
 export function FloorView(props: Props): React.ReactElement {
-  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, loadHireOptions, onHire, onAnswer, onTick, onResume, setup } = props;
+  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, loadHireOptions, onHire, onAnswer, onTick, onResume, onOpenShell, onNewShell, onEndShell, setup } = props;
   const setupFloor = snapshot.setupProjectId === project.id;
   // Only the setup floor has a Setup panel, even if one was left open on it.
   const section = props.section === "setup" && !setupFloor ? null : props.section;
@@ -64,6 +69,8 @@ export function FloorView(props: Props): React.ReactElement {
   const ended = endedForProject(snapshot, project.id);
   const depth = roomDepth(sessions.length + 1);
   const openSession = sessions.find((s) => s.id === openSessionId);
+  const shells = snapshot.shells.filter((s) => s.projectId === project.id);
+  const openShell = shells.find((s) => s.id === openSessionId);
 
   const objects: RoomObjectsModel = {
     projectName: project.name,
@@ -74,6 +81,7 @@ export function FloorView(props: Props): React.ReactElement {
     aiTodos,
     spend,
     signedOut: ended.length,
+    shells: shells.length,
     plant: setupFloor,
   };
 
@@ -148,7 +156,11 @@ export function FloorView(props: Props): React.ReactElement {
           ) : null}
 
           <AnimatePresence>
-            {openSession === undefined ? null : <TerminalPanel key={openSession.id} session={openSession} onClose={onCloseTerminal} />}
+            {openSession !== undefined ? (
+              <TerminalPanel key={openSession.id} session={openSession} onClose={onCloseTerminal} />
+            ) : openShell !== undefined ? (
+              <TerminalPanel key={openShell.id} shell={openShell} path={project.path} onClose={onCloseTerminal} />
+            ) : null}
           </AnimatePresence>
         </main>
 
@@ -165,6 +177,9 @@ export function FloorView(props: Props): React.ReactElement {
               onTick={onTick}
               onOpenSession={onOpenSession}
               onResume={onResume}
+              onOpenShell={onOpenShell}
+              onNewShell={onNewShell}
+              onEndShell={onEndShell}
               setup={setup}
             />
           )}
@@ -181,6 +196,7 @@ export function FloorView(props: Props): React.ReactElement {
             todo: badge(openCount(aiTodos)),
             spend: formatUsd(spend.usd),
             "signed-out": badge(ended.length),
+            shells: badge(shells.length),
           }}
         />
       </div>

@@ -6,8 +6,8 @@
 )]
 
 use crate::model::{
-    HireRequest, OfficeSnapshot, Project, QuestionAnswer, Session, TerminalBacklog, ToolKind,
-    ToolOptions, ToolUsage,
+    HireRequest, OfficeSnapshot, Project, QuestionAnswer, Session, Shell, TerminalBacklog,
+    ToolKind, ToolOptions, ToolUsage,
 };
 use crate::office::Office;
 use crate::setup::{ItemKind, SetupView, Targets};
@@ -199,6 +199,24 @@ pub fn add_floor(app: AppHandle, office: OfficeState<'_>, path: String) -> Resul
     let project = office.add_floor(&path)?;
     push_snapshot(&app, &office);
     Ok(project)
+}
+
+/// Open a plain login shell in the floor's folder (Cmd+N).
+#[tauri::command]
+pub fn open_shell(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    project_id: String,
+) -> Result<Shell, String> {
+    let shell = office.open_shell(&project_id)?;
+    push_snapshot(&app, &office);
+    Ok(shell)
+}
+
+/// Hang up a plain shell. The snapshot drops it when its terminal exits.
+#[tauri::command]
+pub fn end_shell(office: OfficeState<'_>, shell_id: String) -> Result<(), String> {
+    office.end_shell(&shell_id)
 }
 
 /// Runs the native picker off the main thread (it blocks until the human chooses).

@@ -1,4 +1,4 @@
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -89,6 +89,12 @@ export interface DiscoveryApi {
 
   /** Add an employee: spawn a new agent session on a project. */
   spawnSession(projectId: string, request: HireRequest): Promise<Session>;
+
+  /** Open a plain login shell in the floor's folder (Cmd+N). Its id takes the terminal calls. */
+  openShell(projectId: string): Promise<Shell>;
+
+  /** Hang up a plain shell. The snapshot drops it once it has exited. */
+  endShell(shellId: string): Promise<void>;
 
   /** Route a human answer back to the blocked session. */
   answerQuestion(questionId: string, answer: QuestionAnswer): Promise<void>;

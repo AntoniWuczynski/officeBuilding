@@ -846,7 +846,7 @@ fn opencode_and_cursor_start_with_only_the_model_and_no_prompt() {
     assert_eq!(command(&bare, &["Default"], "a task"), "cursor-agent");
 }
 
-fn floor_office(tag: &str) -> (Office, PathBuf, Project) {
+pub(super) fn floor_office(tag: &str) -> (Office, PathBuf, Project) {
     let (office, dir) = office(tag);
     let repo = dir.join("home/code/app");
     std::fs::create_dir_all(&repo).expect("mkdir");

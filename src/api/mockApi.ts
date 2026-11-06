@@ -9,6 +9,7 @@ import type {
   SessionState,
   SetupItemKind,
   SetupView,
+  Shell,
   Targets,
   ToolKind,
   ToolOptions,
@@ -379,6 +380,25 @@ export class MockApi implements DiscoveryApi {
     return Promise.resolve();
   }
 
+  openShell(projectId: string): Promise<Shell> {
+    const project = this.snapshot.projects.find((p) => p.id === projectId);
+    if (project === undefined) return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    const number = Math.max(0, ...this.snapshot.shells.filter((s) => s.projectId === projectId).map((s) => s.number)) + 1;
+    const shell: Shell = { id: this.nextId("sh"), projectId, number, startedAt: this.now().toISOString() };
+    this.shells.set(shell.id, { backlog: `Demo shell in ${project.path}. Type a line and press Enter, or exit.\r\n$ `, line: "", size: { cols: 80, rows: 24 }, watchers: new Set() });
+    this.commit({ ...this.snapshot, shells: [...this.snapshot.shells, shell] });
+    return Promise.resolve(shell);
+  }
+
+  endShell(shellId: string): Promise<void> {
+    const shell = this.shells.get(shellId);
+    if (shell === undefined || !this.snapshot.shells.some((s) => s.id === shellId)) return Promise.reject(new Error(`${shellId} is not a shell`));
+    for (const w of shell.watchers) w.exit(0);
+    this.shells.delete(shellId);
+    this.commit({ ...this.snapshot, shells: this.snapshot.shells.filter((s) => s.id !== shellId) });
+    return Promise.resolve();
+  }
+
   addFloor(path: string): Promise<Project> {
     const clean = path.trim().replace(/\/+$/, "");
     if (!clean.startsWith("/") && !clean.startsWith("~/")) {
@@ -452,6 +472,7 @@ export class MockApi implements DiscoveryApi {
     for (const ch of data) {
       if (ch === "\r" || ch === "\n") {
         const line = shell.line.trim();
+        if (line === "exit" && this.snapshot.shells.some((s) => s.id === sessionId)) return this.endShell(sessionId);
         out += `\r\n${line === "" ? "" : `echo: ${line}\r\n`}$ `;
         shell.line = "";
       } else if (ch === "\u007f") {
@@ -477,8 +498,10 @@ export class MockApi implements DiscoveryApi {
     return Promise.resolve();
   }
 
-  /** The demo terminal of an app-controlled session, started on first use. */
+  /** The demo terminal of a shell, or of an app-controlled session (started on first use). */
   private shell(sessionId: string): FakeShell | Error {
+    const opened = this.shells.get(sessionId);
+    if (opened !== undefined && this.snapshot.shells.some((s) => s.id === sessionId)) return opened;
     const session = this.snapshot.sessions.find((s) => s.id === sessionId);
     if (session === undefined) return new Error(`unknown session: ${sessionId}`);
     if (session.control !== "full") return new Error(`${session.title} was not started in the app, so it has no terminal here`);

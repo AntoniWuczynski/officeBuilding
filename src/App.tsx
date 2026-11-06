@@ -102,6 +102,23 @@ export function App({ api }: Props): React.ReactElement {
     [api, toast],
   );
 
+  const newShell = useCallback((projectId: string) => api.openShell(projectId).then((s) => setOpenSessionId(s.id)), [api]);
+
+  // Cmd+N on a floor opens a new shell there, as it opens a window in Terminal.app.
+  // Captured first so a focused terminal cannot swallow it.
+  const floorId = project?.id;
+  useEffect(() => {
+    if (floorId === undefined) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key.toLowerCase() !== "n") return;
+      e.preventDefault();
+      if (e.repeat) return;
+      newShell(floorId).catch((err: unknown) => toast("error", `Could not open a shell: ${message(err)}.`));
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [floorId, newShell, toast]);
+
   const loadHireOptions = useCallback(() => api.hireOptions(), [api]);
   const loadUsage = useCallback((refresh: boolean) => api.toolUsage(refresh), [api]);
   const setup = useMemo(
@@ -222,6 +239,9 @@ export function App({ api }: Props): React.ReactElement {
               onAnswer={answer}
               onTick={tick}
               onResume={resume}
+              onOpenShell={setOpenSessionId}
+              onNewShell={() => newShell(project.id)}
+              onEndShell={(id) => api.endShell(id)}
               setup={setup}
             />
           </motion.div>

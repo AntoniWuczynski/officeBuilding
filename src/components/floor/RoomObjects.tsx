@@ -20,6 +20,8 @@ export interface RoomObjectsModel {
   readonly spend: Spend;
   /** Agents that left recently: lines on the sign-out sheet. */
   readonly signedOut: number;
+  /** Plain shells the human has open on this floor. */
+  readonly shells: number;
   /** The setup floor: built as a plant room. */
   readonly plant: boolean;
 }
@@ -156,6 +158,11 @@ export function ManagerOffice({ model, onOpen }: ObjectsProps): React.ReactEleme
   const x = ROOM.managerX;
   const deskX = x + 46;
   const waiting = model.decisionsWaiting;
+  // The office's tags hang over the manager's head, above the glass and clear of
+  // its walls: lower down they covered the manager and cut through the glass.
+  const tagX = ROOM.width - 36;
+  const tagY = ROOM.managerDepth / 2;
+  const tagZ = ROOM.slab + ROOM.glassHeight + 4;
   return (
     <>
       <Desk x={deskX} y={40} z={ROOM.slab} />
@@ -180,7 +187,18 @@ export function ManagerOffice({ model, onOpen }: ObjectsProps): React.ReactEleme
         <span className="glass-label">Manager</span>
       </Wall>
       <Wall axis="left" x={x} y={0} z={ROOM.slab} length={ROOM.managerDepth} height={ROOM.glassHeight} background="var(--glass)" className="glass" />
-      <Billboard x={deskX + 22} y={50} z={ROOM.slab + 24}>
+      <Billboard x={tagX} y={tagY} z={tagZ + 32}>
+        <button
+          type="button"
+          className="memo-tag"
+          data-testid="object-shells"
+          aria-label={`Your terminal: ${plural(model.shells, "shell", "shells")} open. Open Shells.`}
+          onClick={() => onOpen("shells")}
+        >
+          {model.shells === 0 ? "Your terminal" : `${plural(model.shells, "shell", "shells")} open`}
+        </button>
+      </Billboard>
+      <Billboard x={tagX} y={tagY} z={tagZ}>
         <button
           type="button"
           className={waiting > 0 ? "memo-tag has-waiting" : "memo-tag"}

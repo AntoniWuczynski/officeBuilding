@@ -52,6 +52,7 @@ export function makeSeedSnapshot(): OfficeSnapshot {
     ],
     messages: [],
     setupProjectId: "p-setup",
+    shells: [],
   };
 }
 

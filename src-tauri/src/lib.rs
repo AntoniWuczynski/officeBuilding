@@ -42,12 +42,15 @@ pub fn run() -> tauri::Result<()> {
                         let _ = handle.emit(pty::OUTPUT_EVENT, o);
                     }
                     TerminalEvent::Exit(e) => {
-                        let failed = handle
-                            .try_state::<Arc<Office>>()
-                            .and_then(|office| office.hire_failed(&e));
+                        let office = handle.try_state::<Arc<Office>>();
+                        let failed = office.as_ref().and_then(|o| o.hire_failed(&e));
+                        let shell_gone = office.as_ref().is_some_and(|o| o.shell_exited(&e));
                         let _ = handle.emit(pty::EXIT_EVENT, e);
                         if let Some(failed) = failed {
                             let _ = handle.emit(office::HIRE_FAILED_EVENT, failed);
+                        }
+                        if let (true, Some(office)) = (shell_gone, office) {
+                            let _ = handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
                         }
                     }
                 }
@@ -111,6 +114,8 @@ pub fn run() -> tauri::Result<()> {
             commands::add_floor,
             commands::demolish_floor,
             commands::pick_folder,
+            commands::open_shell,
+            commands::end_shell,
             commands::terminal_backlog,
             commands::terminal_write,
             commands::terminal_resize,

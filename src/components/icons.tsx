@@ -60,6 +60,13 @@ export function SectionIcon({ section }: { readonly section: Section }): React.R
           <path d="M3 18h16" />
         </svg>
       );
+    case "shells": // the manager's monitor, at a prompt
+      return (
+        <svg {...common}>
+          <rect x="3" y="4" width="16" height="11" />
+          <path d="M6.5 8l2 1.5-2 1.5M10.5 11.5h4M8 19h6M11 15v4" />
+        </svg>
+      );
     case "signed-out": // clipboard
       return (
         <svg {...common}>

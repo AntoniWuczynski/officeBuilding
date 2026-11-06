@@ -365,6 +365,38 @@ describe("floor", () => {
     expect(resize).toHaveBeenLastCalledWith("s-1", 120, 30);
   });
 
+  it("Cmd+N opens a new plain shell on the floor each time, listed in the manager's office until it exits", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    // The building has no floor to open a shell in.
+    await screen.findAllByTestId("storey");
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    expect(screen.queryByTestId("terminal-panel")).not.toBeInTheDocument();
+
+    await enter("p-shop");
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    expect(await screen.findByRole("region", { name: "Terminal: Shell 1" })).toHaveTextContent("~/code/corner_shop");
+    expect(screen.getByTestId("terminal-screen")).toHaveTextContent("Demo shell in ~/code/corner_shop");
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    expect(await screen.findByRole("region", { name: "Terminal: Shell 2" })).toBeInTheDocument();
+    // A shell is not an agent: the tally is unchanged.
+    expect(screen.getByTestId("tally")).toHaveTextContent("1/3");
+
+    await user.click(screen.getByTestId("object-shells"));
+    expect(screen.getAllByTestId("shell-row").map((r) => r.textContent)).toEqual([expect.stringContaining("Shell 1"), expect.stringContaining("Shell 2")]);
+    await user.click(within(screen.getAllByTestId("shell-row")[0] ?? document.body).getByRole("button", { name: "Open" }));
+    expect(await screen.findByRole("region", { name: "Terminal: Shell 1" })).toBeInTheDocument();
+
+    act(() => lastTerminal().type("exit\r"));
+    await waitFor(() => expect(screen.queryByTestId("terminal-panel")).not.toBeInTheDocument());
+    expect(screen.getAllByTestId("shell-row")).toHaveLength(1);
+
+    // End hangs a shell up from the list.
+    await user.click(within(screen.getAllByTestId("shell-row")[0] ?? document.body).getByRole("button", { name: "End Shell 2" }));
+    await waitFor(() => expect(screen.queryByTestId("shell-row")).not.toBeInTheDocument());
+    expect(screen.getByText("No shells open on this floor.")).toBeInTheDocument();
+  });
+
   it("says when the agent in a terminal exits, and stops taking input", async () => {
     const user = userEvent.setup();
     const api = new MockApi();

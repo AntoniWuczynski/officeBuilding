@@ -35,7 +35,8 @@ sessions as an **office building**:
   right edge: brass plaque = Info, memo pile on the manager's desk = Decisions
   (questions ordered by priority → one question → A / B / Other), cork board =
   Human TODO, whiteboard = TODO, wall meter = Spend, sign-out sheet by the door =
-  Signed out. Everything is scoped to the floor you are on.
+  Signed out, "Your terminal" over the manager's office = Shells. Everything is
+  scoped to the floor you are on.
 - **Resume an agent that has left.** Sessions that ended in the last 12 hours
   are listed on their floor's sign-out sheet. Resume runs `claude --resume` or
   `codex resume` in an in-app terminal, in the folder the session ran in, on
@@ -99,6 +100,11 @@ sessions as an **office building**:
   to make it taller, and it keeps that height the next time it opens.
   Discovered / hand-started sessions raise their **original native terminal
   window** instead.
+- **Cmd+N on a floor opens a plain shell** in the floor's folder, docked like an
+  agent's terminal, for a quick command while you talk to the agents. Each
+  Cmd+N is a new shell. They are not agents (no desk, no count) and are listed
+  in the Shells panel, which reopens or ends any of them. Closing the panel
+  keeps a shell running. End in the panel, or typing `exit`, ends it.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.

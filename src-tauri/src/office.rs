@@ -6,8 +6,8 @@ use crate::feed::Feed;
 use crate::focus;
 use crate::model::{
     AgentMessage, AnswerVia, ControlMode, EndedSession, HireFailed, HireRequest, OfficeSnapshot,
-    Party, Project, QuestionAnswer, Session, SessionState, Spend, TerminalBacklog, TerminalExit,
-    TodoItem, ToolKind, ToolOptions,
+    Party, Project, QuestionAnswer, Session, SessionState, Shell, Spend, TerminalBacklog,
+    TerminalExit, TodoItem, ToolKind, ToolOptions,
 };
 use crate::options;
 use crate::project_files::{self, ProjectFiles};
@@ -44,6 +44,8 @@ struct Inner {
     /// Terminals running a tool discovery cannot see: each is its own desk while
     /// it runs, by terminal id.
     desks: BTreeMap<String, Desk>,
+    /// Plain shells the human opened, by terminal id, until they exit.
+    shells: BTreeMap<String, Shell>,
 }
 
 pub struct Office {
@@ -307,6 +309,7 @@ impl Office {
                 ran_in: BTreeMap::new(),
                 hired: BTreeMap::new(),
                 desks: BTreeMap::new(),
+                shells: BTreeMap::new(),
             }),
             terminals,
         }
@@ -438,6 +441,7 @@ impl Office {
             todos,
             messages: r.messages.clone(),
             setup_project_id: self.setup_project_id.clone(),
+            shells: inner.shells.values().cloned().collect(),
         }
     }
 
@@ -614,6 +618,7 @@ impl Office {
             (root, agents)
         };
         stop_agents(&agents, STOP_WAIT)?;
+        self.hang_up_shells(project_id);
         {
             let mut inner = self.lock();
             let key = root.to_string_lossy().into_owned();
@@ -808,6 +813,9 @@ impl Office {
     /// The app-owned terminal a session runs in.
     fn terminal_of(&self, session_id: &str) -> Result<String, String> {
         let inner = self.lock();
+        if inner.shells.contains_key(session_id) {
+            return Ok(session_id.to_string());
+        }
         inner
             .owned
             .iter()
@@ -950,6 +958,7 @@ fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
 
 mod launch;
 mod setup;
+mod shells;
 mod structured_desks;
 use structured_desks::with_structured;
 #[cfg(test)]

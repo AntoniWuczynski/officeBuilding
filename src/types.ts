@@ -272,6 +272,18 @@ export interface OfficeSnapshot {
   readonly messages: readonly AgentMessage[];
   /** The setup floor's project id (it may not be standing). */
   readonly setupProjectId: string;
+  /** Plain shells the human opened, listed in each floor's manager's office. */
+  readonly shells: readonly Shell[];
+}
+
+/** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */
+export interface Shell {
+  /** Its terminal's id, which the terminal calls take. */
+  readonly id: string;
+  readonly projectId: string;
+  /** Numbered per floor from 1, in the order they were opened. */
+  readonly number: number;
+  readonly startedAt: string;
 }
 
 /** Which harnesses a setup item applies to. */

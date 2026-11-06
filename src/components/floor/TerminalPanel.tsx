@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DiscoveryApi } from "../../api/DiscoveryApi";
-import type { Session } from "../../types";
+import type { Session, Shell } from "../../types";
 import { STATE_LABEL, TOOL_LABEL, modelLine } from "../../state/selectors";
 import { CloseIcon } from "../icons";
 import { shellPaths } from "../../lib/shell";
@@ -68,32 +68,38 @@ function usePanelHeight(panel: React.RefObject<HTMLElement | null>): {
   return { height, handle };
 }
 
-interface Props {
-  readonly session: Session;
-  readonly onClose: () => void;
-}
+/** An agent's session, or a plain shell the human opened (its floor's folder alongside). */
+type Props = { readonly onClose: () => void } & ({ readonly session: Session } | { readonly shell: Shell; readonly path: string });
 
 /**
- * The session's terminal, docked under the floor:
+ * A terminal docked under the floor. A plain shell is always live. A session's is:
  *  full        the agent's live in-app terminal (closing the panel leaves it running)
  *  structured  the conversation with an agent the app drives over its protocol
  *  read-only   transcript notice
  * raise-window sessions never open here: clicking them raises their own window.
  */
-export function TerminalPanel({ session, onClose }: Props): React.ReactElement {
+export function TerminalPanel(props: Props): React.ReactElement {
+  const { onClose } = props;
+  const session = "session" in props ? props.session : null;
   // Opened on a live terminal, the panel stays on it: after `/clear` this id
   // turns read-only while the backend keeps it pointing at the same terminal.
-  const [live] = useState(session.control !== "read-only");
+  const [live] = useState(session?.control !== "read-only");
   const panel = useRef<HTMLElement>(null);
   const { height, handle } = usePanelHeight(panel);
+  const id = session?.id ?? ("shell" in props ? props.shell.id : "");
+  const title = session?.title ?? ("shell" in props ? `Shell ${props.shell.number}` : "");
+  const details =
+    session === null
+      ? ["path" in props ? props.path : "", "Your shell"]
+      : [TOOL_LABEL[session.tool], modelLine(session), STATE_LABEL[session.state]].filter((d) => d !== null);
   return (
     <motion.section
       ref={panel}
       className="terminal"
       style={{ height, maxHeight: `calc(100% - ${FLOOR_ROOM}px)` }}
       data-testid="terminal-panel"
-      data-session={session.id}
-      aria-label={`${session.control === "structured" ? "Conversation" : "Terminal"}: ${session.title}`}
+      data-session={id}
+      aria-label={`${session?.control === "structured" ? "Conversation" : "Terminal"}: ${title}`}
       initial={{ y: 40, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 40, opacity: 0 }}
@@ -111,30 +117,30 @@ export function TerminalPanel({ session, onClose }: Props): React.ReactElement {
       />
       <header className="terminal-head">
         <span className="terminal-title">
-          <b>{session.title}</b>
-          <span>{TOOL_LABEL[session.tool]}</span>
-          {modelLine(session) === null ? null : <span>{modelLine(session)}</span>}
-          <span>{STATE_LABEL[session.state]}</span>
+          <b>{title}</b>
+          {details.map((d) => (
+            <span key={d}>{d}</span>
+          ))}
         </span>
         <button type="button" className="icon-btn icon-btn-dark" aria-label="Close terminal" data-testid="terminal-close" onClick={onClose}>
           <CloseIcon />
         </button>
       </header>
-      {session.control === "structured" ? (
+      {session?.control === "structured" ? (
         <Conversation sessionId={session.id} />
       ) : !live ? (
         <p className="terminal-note" data-testid="read-only-note">
           This session was started outside the app and has no window to raise. Showing its transcript read-only.
         </p>
       ) : (
-        <LiveTerminal sessionId={session.id} />
+        <LiveTerminal sessionId={id} who={session === null ? "shell" : "agent"} />
       )}
     </motion.section>
   );
 }
 
 /** xterm.js wired to the session's terminal: output in, keystrokes and size out. */
-function LiveTerminal({ sessionId }: { readonly sessionId: string }): React.ReactElement {
+function LiveTerminal({ sessionId, who }: { readonly sessionId: string; readonly who: "agent" | "shell" }): React.ReactElement {
   const api = useContext(TerminalApiContext);
   if (api === null) throw new Error("TerminalPanel needs a TerminalApiContext provider");
   const host = useRef<HTMLDivElement>(null);
@@ -202,7 +208,7 @@ function LiveTerminal({ sessionId }: { readonly sessionId: string }): React.Reac
       <div className="terminal-screen" ref={host} data-testid="terminal-screen" />
       {exit === null ? null : (
         <p className="terminal-note terminal-status" role="status">
-          {exit.code === null ? "The agent has exited." : `The agent exited with code ${exit.code}.`} Its last output stays above.
+          {exit.code === null ? `The ${who} has exited.` : `The ${who} exited with code ${exit.code}.`} Its last output stays above.
         </p>
       )}
       {error === null ? null : (

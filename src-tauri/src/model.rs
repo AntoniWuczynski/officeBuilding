@@ -230,6 +230,20 @@ pub struct OfficeSnapshot {
     pub messages: Vec<AgentMessage>,
     /// The setup floor's project id (it may not be standing).
     pub setup_project_id: String,
+    /// Plain shells the human opened, listed in each floor's manager's office.
+    pub shells: Vec<Shell>,
+}
+
+/// A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Shell {
+    /// Its terminal's id, which the terminal commands take.
+    pub id: String,
+    pub project_id: String,
+    /// Numbered per floor from 1, in the order they were opened.
+    pub number: u32,
+    pub started_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

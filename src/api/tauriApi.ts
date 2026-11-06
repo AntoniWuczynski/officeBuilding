@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
@@ -14,6 +14,7 @@ import {
   conversationUpdateSchema,
   sessionSchema,
   setupViewSchema,
+  shellSchema,
   snapshotSchema,
   terminalBacklogSchema,
   terminalExitSchema,
@@ -117,6 +118,14 @@ export class TauriApi implements DiscoveryApi {
 
   async spawnSession(projectId: string, request: HireRequest): Promise<Session> {
     return parseWire(sessionSchema, "session", await call("spawn_session", { projectId, request }));
+  }
+
+  async openShell(projectId: string): Promise<Shell> {
+    return parseWire(shellSchema, "shell", await call("open_shell", { projectId }));
+  }
+
+  async endShell(shellId: string): Promise<void> {
+    await call("end_shell", { shellId });
   }
 
   async answerQuestion(questionId: string, answer: QuestionAnswer): Promise<void> {

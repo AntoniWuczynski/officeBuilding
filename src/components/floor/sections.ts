@@ -1,5 +1,5 @@
 /** The manager's panels, in the sketch's order. `setup` exists only on the setup floor. */
-export type Section = "setup" | "info" | "decisions" | "human-todo" | "todo" | "spend" | "signed-out";
+export type Section = "setup" | "info" | "decisions" | "human-todo" | "todo" | "spend" | "signed-out" | "shells";
 
 export const SECTIONS: readonly { readonly id: Section; readonly label: string }[] = [
   { id: "info", label: "Info" },
@@ -8,6 +8,7 @@ export const SECTIONS: readonly { readonly id: Section; readonly label: string }
   { id: "todo", label: "TODO" },
   { id: "spend", label: "Spend" },
   { id: "signed-out", label: "Signed out" },
+  { id: "shells", label: "Shells" },
 ];
 
 const SETUP = { id: "setup", label: "Setup" } as const;
