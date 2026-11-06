@@ -460,13 +460,12 @@ pub struct Found {
 /// calls time out well before it (Bash allows at most 10 minutes).
 const HELPER_SILENCE: Duration = Duration::from_mins(10);
 
-/// Whether `path` was written within `max` of `now`.
+/// Whether `path` was written within `max` of `now`. A file written after `now`
+/// (during the scan that took it) is as fresh as can be.
 fn written_within(path: &Path, now: SystemTime, max: Duration) -> bool {
     fs::metadata(path)
         .and_then(|m| m.modified())
-        .ok()
-        .and_then(|m| now.duration_since(m).ok())
-        .is_some_and(|age| age <= max)
+        .is_ok_and(|m| now.duration_since(m).unwrap_or(Duration::ZERO) <= max)
 }
 
 fn helper_state(t: &Transcript) -> SessionState {
@@ -670,7 +669,12 @@ impl ClaudeSource {
                     let mut paths = Vec::new();
                     collect_jsonl(&dir.join(&session_id).join("subagents"), &mut paths);
                     let mut helpers = Vec::new();
-                    for path in paths {
+                    // Only `agent-*.jsonl` is a sub-agent: a workflow keeps its `journal.jsonl` beside them.
+                    for path in paths.into_iter().filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with("agent-"))
+                    }) {
                         let Some(t) = self.transcript(&path) else {
                             continue;
                         };

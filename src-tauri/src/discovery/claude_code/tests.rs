@@ -126,6 +126,12 @@ fn running_sub_agents_are_the_sessions_helpers() {
         record(&app, "null", r#"{"type":"thinking","thinking":""}"#) + "\n",
     )
     .expect("write");
+    // A workflow's own event log sits beside its agents but is not one.
+    fs::write(
+        helpers.join("workflows/w1/journal.jsonl"),
+        "{\"type\":\"launched\"}\n",
+    )
+    .expect("write");
 
     let now = SystemTime::now();
     let mut source = ClaudeSource::new(home.clone());
@@ -144,6 +150,12 @@ fn running_sub_agents_are_the_sessions_helpers() {
                 worktree: true,
             },
         ]
+    );
+    // Busy agents write while a scan runs, so their files can be newer than its
+    // `now`: they are still working, not gone.
+    assert_eq!(
+        source.scan(now - Duration::from_secs(2))[0].helpers.len(),
+        2
     );
     // An agent that stopped writing long ago was killed, not left working.
     let later = now + Duration::from_mins(11);
