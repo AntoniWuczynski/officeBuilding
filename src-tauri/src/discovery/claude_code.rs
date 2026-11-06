@@ -3,6 +3,11 @@
 //! * `~/.claude/sessions/<pid>.json`: one file per running interactive session
 //!   (`pid`, `sessionId`, `cwd`, `status` busy/idle). A live pid there is how we
 //!   know a session is running, including ones started by hand in a terminal.
+//!   Claude Code writes `<pid>.<token>.key` as it starts and `<pid>.json` only
+//!   once past any startup prompt, such as "Do you trust this folder?" (seen on
+//!   Claude Code 2.1.296, 2026-10-13). A live pid with a `.key` and no `.json`
+//!   is a session stuck there: it gets a placeholder desk (`claude-new-<pid>`)
+//!   so its terminal can be opened and the prompt answered.
 //! * `~/.claude/projects/<dir>/<sessionId>.jsonl`: the transcript. One JSON
 //!   record per line; we read the title, model, effort, token usage, open tool
 //!   calls and any unanswered `AskUserQuestion`.
@@ -119,6 +124,37 @@ pub fn parse_registry_entry(text: &str) -> Option<LiveEntry> {
         waiting: v.get("status").and_then(Value::as_str) == Some("waiting"),
         name: v.get("name").and_then(Value::as_str).map(str::to_string),
     })
+}
+
+/// How long a `.key` may stand without its `.json` before its session counts as
+/// stuck at a startup prompt: both are written within a moment of each other.
+const UNREGISTERED_AFTER: Duration = Duration::from_secs(3);
+
+/// Starts the placeholder session id of a Claude Code process that has not registered.
+const UNREGISTERED_PREFIX: &str = "claude-new-";
+
+/// The placeholder session id of a Claude Code process that has not registered.
+#[must_use]
+pub fn unregistered_id(pid: i32) -> String {
+    format!("{UNREGISTERED_PREFIX}{pid}")
+}
+
+/// Running Claude Code processes in `dir` (`~/.claude/sessions`) that wrote
+/// their `.key` at least [`UNREGISTERED_AFTER`] before `now` and no `.json`.
+pub fn unregistered_pids(dir: &Path, now: SystemTime, alive: impl Fn(i32) -> bool) -> Vec<i32> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut pids: Vec<i32> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "key"))
+        .filter(|p| !written_within(p, now, UNREGISTERED_AFTER))
+        .filter_map(|p| p.file_name()?.to_str()?.split('.').next()?.parse().ok())
+        .filter(|pid| !dir.join(format!("{pid}.json")).exists() && alive(*pid))
+        .collect();
+    pids.sort_unstable();
+    pids
 }
 
 /// Running sessions from `~/.claude/sessions`, dropping entries whose process is gone.
@@ -710,6 +746,28 @@ impl ClaudeSource {
                 }
             }
         }
+        for pid in unregistered_pids(&claude.join("sessions"), now, pid_alive) {
+            let Some(cwd) = super::codex::cwd_of(pid) else {
+                continue;
+            };
+            let session_id = unregistered_id(pid);
+            let mut transcript = ParserState::new().t;
+            transcript.cwd = Some(cwd.clone());
+            transcript.title = Some("New Claude Code session".to_string());
+            found.push(Found {
+                live: Some(LiveEntry {
+                    pid,
+                    session_id: session_id.clone(),
+                    cwd,
+                    busy: false,
+                    waiting: false,
+                    name: None,
+                }),
+                session_id,
+                transcript,
+                helpers: Vec::new(),
+            });
+        }
         found
     }
 
@@ -719,6 +777,10 @@ impl ClaudeSource {
             .into_iter()
             .find(|e| e.session_id == session_id)
             .map(|e| e.pid)
+            .or_else(|| {
+                let pid = session_id.strip_prefix(UNREGISTERED_PREFIX)?.parse().ok()?;
+                pid_alive(pid).then_some(pid)
+            })
     }
 }
 

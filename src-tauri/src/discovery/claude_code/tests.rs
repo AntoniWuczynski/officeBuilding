@@ -257,6 +257,30 @@ fn a_system_turn_does_not_bury_the_question_asked_to_the_human() {
 }
 
 #[test]
+fn a_session_that_never_registered_is_found_by_its_key_file() {
+    let dir = temp_dir("unregistered");
+    for name in [
+        "11.aa.key",
+        "22.bb.key",
+        "22.json",
+        "33.cc.key",
+        "notes.key",
+    ] {
+        fs::write(dir.join(name), "{}").expect("write");
+    }
+    let alive = |pid| pid != 33;
+    // Just written: Claude Code writes its `.json` a moment after the `.key`.
+    assert!(unregistered_pids(&dir, SystemTime::now(), alive).is_empty());
+    let later = SystemTime::now() + Duration::from_secs(5);
+    assert_eq!(unregistered_pids(&dir, later, alive), vec![11]);
+    fs::remove_dir_all(&dir).expect("cleanup");
+
+    let me = i32::try_from(std::process::id()).expect("pid");
+    let source = ClaudeSource::new(temp_dir("unregistered-home"));
+    assert_eq!(source.pid_of(&unregistered_id(me)), Some(me));
+}
+
+#[test]
 fn registry_entries_parse_and_filter_by_liveness() {
     let e = parse_registry_entry(
         r#"{"pid":42,"sessionId":"abc","cwd":"/code/app","status":"busy","name":"fix"}"#,

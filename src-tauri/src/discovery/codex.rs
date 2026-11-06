@@ -70,6 +70,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 mod process;
+pub(super) use process::cwd_of;
 use process::{list_codex_pids, probe, resolve_liveness_by_open_files, rolloutless_sessions};
 
 /// A `token_count` event's `info`: cumulative totals and the latest request's usage.

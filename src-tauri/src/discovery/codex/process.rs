@@ -95,6 +95,16 @@ fn parse_lsof(text: &str) -> (Option<String>, Vec<&str>) {
     (cwd, files)
 }
 
+/// A process's working directory, via `lsof`. None when `lsof` is unavailable
+/// or the process exited mid-lookup.
+pub fn cwd_of(pid: i32) -> Option<String> {
+    let out = Command::new("lsof")
+        .args(["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])
+        .output()
+        .ok()?;
+    parse_lsof(&String::from_utf8_lossy(&out.stdout)).0
+}
+
 /// The cwd and top-level rollout session ids a process holds open, via one
 /// `lsof -p <pid> -Ffn` call, filtered to files under `sessions_dir` matching
 /// `rollout-*.jsonl` and further filtered to `top_level` (rollouts already

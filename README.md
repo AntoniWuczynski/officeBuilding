@@ -130,7 +130,10 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   with the chosen model and effort in an in-app terminal: a pseudo-terminal
   (through your login shell, in the floor's folder) streamed to xterm.js, with
   the last 256 KiB kept for replay. Once the agent registers its session, its
-  desk opens that terminal. Dropping a file (a screenshot, say) onto it types
+  desk opens that terminal. A Claude Code session that never registers because
+  it is stuck on a startup prompt (such as "Do you trust this folder?") gets a
+  "New Claude Code session" desk after a few seconds, so its terminal can be
+  opened and the prompt answered. Dropping a file (a screenshot, say) onto it types
   the file's path, as iTerm2 does, so Claude Code attaches the image. An agent that stops within 1.5 s of your login
   shell handing over to it (or while the shell's profile is still loading) fails
   the hire with what it printed. One that stops later, before it ever reached
