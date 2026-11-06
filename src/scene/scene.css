@@ -473,6 +473,16 @@ button.roof-sign:hover {
 .walk-leave {
   animation: walk-straight 2.2s ease-in forwards;
 }
+/* A finished helper: to its agent's desk, hands the folder over, then out of the door. */
+.walk-handin {
+  animation: walk-handin 6s ease-in-out forwards;
+}
+.walk-handin .w-flip {
+  animation: face-two-legs 6s steps(1) forwards;
+}
+.walk-handin .pp-folder {
+  animation: hand-over 6s steps(1) forwards;
+}
 .walker {
   position: absolute;
   left: -11px;
@@ -730,6 +740,35 @@ button.roof-sign:hover {
   }
   100% {
     transform: translateZ(var(--z)) translate(var(--fx), var(--fy));
+  }
+}
+@keyframes walk-handin {
+  0% {
+    transform: translateZ(var(--z)) translate(var(--fx), var(--fy));
+  }
+  42%,
+  58% {
+    transform: translateZ(var(--z)) translate(var(--vx), var(--vy));
+  }
+  100% {
+    transform: translateZ(var(--z)) translate(var(--tx), var(--ty));
+  }
+}
+@keyframes face-two-legs {
+  0% {
+    transform: scaleX(var(--face-1));
+  }
+  50% {
+    transform: scaleX(var(--face-2));
+  }
+}
+/* Handed over while it stands at the agent's desk, in step with the agent's note-pop. */
+@keyframes hand-over {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
   }
 }
 @keyframes walk-straight {

@@ -24,7 +24,9 @@ sessions as an **office building**:
   light is green while an agent works, yellow when one needs you, red when one
   is stuck and grey when all are idle. Colleagues walk notes to each other's
   desks (agent-to-agent messages); new hires walk in. A session's running
-  subagents, plain or in a workflow, sit at tiny desks beside its own. The desks
+  subagents, plain or in a workflow, sit at tiny desks beside its own, and one
+  that finishes walks a manila folder of its work to its agent on its way out
+  of the door. The desks
   shrink as the team grows, and past 64 the rest show as a count. An agent or
   subagent working in a git worktree stays on its repo's floor, with a potted
   plant on its desk. What an agent leaves running stands in front of its desk:

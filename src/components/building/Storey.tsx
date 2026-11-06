@@ -206,7 +206,7 @@ function Leaver({ session, x, onGone }: { readonly session: Session; readonly x:
           if (e.animationName === "storey-leave") onGone(session.id);
         }}
       >
-        <Walker look={lookFor(session.id)} carrying={false} />
+        <Walker look={lookFor(session.id)} carrying={null} />
       </span>
     </Billboard>
   );

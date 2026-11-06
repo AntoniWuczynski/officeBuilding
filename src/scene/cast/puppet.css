@@ -45,6 +45,28 @@
   border: 3px solid #8c8c8c;
   transform: rotate(12deg);
 }
+/* A finished subagent's work: a manila folder, wider than a note, with a tab. */
+.pp-folder {
+  position: absolute;
+  left: -20px;
+  bottom: -26px;
+  width: 58px;
+  height: 44px;
+  background: #e3c27a;
+  border: 3px solid #b08a3e;
+  transform: rotate(8deg);
+}
+.pp-folder::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -12px;
+  width: 22px;
+  height: 9px;
+  background: #e3c27a;
+  border: 3px solid #b08a3e;
+  border-bottom: 0;
+}
 
 /* ---- typing: forearms strike the keys in bursts, head and shoulders keep time ---- */
 .pose-typing .pp-arm-a {

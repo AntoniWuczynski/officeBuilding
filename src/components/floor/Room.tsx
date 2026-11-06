@@ -14,6 +14,7 @@ import { Desk } from "../../scene/Desk";
 import { materialsFor } from "../../scene/materials";
 import { Duct, Tank, toolboxTop } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
+import type { Handed } from "../../scene/Person";
 import { BackWall, LeftWall, ManagerOffice, SignOutStand } from "./RoomObjects";
 import type { RoomObjectsModel } from "./RoomObjects";
 import type { Section } from "./sections";
@@ -23,10 +24,14 @@ import { WorkerCard } from "./WorkerCard";
 
 interface Walk {
   readonly id: string;
-  readonly kind: "note" | "arrive" | "leave";
+  /** handin: a finished helper takes its work to its agent's desk on the way out. */
+  readonly kind: "note" | "arrive" | "leave" | "handin";
   readonly walkerId: string;
+  /** Who receives what the walker carries. */
   readonly toId: string | null;
   readonly from: PlanPoint;
+  /** A hand-in's stop at the agent's desk, between its own desk and the door. */
+  readonly via: PlanPoint | null;
   readonly to: PlanPoint;
   /** 1 for an agent, smaller for a helper bound for a tiny desk. */
   readonly scale: number;
@@ -61,6 +66,13 @@ function seatsFor(sessions: readonly Session[]): Map<string, Seat> {
   return seats;
 }
 
+/** Each helper's agent, by helper id. */
+function agentsOf(sessions: readonly Session[]): Map<string, string> {
+  return new Map(sessions.flatMap((s) => s.helpers.map((h) => [h.id, s.id] as const)));
+}
+
+const CARRIES: Record<Walk["kind"], Handed | null> = { note: "note", handin: "folder", arrive: null, leave: null };
+
 /** Agents and their helpers, seated or not. */
 function workerIds(sessions: readonly Session[]): string[] {
   return sessions.flatMap((s) => [s.id, ...s.helpers.map((h) => h.id)]);
@@ -83,6 +95,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
   const seenWorkers = useRef<Set<string>>(new Set(workerIds(sessions)));
   // Where each agent and helper sat last time, so one that finishes can walk out from there.
   const lastSeats = useRef<Map<string, Seat>>(seatsFor(sessions));
+  const lastAgents = useRef<Map<string, string>>(agentsOf(sessions));
   const [walks, setWalks] = useState<readonly Walk[]>([]);
   const [card, setCard] = useState<{ readonly sessionId: string; readonly x: number; readonly y: number } | null>(null);
   const showCard = (sessionId: string, el: HTMLElement): void => {
@@ -101,7 +114,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
       const from = seats.get(m.fromSessionId);
       const to = seats.get(m.toSessionId);
       if (!reduced && from !== undefined && to !== undefined) {
-        fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from: from.at, to: to.at, scale: 1 });
+        fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from: from.at, via: null, to: to.at, scale: 1 });
       }
     }
     for (const id of workerIds(sessions)) {
@@ -109,15 +122,24 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
       seenWorkers.current.add(id);
       const seat = seats.get(id);
       if (!reduced && seat !== undefined) {
-        fresh.push({ id: `arrive-${id}`, kind: "arrive", walkerId: id, toId: null, from: doorOf(depth), to: seat.at, scale: seat.scale });
+        fresh.push({ id: `arrive-${id}`, kind: "arrive", walkerId: id, toId: null, from: doorOf(depth), via: null, to: seat.at, scale: seat.scale });
       }
     }
     for (const [id, seat] of lastSeats.current) {
-      if (!reduced && !seats.has(id)) {
-        fresh.push({ id: `leave-${id}`, kind: "leave", walkerId: id, toId: null, from: seat.at, to: doorOf(depth), scale: seat.scale });
-      }
+      if (reduced || seats.has(id)) continue;
+      // A helper whose agent is still at its desk hands its work in, standing at
+      // the front of that desk, on the way out.
+      const agent = lastAgents.current.get(id);
+      const at = sessions.findIndex((s) => s.id === agent);
+      const desk = roomDeskSlot(at);
+      fresh.push(
+        agent !== undefined && at >= 0
+          ? { id: `leave-${id}`, kind: "handin", walkerId: id, toId: agent, from: seat.at, via: { x: seatOf(desk).x, y: desk.y + DESK.d + 6 }, to: doorOf(depth), scale: seat.scale }
+          : { id: `leave-${id}`, kind: "leave", walkerId: id, toId: null, from: seat.at, via: null, to: doorOf(depth), scale: seat.scale },
+      );
     }
     lastSeats.current = seats;
+    lastAgents.current = agentsOf(sessions);
     if (fresh.length === 0) return;
     setWalks((current) => {
       const busy = new Set(current.map((w) => w.walkerId));
@@ -126,7 +148,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
   }, [messages, sessions, depth, reduced]);
 
   const walking = new Set(walks.map((w) => w.walkerId));
-  const receiving = new Set(walks.flatMap((w) => (w.toId === null ? [] : [w.toId])));
+  const receiving = new Map(walks.flatMap((w) => (w.toId === null ? [] : [[w.toId, CARRIES[w.kind] ?? "note"] as const])));
   const hireSlot = roomDeskSlot(sessions.length);
   const toolbox = toolboxTop(TANK.x, depth - TANK.back, TANK.size);
 
@@ -174,7 +196,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
                   onFocus={(e) => showCard(s.id, e.currentTarget)}
                   onBlur={hideCard}
                 >
-                  <Person look={lookFor(s.id)} pose={poseForState(s.state)} receiving={receiving.has(s.id)} />
+                  <Person look={lookFor(s.id)} pose={poseForState(s.state)} receiving={receiving.get(s.id) ?? null} />
                   <span className={`name-tag state-${s.state}`} aria-hidden>
                     {s.title}
                   </span>
@@ -203,11 +225,17 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
 
 function WalkView({ walk, depth, onDone }: { readonly walk: Walk; readonly depth: number; readonly onDone: (id: string) => void }): React.ReactElement {
   const cam = useContext(CameraContext);
-  const left = headsLeft(cam, ROOM.width, depth, walk.from, walk.to);
-  const walker = <Walker look={lookFor(walk.walkerId)} carrying={walk.kind === "note"} />;
+  const first = walk.via ?? walk.to;
+  const left = headsLeft(cam, ROOM.width, depth, walk.from, first);
+  const walker = <Walker look={lookFor(walk.walkerId)} carrying={CARRIES[walk.kind]} />;
   const style: StyleWithVars = {
     "--fx": `${walk.from.x}px`,
     "--fy": `${walk.from.y}px`,
+    "--vx": `${first.x}px`,
+    "--vy": `${first.y}px`,
+    // Which way it faces on each leg: towards the agent's desk, then towards the door.
+    "--face-1": left ? "-1" : "1",
+    "--face-2": headsLeft(cam, ROOM.width, depth, first, walk.to) ? "-1" : "1",
     "--tx": `${walk.to.x}px`,
     "--ty": `${walk.to.y}px`,
     "--z": `${ROOM.slab}px`,

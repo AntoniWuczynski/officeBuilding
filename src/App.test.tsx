@@ -787,7 +787,7 @@ describe("live updates and failures", () => {
     expect(screen.getAllByTestId("walk")).toHaveLength(3);
   });
 
-  it("a helper walks in from the door to its tiny desk, and out again once it finishes", async () => {
+  it("a helper walks in from the door to its tiny desk, and hands its work to its agent on the way out", async () => {
     const api = new PushableApi();
     renderApp(api);
     await enter("p-shop");
@@ -809,10 +809,15 @@ describe("live updates and failures", () => {
     fireEvent.animationEnd(arrive);
     expect(within(pod).getAllByTestId("pod-helper")).toHaveLength(4);
 
+    // Its agent is still at its desk, so it hands its work in on the way out.
     act(() => {
       api.push(withHelpers((h) => h));
     });
-    expect(screen.getByTestId("walk")).toHaveClass("walk-leave");
+    const handin = screen.getByTestId("walk");
+    expect(handin).toHaveClass("walk-handin");
+    expect(handin.querySelector(".pp-folder")).not.toBeNull();
+    const agent = screen.getAllByTestId("worker").find((w) => w.dataset.session === "s-1");
+    expect(agent?.querySelector(".bubble-note")).not.toBeNull();
   });
 
   it("what an agent left running sits in front of its desk, and pops out once it ends", async () => {

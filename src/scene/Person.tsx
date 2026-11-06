@@ -23,13 +23,22 @@ function Bubble({ pose }: { readonly pose: Pose }): React.ReactElement | null {
   }
 }
 
-/** A note received from a colleague: a folded paper that pops up briefly. */
-function NoteBubble(): React.ReactElement {
+/** What one worker hands another: a note is a message, a manila folder a finished subagent's work. */
+export type Handed = "note" | "folder";
+
+/** Something just received from a colleague, popping up briefly. */
+function ReceivedBubble({ handed }: { readonly handed: Handed }): React.ReactElement {
   return (
     <span className="bubble bubble-note" aria-hidden>
       <svg viewBox="0 0 12 12" width="12" height="12">
-        <path d="M2 1.5h6l2 2v7H2z" fill="#FFFDF8" stroke="#1C1F24" strokeWidth="1" />
-        <path d="M4 5h4M4 7h4" stroke="#1C1F24" strokeWidth=".8" />
+        {handed === "note" ? (
+          <>
+            <path d="M2 1.5h6l2 2v7H2z" fill="#FFFDF8" stroke="#1C1F24" strokeWidth="1" />
+            <path d="M4 5h4M4 7h4" stroke="#1C1F24" strokeWidth=".8" />
+          </>
+        ) : (
+          <path d="M1.5 3.5h3l1 1h5v6h-9z" fill="#E3C27A" stroke="#1C1F24" strokeWidth="1" />
+        )}
       </svg>
     </span>
   );
@@ -51,7 +60,7 @@ function Piece({ at, part, className, children }: { readonly at: Placed; readonl
  * snap between poses. Seated at a desk, or standing (walking, or flat on the
  * floor when stuck), with legs.
  */
-function Puppet({ look, standing, carrying = false }: { readonly look: Look; readonly standing: boolean; readonly carrying?: boolean }): React.ReactElement {
+function Puppet({ look, standing, carrying = null }: { readonly look: Look; readonly standing: boolean; readonly carrying?: Handed | null }): React.ReactElement {
   const p = look.parts;
   const r = rig(p, standing);
   const [armA, armB] = r.upperArm;
@@ -83,7 +92,7 @@ function Puppet({ look, standing, carrying = false }: { readonly look: Look; rea
           </Piece>
           <Piece at={armB} className="pp-arm pp-arm-b">
             <Piece at={foreB} part={p["forearm-l"]} className="pp-fore pp-fore-b">
-              {carrying ? <i className="pp-note" /> : null}
+              {carrying === null ? null : <i className={`pp-${carrying}`} />}
             </Piece>
           </Piece>
         </Piece>
@@ -95,23 +104,23 @@ function Puppet({ look, standing, carrying = false }: { readonly look: Look; rea
 interface PersonProps {
   readonly look: Look;
   readonly pose: Pose;
-  /** Show the "just got a note" reaction. */
-  readonly receiving?: boolean;
+  /** Show the "just got a note (or folder)" reaction. */
+  readonly receiving?: Handed | null;
 }
 
 /** An employee at their desk, or flat on the floor when stuck. The pose encodes the session state (DESIGN.md, motion). */
-export function Person({ look, pose, receiving = false }: PersonProps): React.ReactElement {
+export function Person({ look, pose, receiving = null }: PersonProps): React.ReactElement {
   return (
     <span className={`person pose-${pose}`} data-pose={pose}>
       <Bubble pose={pose} />
-      {receiving ? <NoteBubble /> : null}
+      {receiving === null ? null : <ReceivedBubble handed={receiving} />}
       <Puppet look={look} standing={pose === "stuck"} />
     </span>
   );
 }
 
-/** A standing, walking employee, optionally carrying a note. */
-export function Walker({ look, carrying }: { readonly look: Look; readonly carrying: boolean }): React.ReactElement {
+/** A standing, walking employee, optionally carrying a note or a folder. */
+export function Walker({ look, carrying }: { readonly look: Look; readonly carrying: Handed | null }): React.ReactElement {
   return (
     <span className="walker">
       <span className="w-flip">
