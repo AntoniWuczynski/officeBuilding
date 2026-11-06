@@ -1,3 +1,11 @@
 #!/bin/sh
 # Block a push whose commits add secrets or private details, including ones made with --no-verify.
+# This repo's hooksPath overrides any global one, so also run the machine-wide
+# guard (gitleaks and friends) when this machine has it. Both read the refs on stdin.
+guard="$HOME/.claude/git-hooks/public_repo_guard.py"
+if [ -f "$guard" ]; then
+  refs=$(cat)
+  printf '%s\n' "$refs" | python3 "$guard" pre-push "$@" || exit 1
+  printf '%s\n' "$refs" | exec node --no-warnings scripts/check-sensitive.ts --push
+fi
 exec node --no-warnings scripts/check-sensitive.ts --push
