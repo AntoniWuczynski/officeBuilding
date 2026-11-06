@@ -189,6 +189,15 @@ fn reads_title_model_effort_and_tokens_once_per_message() {
 }
 
 #[test]
+fn a_cd_does_not_move_the_session_off_the_folder_it_started_in() {
+    let t = parse(&[
+        USER,
+        r#"{"type":"assistant","cwd":"/tmp/scratch","timestamp":"2026-09-29T10:00:05Z","message":{"id":"m1","content":[{"type":"text","text":"ok"}]}}"#,
+    ]);
+    assert_eq!(t.cwd.as_deref(), Some("/code/app"));
+}
+
+#[test]
 fn open_ask_user_question_is_pending_until_answered() {
     let ask = r#"{"type":"assistant","timestamp":"2026-09-29T10:01:00Z","message":{"id":"m2","content":[{"type":"tool_use","id":"toolu_1","name":"AskUserQuestion","input":{"questions":[{"question":"Which backend?","header":"Backend","multiSelect":false,"options":[{"label":"Rust","description":"own"},{"label":"CCC","description":"theirs"}]}]}}]}}"#;
     let pending = parse(&[USER, ask]);

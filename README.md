@@ -122,7 +122,8 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
 - **Backend (Rust, `src-tauri/`):** discovers real **Claude Code** sessions from
   Claude's own files (`~/.claude/sessions/<pid>.json` for liveness and a
   session blocked on you, `~/.claude/projects/**.jsonl` for transcripts), groups
-  them into floors by git root, derives each desk's state, queues open
+  them into floors by the git root of the folder each session started in (a
+  later `cd` does not move it), derives each desk's state, queues open
   questions, permission prompts and plain-prose asks, and pushes live updates to
   the webview. Clicking a running
   desk focuses its exact iTerm2 or Terminal.app tab. Hiring starts the agent

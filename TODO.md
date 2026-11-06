@@ -34,6 +34,7 @@ Open:
   - CPU use with many animated workers not measured against the old figures (the proposal's limit).
   - The proposal's simpler figure for the building overview was not adopted: the same cut-outs are used everywhere.
   Owner: Claude.
+- [~] OB-055 — An agent stays on the floor it started on when it `cd`s elsewhere (A Human, 2026-10-13: "Agents still move around the office building when doing cd, is there any way to stop that?"). Discovery took a Claude Code session's folder from its latest transcript record, so a `cd` out of the repo (a scratchpad, another project) moved it to another floor. The floor now comes from the first folder the transcript records, and the worktree plant from the latest one when that is a worktree of the same repo (OB-032 keeps working for a session that `cd`s into one). Codex takes its folder from its own session settings, not the shell, so it is unchanged. Rust tests (`a_cd_does_not_move_the_session_off_the_folder_it_started_in`, the worktree test's `s3`). Still to see in the Tauri app after a reinstall. Owner: Claude.
 
 ## Backend (next)
 

@@ -51,7 +51,10 @@ pub struct PendingQuestion {
     reason = "independent facts read from the transcript, not a state machine"
 )]
 pub struct Transcript {
+    /// The folder it started in: its floor.
     pub cwd: Option<String>,
+    /// The folder its shell is in now, after any `cd`.
+    pub latest_cwd: Option<String>,
     pub title: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
@@ -175,6 +178,7 @@ impl ParserState {
         Self {
             t: Transcript {
                 cwd: None,
+                latest_cwd: None,
                 title: None,
                 model: None,
                 effort: None,
@@ -262,8 +266,10 @@ impl ParserState {
         if !self.keep_sidechains && rec.get("isSidechain").and_then(Value::as_bool) == Some(true) {
             return;
         }
+        // A `cd` later on does not move it off the floor it started on.
         if let Some(cwd) = rec.get("cwd").and_then(Value::as_str) {
-            self.t.cwd = Some(cwd.to_string());
+            self.t.cwd.get_or_insert_with(|| cwd.to_string());
+            self.t.latest_cwd = Some(cwd.to_string());
         }
         if let Some(entry) = rec.get("entrypoint").and_then(Value::as_str) {
             self.t.scripted = entry.starts_with("sdk");
@@ -687,7 +693,7 @@ impl ClaudeSource {
                                 id: id.to_string(),
                                 state: helper_state(&t),
                                 worktree: t
-                                    .cwd
+                                    .latest_cwd
                                     .as_deref()
                                     .is_some_and(|cwd| super::locate(Path::new(cwd)).worktree),
                             });

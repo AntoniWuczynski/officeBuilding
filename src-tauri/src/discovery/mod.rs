@@ -198,7 +198,10 @@ struct FormalQuestionInput {
 struct SessionInput {
     session_id: String,
     tool: ToolKind,
+    /// The folder it started in, which places it on a floor.
     cwd: String,
+    /// The folder it works in now: a worktree of its floor's repo earns the badge.
+    latest_cwd: String,
     title: Option<String>,
     live: bool,
     model: Option<String>,
@@ -221,6 +224,11 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
         .cwd
         .clone()
         .or_else(|| f.live.as_ref().map(|l| l.cwd.clone()))?;
+    let latest_cwd = f
+        .transcript
+        .latest_cwd
+        .clone()
+        .unwrap_or_else(|| cwd.clone());
     let signals = claude_code::signals(&f.transcript, f.live.as_ref());
     let title = f
         .transcript
@@ -248,6 +256,7 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
         session_id: f.session_id,
         tool: ToolKind::ClaudeCode,
         cwd,
+        latest_cwd,
         title,
         live: f.live.is_some(),
         model: f.transcript.model.clone(),
@@ -272,6 +281,7 @@ fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInpu
     Some(SessionInput {
         session_id: f.session_id,
         tool: ToolKind::Codex,
+        latest_cwd: cwd.clone(),
         cwd,
         title: f.title,
         live: f.live_pid.is_some(),
@@ -371,7 +381,9 @@ fn assemble(
     let mut resume_dirs = BTreeMap::new();
 
     for input in inputs {
-        let Location { root, worktree } = locate(Path::new(&input.cwd));
+        let Location { root, .. } = locate(Path::new(&input.cwd));
+        let now_in = locate(Path::new(&input.latest_cwd));
+        let worktree = now_in.worktree && now_in.root == root;
         // An ended session leaves the office; its floor stays while the session was recent.
         let ids = floors.entry(root.clone()).or_default();
         if !input.live {
@@ -726,6 +738,8 @@ mod tests {
             claude_inputs(vec![
                 found("s1", &in_main, &[&main_line], true),
                 found("s2", &in_tree, &[&tree_line], true),
+                // Started in the main checkout, then `cd`ed into the worktree.
+                found("s3", &in_main, &[&main_line, &tree_line], true),
             ]),
             locate,
         );
@@ -736,7 +750,7 @@ mod tests {
         );
         assert_eq!(
             d.projects[0].session_ids,
-            vec!["s1".to_string(), "s2".to_string()]
+            vec!["s1".to_string(), "s2".to_string(), "s3".to_string()]
         );
         let worktree = |id: &str| {
             d.sessions
@@ -747,6 +761,7 @@ mod tests {
         };
         assert!(!worktree("s1"));
         assert!(worktree("s2"));
+        assert!(worktree("s3"));
 
         // A submodule's `.git` file points at a git dir with no commondir: its own floor.
         assert_eq!(
