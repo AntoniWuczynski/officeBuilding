@@ -30,7 +30,9 @@ sessions as an **office building**:
   plant on its desk. What an agent leaves running stands in front of its desk:
   a background or long-running shell is a seashell, a Claude Code monitor an
   owl, a browser it drives a cat and any other program a dog. The workers and
-  pets are realistic cut-outs that move like South Park characters.
+  pets are realistic cut-outs that move like South Park characters. The room
+  fills the window. Scroll (two fingers on a trackpad) to zoom in at the
+  pointer, click and drag to pan, and press Fit to see the whole floor again.
 - **The manager's panels are objects in the room**, and also sit on a rail at the
   right edge: brass plaque = Info, memo pile on the manager's desk = Decisions
   (questions ordered by priority → one question → A / B / Other), cork board =

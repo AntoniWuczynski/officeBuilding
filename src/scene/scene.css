@@ -9,6 +9,25 @@
 .stage[data-fit="width"] {
   overflow-y: auto;
 }
+.stage[data-zoomable] {
+  cursor: grab;
+  touch-action: none;
+}
+.stage[data-dragging] {
+  cursor: grabbing;
+}
+.zoom-controls {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 6px;
+}
+.zoom-controls .btn {
+  min-width: 34px;
+  justify-content: center;
+  cursor: pointer;
+}
 .stage-sizer {
   position: relative;
   width: 100%;

@@ -22,3 +22,6 @@ class AnimationEventShim extends Event implements AnimationEvent {
   }
 }
 globalThis.AnimationEvent = AnimationEventShim;
+
+// jsdom has no pointer capture; the floor's drag-to-pan takes it.
+Element.prototype.setPointerCapture = () => {};

@@ -129,7 +129,7 @@ export function FloorView(props: Props): React.ReactElement {
             height={ROOM.wallHeight + ROOM.slab}
             pad={{ left: 24, right: 24, top: 36, bottom: 40 }}
             fit="contain"
-            maxScale={1.6}
+            zoomable
             className="room-stage"
           >
             <Room
