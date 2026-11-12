@@ -67,16 +67,19 @@ impl Store {
 
     /// Write atomically: a temp file renamed over the old one.
     pub fn save(&self) -> Result<(), String> {
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir)
-                .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
-        }
-        let tmp = self.path.with_extension("json.tmp");
-        let text = serde_json::to_string_pretty(&self.records).map_err(|e| e.to_string())?;
-        fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, &self.path)
-            .map_err(|e| format!("could not replace {}: {e}", self.path.display()))
+        write_json_atomic(&self.path, &self.records)
     }
+}
+
+/// Write `value` as pretty JSON to `path` atomically: a temp file renamed over the old one.
+pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+    fs::rename(&tmp, path).map_err(|e| format!("could not replace {}: {e}", path.display()))
 }
 
 #[cfg(test)]
