@@ -17,7 +17,7 @@ async function enter(projectId: string): Promise<void> {
 /** Enter p-arcade, hire a structured desk (its panel needs no real terminal) and wait for it to sit down. */
 async function seatHire(api: MockApi): Promise<{ id: string; worker: () => HTMLElement }> {
   await enter("p-arcade");
-  const hired = await api.spawnSession("p-arcade", { tool: "codex", model: "gpt-5.6-terra", effort: "medium", title: "watch me", ultracode: false, structured: true });
+  const hired = await api.spawnSession("p-arcade", { tool: "codex", model: "gpt-5.6-terra", effort: "medium", title: "watch me", ultracode: false, view: "chat" });
   // The new hire walks in from the front, then takes the desk.
   fireEvent.animationEnd(await screen.findByTestId("walk"));
   const worker = (): HTMLElement => {

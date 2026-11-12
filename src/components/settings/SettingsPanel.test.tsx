@@ -179,3 +179,15 @@ describe("SettingsPanel", () => {
     expect(screen.getByTestId("settings-manager-max-desks")).toHaveValue(3);
   });
 });
+
+describe("SettingsPanel agents", () => {
+  it("saves the chosen view through the mock", async () => {
+    const user = userEvent.setup();
+    const { api } = open();
+    const group = await screen.findByTestId("settings-view");
+    expect(within(group).getByRole("radio", { name: "Terminal" })).toBeChecked();
+    await user.click(within(group).getByRole("radio", { name: "Chat" }));
+    expect((await api.getSettings()).agents).toEqual({ view: "chat" });
+    expect((await api.hireOptions()).find((o) => o.tool === "claude-code")?.view).toBe("chat");
+  });
+});

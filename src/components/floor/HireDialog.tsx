@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ModelOption, ToolKind, ToolOptions } from "../../types";
+import type { DeskView, ModelOption, ToolKind, ToolOptions } from "../../types";
 import type { HireRequest } from "../../api/DiscoveryApi";
 import { TOOL_LABEL } from "../../state/selectors";
 import { message } from "../../lib/errors";
@@ -22,7 +22,7 @@ interface Choice {
   readonly model: string;
   readonly effort: string;
   readonly ultracode: boolean;
-  readonly structured: boolean;
+  readonly view: DeskView;
 }
 
 function defaultsFor(tool: ToolOptions): Choice {
@@ -33,8 +33,17 @@ function defaultsFor(tool: ToolOptions): Choice {
     model: model?.id ?? "",
     effort: model?.defaultEffort ?? "",
     ultracode: tool.ultracode ?? false,
-    structured: false,
+    view: tool.view,
   };
+}
+
+/** The line under the effort: why chat is off, or what a chat desk is like. */
+function viewHint(tool: ToolOptions, view: DeskView): string | null {
+  if (tool.chat.kind === "unavailable") return `Chat is not available: ${tool.chat.reason}.`;
+  if (view !== "chat") return null;
+  return tool.chat.terminal
+    ? "The desk keeps its terminal. Its panel opens as a chat, and you can flip between the two at any time."
+    : "It runs without a terminal, and the view cannot be changed after the hire.";
 }
 
 /** Keep the effort if the new model supports it, otherwise take the model's default. */
@@ -81,6 +90,7 @@ export function HireDialog({
   const tool = options.find((o) => o.tool === choice?.tool);
   const model = tool?.models.find((m) => m.id === choice?.model);
   const effort = model?.efforts.find((e) => e.id === choice?.effort);
+  const hint = tool === undefined || choice === null ? null : viewHint(tool, choice.view);
 
   return (
     <form
@@ -194,26 +204,27 @@ export function HireDialog({
                 </label>
               ))}
             </fieldset>
-            {tool.ultracode === null && !tool.structured ? null : (
-              <div className="choice choice-end">
-                {tool.ultracode === null ? null : (
-                  <Toggle label="Ultracode" checked={choice.ultracode} disabled={busy} onChange={(on) => setChoice({ ...choice, ultracode: on })} />
-                )}
-                {tool.structured ? (
-                  <Toggle
-                    label="Without a terminal"
-                    title="The building talks to the agent directly: its messages and approvals show in a conversation panel"
-                    checked={choice.structured}
-                    disabled={busy}
-                    onChange={(on) => setChoice({ ...choice, structured: on })}
-                  />
-                ) : null}
-              </div>
-            )}
+            <div className="choice choice-end">
+              {tool.ultracode === null ? null : (
+                <Toggle label="Ultracode" checked={choice.ultracode} disabled={busy} onChange={(on) => setChoice({ ...choice, ultracode: on })} />
+              )}
+              <Toggle
+                label="Chat view"
+                {...(hint === null ? {} : { title: hint })}
+                checked={choice.view === "chat"}
+                disabled={busy || tool.chat.kind === "unavailable"}
+                onChange={(on) => setChoice({ ...choice, view: on ? "chat" : "terminal" })}
+              />
+            </div>
           </div>
           {effort !== undefined && effort.description !== "" ? (
             <p className="panel-hint">{effort.description}.</p>
           ) : null}
+          {hint === null ? null : (
+            <p className="panel-hint" data-testid="hire-view-hint">
+              {hint}
+            </p>
+          )}
 
           <label className="field">
             <span>Task</span>

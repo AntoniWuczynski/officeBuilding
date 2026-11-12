@@ -17,7 +17,7 @@ async function enter(projectId: string): Promise<void> {
 async function seatHire(api: MockApi): Promise<{ id: string; worker: () => HTMLElement }> {
   render(<App api={api} />);
   await enter("p-arcade");
-  const hired = await api.spawnSession("p-arcade", { tool: "codex", model: "gpt-5.6-terra", effort: "medium", title: "watch me", ultracode: false, structured: true });
+  const hired = await api.spawnSession("p-arcade", { tool: "codex", model: "gpt-5.6-terra", effort: "medium", title: "watch me", ultracode: false, view: "chat" });
   fireEvent.animationEnd(await screen.findByTestId("walk"));
   const worker = (): HTMLElement => {
     const el = screen.getAllByTestId("worker").find((w) => w.getAttribute("data-session") === hired.id);

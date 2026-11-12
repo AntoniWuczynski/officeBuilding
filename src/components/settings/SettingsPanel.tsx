@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { EditorList, Settings, SettingsPatch, ToolOptions } from "../../types";
 import { useSettings } from "../../state/useSettings";
 import { EditorGroup } from "./EditorGroup";
+import { AgentsGroup } from "./AgentsGroup";
 import { ConnectorsGroup } from "./ConnectorsGroup";
 import { NotificationsGroup } from "./NotificationsGroup";
 import { ManagerGroup } from "./ManagerGroup";
@@ -59,6 +60,10 @@ export function SettingsPanel({ load, save, editors, loadHireOptions, onTestAler
             <section className="settings-group">
               <h3>Editor</h3>
               <EditorGroup value={state.settings.editor} editors={editors} onChange={(editor) => change({ editor })} />
+            </section>
+            <section className="settings-group">
+              <h3>Agents</h3>
+              <AgentsGroup value={state.settings.agents} onChange={(agents) => change({ agents })} />
             </section>
             <section className="settings-group">
               <h3>Connectors</h3>
