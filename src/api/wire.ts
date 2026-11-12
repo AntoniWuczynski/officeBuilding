@@ -73,6 +73,33 @@ export const linearTeamsSchema = z.array(
   z.object({ id: z.string(), key: z.string(), name: z.string(), projects: z.array(linearProjectSchema) }),
 ) satisfies z.ZodType<LinearTeam[]>;
 
+const verdict = z.enum(["pass", "concerns"]);
+const reviewSchema = z.object({
+  repo: z.string(),
+  number: z.number(),
+  title: z.string(),
+  head: z.string(),
+  at: z.string(),
+  outcome: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("posted"), verdict, findings: z.number(), reviewId: z.number() }),
+    z.object({ kind: z.literal("clean") }),
+    z.object({ kind: z.literal("failed"), reason: z.string() }),
+  ]),
+});
+const qaFloorSchema = z.object({
+  projectId: z.string(),
+  enabled: z.boolean(),
+  status: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("off") }),
+    z.object({ kind: z.literal("waiting") }),
+    z.object({ kind: z.literal("watching"), repo: z.string(), checkedAt: z.string(), open: z.number() }),
+    z.object({ kind: z.literal("blocked"), reason: z.string() }),
+  ]),
+  run: z.object({ number: z.number(), title: z.string(), startedAt: z.string(), sessionId: z.string().nullable() }).nullable(),
+  reviews: z.array(reviewSchema),
+  stamp: verdict.nullable(),
+});
+
 export const snapshotSchema = z.object({
   projects: z.array(projectSchema),
   sessions: z.array(sessionSchema),
@@ -114,6 +141,7 @@ export const snapshotSchema = z.object({
   setupProjectId: z.string(),
   shells: z.array(shellSchema),
   connections: z.array(connectionSchema),
+  qa: z.array(qaFloorSchema),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [
@@ -248,6 +276,18 @@ export const settingsSchema = z.object({
   notifications: notificationSettingsSchema,
   editor: z.object({ preferred: editorSchema.nullable() }),
   connectors: z.object({ linearAgentLabel: z.string() }),
+  qa: z.object({
+    defaultOn: z.boolean(),
+    pollMinutes: z.number(),
+    everyPush: z.boolean(),
+    skipDrafts: z.boolean(),
+    postWhenClean: z.boolean(),
+    maxConcurrent: z.number(),
+    reviewsPerDay: z.number(),
+    tool: z.enum(["claude-code"]),
+    model: z.string().nullable(),
+    effort: z.string().nullable(),
+  }),
 }) satisfies z.ZodType<Settings>;
 
 /** Parse a backend payload, turning a shape mismatch into a readable error. */

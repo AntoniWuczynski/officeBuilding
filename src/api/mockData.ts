@@ -1,5 +1,6 @@
 import type { Helper, LinearLink, OfficeSnapshot } from "../types";
 import { mockLinearTodos } from "./mockConnectors";
+import { makeSeedQa } from "./mockQa";
 
 /** `count` demo helpers (sub-agents) for one session, a few of them thinking. */
 function helpers(sessionId: string, count: number): Helper[] {
@@ -55,6 +56,7 @@ export function makeSeedSnapshot(): OfficeSnapshot {
     setupProjectId: "p-setup",
     shells: [],
     connections: [],
+    qa: makeSeedQa(),
   };
 }
 

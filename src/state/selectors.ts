@@ -8,13 +8,16 @@ import type {
   FloorLink,
   OfficeSnapshot,
   Project,
+  QaFloor,
   Question,
+  Review,
   Session,
   SessionState,
   Spend,
   TodoItem,
   TodoSource,
   ToolKind,
+  Verdict,
 } from "../types";
 import { relativeTime } from "../lib/time";
 
@@ -299,4 +302,58 @@ export function connectionLine(connection: Connection, now: Date): string {
   const ago = relativeTime(fetchedAt, now);
   if (error !== null) return `Linear, as of ${ago}. The last check failed: ${error}.`;
   return `Linear, checked ${ago}.${connection.truncated ? " Only the first 200 issues are shown." : ""}`;
+}
+
+/** A floor's QA desk, if the floor has one (the setup floor has none). */
+export function qaFor(snapshot: OfficeSnapshot, projectId: string): QaFloor | undefined {
+  return snapshot.qa.find((q) => q.projectId === projectId);
+}
+
+export const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** What a QA desk is doing, as one sentence. */
+export function qaLine(floor: QaFloor, now: Date): string {
+  if (floor.run !== null) return `Reviewing #${floor.run.number} \u201c${floor.run.title}\u201d.`;
+  const { status } = floor;
+  switch (status.kind) {
+    case "off":
+      return "Off.";
+    case "waiting":
+      return "Asking GitHub\u2026";
+    case "blocked":
+      return `Cannot review: ${status.reason}.`;
+    case "watching": {
+      const open = status.open === 0 ? "No open pull requests of yours" : `${plural(status.open, "open pull request", "open pull requests")} of yours`;
+      return `Watching ${status.repo}. ${open}, checked ${relativeTime(status.checkedAt, now)}.`;
+    }
+  }
+}
+
+/** How a review ended, in words. */
+export function reviewLine(review: Review): string {
+  const { outcome } = review;
+  switch (outcome.kind) {
+    case "posted":
+      return outcome.findings === 0 ? "No issues found" : plural(outcome.findings, "finding", "findings");
+    case "clean":
+      return "Nothing to flag, nothing posted";
+    case "failed":
+      return `Not reviewed: ${outcome.reason}`;
+  }
+}
+
+/** The stamp's lettering and how it is read out. */
+export const STAMP_WORDS: Record<Verdict, { readonly label: string; readonly spoken: string }> = {
+  pass: { label: "QA passed", spoken: "QA passed" },
+  concerns: { label: "QA notes", spoken: "QA found problems" },
+};
+
+/** The floor's sessions split into those at ordinary desks and the QA reviewer, if it is seated. */
+export function splitReviewer(
+  sessions: readonly Session[],
+  qa: QaFloor | undefined,
+): { readonly seated: readonly Session[]; readonly reviewer: Session | undefined } {
+  const id = qa?.enabled === true ? qa.run?.sessionId : null;
+  const reviewer = id === null || id === undefined ? undefined : sessions.find((s) => s.id === id);
+  return { seated: reviewer === undefined ? sessions : sessions.filter((s) => s !== reviewer), reviewer };
 }

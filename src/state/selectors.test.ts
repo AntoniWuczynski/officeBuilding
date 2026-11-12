@@ -23,6 +23,11 @@ import {
   projectCounts,
   questionQueue,
   questionsForProject,
+  qaFor,
+  qaLine,
+  reviewLine,
+  splitReviewer,
+  STAMP_WORDS,
   searchProjects,
   searchSessions,
   sessionById,
@@ -33,7 +38,7 @@ import {
   totalSpend,
 } from "./selectors";
 import { makeSeedSnapshot } from "../api/mockData";
-import type { EditorList, Question, Session, SessionState } from "../types";
+import type { EditorList, QaFloor, Question, Review, Session, SessionState } from "../types";
 
 function session(state: SessionState, over: Partial<Session> = {}): Session {
   return {
@@ -269,5 +274,69 @@ describe("connector selectors", () => {
     expect(connectionLine(connection({ fetchedAt: at, truncated: true }), NOW)).toBe("Linear, checked 5 min ago. Only the first 200 issues are shown.");
     expect(connectionLine(connection({ fetchedAt: at, error: "Linear is unreachable" }), NOW)).toBe("Linear, as of 5 min ago. The last check failed: Linear is unreachable.");
     expect(connectionLine(connection({ error: "the team was deleted" }), NOW)).toBe("Linear could not be checked: the team was deleted.");
+  });
+});
+
+describe("QA selectors", () => {
+  const at = new Date("2026-11-12T10:19:00Z");
+  const checkedAt = "2026-11-12T10:15:00Z";
+  const floor = (over: Partial<QaFloor> = {}): QaFloor => ({ projectId: "p-shop", enabled: true, status: { kind: "off" }, run: null, reviews: [], stamp: null, ...over });
+  const watching = (open: number): QaFloor => floor({ status: { kind: "watching", repo: "example-org/widgets", checkedAt, open } });
+  const review = (outcome: Review["outcome"]): Review => ({ repo: "example-org/widgets", number: 1, title: "t", head: "h", at: checkedAt, outcome });
+
+  it("finds a floor's desk, and none for the setup floor", () => {
+    const snapshot = makeSeedSnapshot();
+    expect(qaFor(snapshot, "p-shop")?.projectId).toBe("p-shop");
+    expect(qaFor(snapshot, "p-setup")).toBeUndefined();
+  });
+
+  it.each<[string, QaFloor, string]>([
+    ["a run", floor({ run: { number: 14, title: "Cache the price list", startedAt: checkedAt, sessionId: null } }), "Reviewing #14 \u201cCache the price list\u201d."],
+    ["off", floor(), "Off."],
+    ["waiting", floor({ status: { kind: "waiting" } }), "Asking GitHub\u2026"],
+    ["blocked", floor({ status: { kind: "blocked", reason: "gh is not signed in" } }), "Cannot review: gh is not signed in."],
+    ["none open", watching(0), "Watching example-org/widgets. No open pull requests of yours, checked 4 min ago."],
+    ["one open", watching(1), "Watching example-org/widgets. 1 open pull request of yours, checked 4 min ago."],
+    ["three open", watching(3), "Watching example-org/widgets. 3 open pull requests of yours, checked 4 min ago."],
+  ])("says what the desk is doing: %s", (_name, qa, sentence) => {
+    expect(qaLine(qa, at)).toBe(sentence);
+  });
+
+  it("puts a run before every status", () => {
+    const run = { number: 2, title: "x", startedAt: checkedAt, sessionId: null };
+    expect(qaLine({ ...watching(3), run }, at)).toBe("Reviewing #2 \u201cx\u201d.");
+  });
+
+  it.each<[Review["outcome"], string]>([
+    [{ kind: "posted", verdict: "pass", findings: 0, reviewId: 1 }, "No issues found"],
+    [{ kind: "posted", verdict: "concerns", findings: 1, reviewId: 1 }, "1 finding"],
+    [{ kind: "posted", verdict: "concerns", findings: 2, reviewId: 1 }, "2 findings"],
+    [{ kind: "clean" }, "Nothing to flag, nothing posted"],
+    [{ kind: "failed", reason: "the fetch timed out" }, "Not reviewed: the fetch timed out"],
+  ])("says how a review ended: %j", (outcome, sentence) => {
+    expect(reviewLine(review(outcome))).toBe(sentence);
+  });
+
+  it("words the stamps", () => {
+    expect(STAMP_WORDS).toEqual({ pass: { label: "QA passed", spoken: "QA passed" }, concerns: { label: "QA notes", spoken: "QA found problems" } });
+  });
+
+  describe("splitReviewer", () => {
+    const sessions = [session("running", { id: "a" }), session("thinking", { id: "b" }), session("idle", { id: "c" })];
+    const running = (sessionId: string | null): QaFloor => floor({ run: { number: 1, title: "t", startedAt: checkedAt, sessionId } });
+
+    it("takes the reviewer out of the desks", () => {
+      const split = splitReviewer(sessions, running("b"));
+      expect(split.reviewer?.id).toBe("b");
+      expect(split.seated.map((s) => s.id)).toEqual(["a", "c"]);
+    });
+
+    it("seats everyone when QA is off, the id is not on the floor, or there is no run", () => {
+      expect(splitReviewer(sessions, { ...running("b"), enabled: false })).toEqual({ seated: sessions, reviewer: undefined });
+      expect(splitReviewer(sessions, running("zzz"))).toEqual({ seated: sessions, reviewer: undefined });
+      expect(splitReviewer(sessions, running(null))).toEqual({ seated: sessions, reviewer: undefined });
+      expect(splitReviewer(sessions, floor())).toEqual({ seated: sessions, reviewer: undefined });
+      expect(splitReviewer(sessions, undefined)).toEqual({ seated: sessions, reviewer: undefined });
+    });
   });
 });

@@ -1,6 +1,6 @@
 import type { Spend, TodoItem } from "../../types";
 import type { Counts } from "../../state/selectors";
-import { formatTokens, formatUsd } from "../../state/selectors";
+import { formatTokens, formatUsd, plural } from "../../state/selectors";
 import { ROOM } from "../../lib/layout";
 import { MANAGER_LOOK } from "../../lib/looks";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
@@ -33,10 +33,6 @@ interface ObjectsProps {
 }
 
 const NOTE_COLOURS = ["var(--note-yellow)", "var(--note-blue)", "var(--note-pink)"] as const;
-
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
 
 /** Back wall: windows, the AI's whiteboard and the spend meter. */
 export function BackWall({ model, onOpen }: ObjectsProps): React.ReactElement {

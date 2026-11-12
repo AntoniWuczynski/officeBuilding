@@ -354,6 +354,7 @@ describe("MockApi floors", () => {
         notifications: { finished: true, needsYou: true, stuck: true, sound: true, dockBounce: true, systemNotification: true, cooldownSecs: 10 },
         editor: { preferred: null },
         connectors: { linearAgentLabel: "agent" },
+        qa: { defaultOn: false, pollMinutes: 5, everyPush: true, skipDrafts: true, postWhenClean: true, maxConcurrent: 1, reviewsPerDay: 3, tool: "claude-code", model: null, effort: null },
       });
     });
 

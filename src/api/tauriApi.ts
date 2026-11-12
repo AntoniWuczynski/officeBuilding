@@ -189,6 +189,18 @@ export class TauriApi implements DiscoveryApi {
     await call("recheck_connectors");
   }
 
+  async setFloorQa(projectId: string, enabled: boolean): Promise<void> {
+    await call("set_floor_qa", { projectId, enabled });
+  }
+
+  async recheckQa(): Promise<void> {
+    await call("recheck_qa");
+  }
+
+  async openReview(projectId: string, number: number, head: string): Promise<void> {
+    await call("open_review", { projectId, number, head });
+  }
+
   async openTodoLink(todoId: string): Promise<void> {
     await call("open_todo_link", { todoId });
   }

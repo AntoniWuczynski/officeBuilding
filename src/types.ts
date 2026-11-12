@@ -335,6 +335,8 @@ export interface OfficeSnapshot {
   readonly shells: readonly Shell[];
   /** Each standing floor's links to connectors, with how the last check went. */
   readonly connections: readonly Connection[];
+  /** One QA desk per standing floor except the setup floor, in floor order. */
+  readonly qa: readonly QaFloor[];
 }
 
 /** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */
@@ -450,11 +452,82 @@ export interface ConnectorSettings {
   readonly linearAgentLabel: string;
 }
 
+/** What the QA reviewer concluded (`Verdict` in qa/record.rs). */
+export type Verdict = "pass" | "concerns";
+
+/** How one QA review ended (`ReviewOutcome` in qa/record.rs). */
+export type ReviewOutcome =
+  | { readonly kind: "posted"; readonly verdict: Verdict; readonly findings: number; readonly reviewId: number }
+  | { readonly kind: "clean" }
+  | { readonly kind: "failed"; readonly reason: string };
+
+/** One review the QA desk attempted (`Review` in qa/record.rs). */
+export interface Review {
+  /** "owner/name". */
+  readonly repo: string;
+  readonly number: number;
+  readonly title: string;
+  /** The reviewed head commit, 40 hex characters. */
+  readonly head: string;
+  readonly at: string;
+  readonly outcome: ReviewOutcome;
+}
+
+/** What a floor's QA desk is doing (`QaStatus` in model.rs). */
+export type QaStatus =
+  | { readonly kind: "off" }
+  | { readonly kind: "waiting" }
+  | { readonly kind: "watching"; readonly repo: string; readonly checkedAt: string; readonly open: number }
+  | { readonly kind: "blocked"; readonly reason: string };
+
+/** The review a floor's QA desk is running now (`QaRun` in model.rs). */
+export interface QaRun {
+  readonly number: number;
+  readonly title: string;
+  readonly startedAt: string;
+  /** The reviewer's desk, once it has one. */
+  readonly sessionId: string | null;
+}
+
+/** A floor's QA desk (`QaFloor` in model.rs). */
+export interface QaFloor {
+  readonly projectId: string;
+  readonly enabled: boolean;
+  readonly status: QaStatus;
+  readonly run: QaRun | null;
+  /** Newest first, at most 5. */
+  readonly reviews: readonly Review[];
+  readonly stamp: Verdict | null;
+}
+
+/** The tools that can be the QA reviewer (`ReviewerTool` in settings.rs). */
+export type ReviewerTool = "claude-code";
+
+/** Quality assurance defaults for the whole building (`QaSettings` in settings.rs). */
+export interface QaSettings {
+  readonly defaultOn: boolean;
+  /** 1 to 60. */
+  readonly pollMinutes: number;
+  readonly everyPush: boolean;
+  readonly skipDrafts: boolean;
+  readonly postWhenClean: boolean;
+  /** 1 to 4. */
+  readonly maxConcurrent: number;
+  /** 1 to 20. */
+  readonly reviewsPerDay: number;
+  readonly tool: ReviewerTool;
+  /** Null: the tool's default model. */
+  readonly model: string | null;
+  /** Null: the model's default effort. */
+  readonly effort: string | null;
+}
+
 /** The app's settings, kept by the backend. One field per group. */
 export interface Settings {
   readonly notifications: NotificationSettings;
   readonly editor: EditorSettings;
   readonly connectors: ConnectorSettings;
+  readonly qa: QaSettings;
 }
 
 /** A change to the settings: each group present replaces that group whole. */

@@ -225,4 +225,13 @@ export interface DiscoveryApi {
 
   /** Open a connector item (a Linear issue) in the browser. Rejects for an item with no link. */
   openTodoLink(todoId: string): Promise<void>;
+
+  /** Switch a floor's QA desk on or off. Switching it on pins the floor. */
+  setFloorQa(projectId: string, enabled: boolean): Promise<void>;
+
+  /** Ask GitHub for pull requests again now, without waiting for the next check. */
+  recheckQa(): Promise<void>;
+
+  /** Open a QA review (or its pull request, when nothing was posted) in the browser. */
+  openReview(projectId: string, number: number, head: string): Promise<void>;
 }

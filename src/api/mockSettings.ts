@@ -1,4 +1,5 @@
 import type { Settings } from "../types";
+import { makeQaSettings } from "./mockQa";
 
 /** The settings of a fresh install (`Settings::default` in settings.rs). */
 export function makeSettings(): Settings {
@@ -14,5 +15,6 @@ export function makeSettings(): Settings {
     },
     editor: { preferred: null },
     connectors: { linearAgentLabel: "agent" },
+    qa: makeQaSettings(),
   };
 }

@@ -34,6 +34,7 @@ import { MOCK_TEAMS, mockLinearTodos } from "./mockConnectors";
 import { MOCK_EDITORS } from "./mockEditors";
 import { joinNames } from "../state/selectors";
 import { makeSettings } from "./mockSettings";
+import { qaPatchError, withQaChecked, withQaSwitch } from "./mockQa";
 import { makeSetupView } from "./mockSetup";
 import { MockConversations } from "./mockConversation";
 
@@ -88,6 +89,7 @@ export class MockApi implements DiscoveryApi {
   private linearKey: LinearKeyStatus;
   private linearTickFailure: string | null = null;
   private readonly linkLog: string[] = [];
+  private readonly reviewLog: string[] = [];
   /** A structured desk's state follows its conversation; one that ends leaves its floor. */
   private readonly conversations = new MockConversations((sessionId, state) => {
     if (state === null) {
@@ -131,6 +133,8 @@ export class MockApi implements DiscoveryApi {
     if (label !== undefined && (label.length === 0 || [...label].length > AGENT_LABEL_MAX)) {
       return Promise.reject(new Error(`the agent label must be 1 to ${AGENT_LABEL_MAX} characters`));
     }
+    const qaError = patch.qa === undefined ? null : qaPatchError(patch.qa);
+    if (qaError !== null) return Promise.reject(new Error(qaError));
     this.settings = { ...this.settings, ...patch };
     return Promise.resolve(this.settings);
   }
@@ -636,6 +640,32 @@ export class MockApi implements DiscoveryApi {
     }
     this.linkLog.push(todoId);
     return Promise.resolve();
+  }
+
+  setFloorQa(projectId: string, enabled: boolean): Promise<void> {
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) {
+      return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    }
+    this.commit({ ...this.snapshot, qa: withQaSwitch(this.snapshot.qa, projectId, enabled) });
+    return Promise.resolve();
+  }
+
+  recheckQa(): Promise<void> {
+    const names = new Map(this.snapshot.projects.map((p) => [p.id, p.name]));
+    this.commit({ ...this.snapshot, qa: withQaChecked(this.snapshot.qa, names, this.now().toISOString()) });
+    return Promise.resolve();
+  }
+
+  openReview(projectId: string, number: number, head: string): Promise<void> {
+    const known = this.snapshot.qa.find((q) => q.projectId === projectId)?.reviews.some((r) => r.number === number && r.head === head);
+    if (known !== true) return Promise.reject(new Error("that review is no longer on this floor's record"));
+    this.reviewLog.push(`${projectId}#${number}@${head}`);
+    return Promise.resolve();
+  }
+
+  /** The reviews opened in the browser, for tests. */
+  openedReviews(): readonly string[] {
+    return this.reviewLog;
   }
 
   /** The todos left on a floor once a connector's are taken off. */
