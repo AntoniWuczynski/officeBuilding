@@ -44,6 +44,8 @@ Decided by A Human on 2026-10-08:
 
 Evidence: `docs/research/harness-hub/`.
 
+Followed up on 2026-11-12 (OB-181). A Human ruled that a Claude Code desk gets a chat view as an ordinary Claude Code session in the app's own terminal, drawn from its transcript and the hook feed, with no `claude -p`. That widens the hybrid line above, since Claude Code has no structured protocol here. Everything else about the chat view is a call of the build, listed in OB-181.
+
 ## OB-059 — How should the building tell me an agent has stopped, and where do the app's settings live? — DECIDED 2026-11-12: one app-level Settings panel, with the alert details left to the build
 
 Decided by A Human on 2026-11-12, before an unattended build of GitHub issue #1:
@@ -343,6 +345,84 @@ From the review, after the design:
 - A manager that left while it was being seated is not recorded as hired.
 
 This amends one earlier ruling, and the amendment is A Human's own. OB-011 deferred every way for an agent to reach the building. A Human now allows one, the socket above, for managers the building itself starts. OB-011 otherwise stands, and the server for assistant agents (TODO OB-010) is still not built. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) is not amended, and the manager gets no exception. The build changed one thing in OB-124 by its own call, which is that the QA reviewer now refuses messages from other sessions. It also builds on OB-002, since an escalation goes into the repo's own decisions file or the app's store, and on OB-040, since the manager is Claude Code's own unmodified CLI in a terminal and the building touches no login token. Built as TODO OB-150, with the checks for A Human in HUMAN_TODO OB-151 and the deferrals in TODO OB-153 to OB-178.
+
+## OB-181 — How should a desk get a chat view, and how does Claude Code get one? — DECIDED 2026-11-12: a Claude Code chat desk is an ordinary Claude Code session in the app's own terminal, drawn from its transcript and typed into when idle, with no `claude -p`, and the rest left to the build
+
+GitHub issue #6 asks for a setting that switches a desk from the terminal to a chat of the building's own, the same for every tool. A Human asked for it on 2026-11-11. It is a follow-up to OB-040.
+
+Decided by A Human on 2026-11-12, before an unattended build of the issue. The first is a new ruling for this issue:
+
+- A Claude Code chat desk is a normal interactive Claude Code session in the app's own terminal. The chat is drawn from the session's transcript file and the hook feed. What is typed in the chat's message box is typed into the terminal once Claude Code is idle. There is no `claude -p` and no Agent SDK. As the build brief records the same ruling, a permission prompt shows as a card with one click that flips to the terminal, where it is answered, and replies appear message by message.
+
+The other two are the rulings of OB-059, applied here:
+
+- The app has one Settings panel. The build put the choice of view there, in a new Agents group.
+- Commits stay local. Nothing is pushed until A Human approves.
+
+The issue left four calls open for A Human: the default view, whether a desk may switch views, how Claude Code is driven, and what the first version must hold. The build brief answers all four and marks only the Claude Code answer as A Human's. The other three are therefore listed below as the brief's, not above.
+
+What A Human wrote in the issue on 2026-11-11, and where this build departs from it. Each departure other than the first is a call of the build, listed again below, and A Human can veto any of them:
+
+- Claude Code through a new driver over `claude -p` in its streaming mode. Replaced by A Human's ruling above.
+- A setting, Terminal or Chat, that new desks follow and the hire dialog can override. Built as written. The optional default for each tool is not built.
+- One chat for every tool, with differences as capability flags only. Built as written, with five flags and not the four the issue names (TODO OB-201).
+- Antigravity stays in the terminal and shows why. Built as written. The build brief asked for more, and that was cut (TODO OB-184).
+- A hand-started session can be read in the chat and continued as a chat desk. Not built (TODO OB-182, OB-193 and OB-194).
+- A desk switches view at idle by ending and resuming its session. Not built. A Claude Code desk flips at any time because its terminal is always there, and every other desk keeps the view it was hired with (TODO OB-192).
+- Plans and to-dos, nested sub-agent threads, a model and effort switcher and attachments. Not built (TODO OB-183 and OB-189 to OB-191).
+- Streaming on every desk. Claude Code's replies appear message by message, which follows from A Human's ruling (TODO OB-198).
+
+Calls the build made while A Human was away. The build brief set out most of the design without marking it as A Human's, so it is listed here and not above. Each stands until A Human says otherwise, and A Human can veto any of them.
+
+From the build brief:
+
+- The setting is in Settings, in an Agents group, as View with Terminal or Chat. Terminal is the default. The hire dialog's switch starts at the setting and can change it for one hire. The view is fixed at hire.
+- One chat for every tool, split into components, with differences expressed only as capability flags.
+- The first version holds Markdown with code blocks and raw HTML off, tool cards that fold with the command, the output and file changes drawn as diffs, inline approvals, plans and to-dos where the tool shares them, folded thinking, a message box with waiting messages, and Stop.
+- A Claude Code desk can flip between chat and terminal at any time, because its terminal is always there.
+- Hand-started Claude Code sessions were to get the same view, read-only.
+- Antigravity was to be included through its `agy acp` server on the existing Agent Client Protocol (ACP) driver, with the greyed-out reason kept for tools that cannot do Chat.
+- The chat stays in the docked panel, which opens taller for a chat, at about 60% of the window and still resizable, in the existing dark palette.
+- Deferred: the model and effort switcher, images and attachments, nested sub-agent threads, live switching for tools other than Claude Code, a read-only chat for hand-started Codex sessions, and "Continue here".
+
+From the design, where it changed what the brief or the issue assumed. These nine are the ones most worth A Human's eye:
+
+- Antigravity's chat is not built, although the brief said to include it. The server exists, but nobody could run it in an unattended build to see whether its model and thinking-level pickers work with the existing driver. Chat is greyed out for Antigravity with the reason. It needs a live probe with A Human present (TODO OB-184).
+- The read-only chat for hand-started Claude Code sessions is not built, although the brief said to include it. It was cut for size. The backend can already serve it, and what is missing is a way to open it (TODO OB-182).
+- Plans and to-dos have no cards of their own, although the brief's first version lists them. Cut for size (TODO OB-183).
+- Every tool now queues a message sent while a turn runs. Before this change Codex took such a message into the running turn, so steering a Codex turn from the panel is gone (TODO OB-188).
+- A message A Human sends from the chat replaces the manager's waiting notes for that desk and is typed ahead of any later one. This follows OB-152, where A Human's message wins over a waiting note.
+- Stop is refused while a permission prompt is open. In a Claude Code terminal Stop is one Escape key press, and Escape on a prompt declines the action, which would be answering for A Human.
+- After A Human's Stop a Claude Code desk counts as idle for A Human's own messages once Claude Code's own files say so, because Claude Code's Stop hook does not fire on an interrupt. Manager notes keep the stricter rule.
+- Links cannot be opened from a chat, and images are never loaded. Both show as text with their addresses (TODO OB-185 and OB-190).
+- Two dependencies were added, pinned exactly: `react-markdown` 10.1.0 and `remark-gfm` 4.0.1.
+
+From the design, beyond the brief:
+
+- The app calls keep their `structured_*` names and now serve Claude Code chat desks too (TODO OB-200).
+- A Human's messages have a queue of their own beside the manager's, served first and kept in memory only (TODO OB-195). The manager's files cannot name it.
+- A message is cleaned as a manager's note is, and is capped at 16,000 characters. It is never typed while a prompt is open, while the terminal holds an unsent line or while the desk is busy. A Human's own recent typing does not hold A Human's own message.
+- A message from the chat is not stored as a message between agents and is not walked across the floor. The transcript shows it.
+- Stop interrupts a turn and never ends a session. On a Claude Code terminal it is sent at most once in 2 seconds, and not within 2 seconds of A Human typing there, because two Escapes close together clear a draft or open Claude Code's rewind menu.
+- The transcript's path is never taken from the webview or a hook. It is found from the session id, must be a regular file under Claude Code's own projects folder and is opened without following a link.
+- The caps are the last 8 mebibytes of a transcript and 1,000 entries in the reader, 2 mebibytes a line, 300 entries and 600,000 characters a backlog, 400 entries in the panel, and 40,000 characters of text, 20,000 of output and 20 diffs of 20,000 characters an entry (TODO OB-197).
+- Sub-agent records in a transcript are skipped (TODO OB-191).
+- A diff is the removed lines followed by the added lines, with no syntax colouring (TODO OB-199).
+- Only an agent's message is drawn as Markdown, from a fixed list of elements. A user's message, a thought, a notice, a tool's title, its command, its output and its diffs are plain text.
+- A desk the manager hires opens in the terminal view (TODO OB-202). A Claude Code session resumed from the sign-out sheet follows the setting.
+- Which face a panel shows is the panel's own state, remembered per session while the app runs and not across a restart (TODO OB-196). A chat remembers its own height, apart from the terminal's.
+- The first message to a Claude Code chat desk hired with no task waits until Claude Code reports that it is idle, which can take about a minute (TODO OB-187).
+- A hire that asks for Chat from a tool with no chat view is refused with the reason and starts nothing.
+
+From the review, after the design:
+
+- The message box ignores a second Enter or click while a send is under way, and a refused send keeps the text.
+- A desk A Human stopped counts as idle when the building decides whether its last message was picked up, so one Stop lets one waiting message through and not two (TODO OB-205).
+- Opening another desk no longer makes the app's main thread wait, and each switch carries a number so that an older one cannot undo a newer one (TODO OB-206).
+- A tool that waits on an approval reads "Waiting" on its card.
+- The Chat and Terminal switch takes the look of the "Open in" button, with no new colour.
+
+This is a follow-up to OB-040 and amends one line of it, and that amendment is A Human's own. OB-040 ruled "terminal by default, plus a structured protocol where the harness has an official one". Claude Code now has a chat with no structured protocol, drawn from its terminal session. The rest of OB-040 stands. The building runs each tool's own unmodified CLI, never an agent loop of its own, and touches no login token. The issue raised two risks for a headless Claude Code driver, Anthropic's policy on third-party products and the usage limits. No such driver is built. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) is not amended. Stop interrupts a turn at A Human's click and ends nothing, and the manager cannot reach it. The build changed two things in OB-152 by its own call. The delivery path has a second queue, A Human's own, and the source test that guards the manager's files forbids four more names. Built as TODO OB-179, with the checks for A Human in HUMAN_TODO OB-180 and the deferrals in TODO OB-182 to OB-207.
 
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 

@@ -226,6 +226,80 @@ here.
       14. If hiring says the app's data folder path is too long for a socket,
           note the message. It can happen with a long user name.
 
+- [ ] OB-180 — Check the chat view (TODO OB-179) in the installed app
+      (`pnpm app:install`). No agent may start a real session or drive
+      the Tauri window, so none of this has run against the real tools.
+      Every chat desk is a real session on your plan, so pick a cheap
+      model in the hire dialog. Use a repo where a few test edits do no
+      harm.
+      1. Open Settings with Cmd+,. There is an Agents group with View, set to
+         Terminal. Switch it to Chat, quit the app and open it again. It still
+         says Chat.
+      2. Open the hire dialog. The "Chat view" switch is on, because it starts
+         at the setting, and switching it off applies to that one hire. Pick
+         Antigravity. The switch is greyed out and says "Chat is not
+         available: chat for Antigravity is not built yet, so it runs in the
+         terminal."
+      3. Hire Codex with "Chat view" on and a task that edits a file. The
+         panel opens as a chat with no terminal. The reply streams, a tool
+         call is a card that folds, the edit is drawn as a diff with removed
+         lines in red and added lines in green, and an approval can be
+         answered in the chat. Send a message while the turn runs. It waits
+         above the box and goes out when the turn ends. Press "Stop turn"
+         during a turn. The turn stops and the desk stays. Do the same with
+         opencode or Cursor if you use them.
+      4. Hire Claude Code with "Chat view" on and a task that edits a file.
+         The panel opens as a chat at about 60% of the floor's height. Replies
+         appear message by message, not word by word, and an Edit shows as a
+         diff. Note how far the chat lags behind the terminal, and say whether
+         that is acceptable (TODO OB-198).
+      5. When that desk is idle, send it a message from the box. Flip to
+         Terminal. The message was typed once and sent once. Then send a
+         harmless slash command, such as `/help`, and note what Claude Code
+         does with it (TODO OB-203).
+      6. While the desk is busy, send two messages, and press Enter twice on
+         the second. Two messages wait, not three, each with "Waiting: it is
+         busy." Withdraw one. The other is typed once when the turn ends.
+      7. Type half a line in the desk's terminal and leave it. Flip to Chat
+         and send a message. It waits and says the terminal holds something
+         you typed, until you press Enter or Ctrl-C there.
+      8. During a turn, press "Stop turn". Claude Code stops the turn, as if
+         you had pressed Escape once, and the session stays. Press it twice
+         quickly on another turn. Nothing else happens: no rewind menu opens
+         and no draft is cleared. Then send a message. It goes through, though
+         it may wait up to about a minute (TODO OB-187).
+      9. Put the desk at a permission prompt. The chat shows a card, "Claude
+         Code is waiting for your answer", with one button, "Answer in the
+         terminal". The button flips the panel and answers nothing. Back in
+         the chat, "Stop turn" is refused and says why, and a message you send
+         waits until you have answered the prompt.
+      10. Flip between Chat and Terminal several times during a turn, with a
+          message waiting. Both show the same session, and the waiting message
+          is still there and is sent once.
+      11. Hire Claude Code with "Chat view" on and no task, and send a message
+          at once. Note how long it waits before it is typed (TODO OB-187).
+      12. Drag the chat's top edge. Close the panel and open a terminal desk.
+          The terminal has kept its own height, and the chat opens at the
+          height you chose. At the smallest window size the floor's head is
+          still reachable.
+      13. Open the chat of a Claude Code desk with a long history. The top
+          says "Earlier messages are not shown here.", scrolling stays smooth,
+          and a long output is folded behind a "Show all" button.
+      14. Ask an agent to reply with a Markdown link, an image and a line of
+          raw HTML. The link and the image show as text with their addresses,
+          nothing can be clicked, nothing is loaded and the HTML is not drawn.
+      15. On a floor with a manager, let a manager's note wait for a busy desk
+          and then send that desk a message yourself. The note is replaced,
+          and your message is the one typed.
+      16. With a message waiting, type `/exit` in the desk's terminal. The
+          desk leaves and the message goes with it, without a word (TODO
+          OB-195).
+      17. A question for you, not a check. The build brief said to include
+          Antigravity's chat through `agy acp`, and the build cut it, because
+          nobody could run it unattended. Say whether the cut stands. If you
+          want it built, it needs one live probe of `agy acp` with you present
+          (TODO OB-184).
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`

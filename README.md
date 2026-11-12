@@ -156,14 +156,33 @@ sessions as an **office building**:
 - **Exact desk states from hooks.** Agents the app starts (Claude Code, and Codex
   once its hooks are trusted) report each hook event to the building, so a
   permission prompt shows as a raised hand straight away.
-- **Desks without a terminal.** Hiring Codex, opencode or Cursor can tick
-  "Without a terminal". The building then talks to the agent over its own
-  protocol (Codex's app-server, the Agent Client Protocol for opencode and
-  Cursor), and clicking the desk opens a conversation panel: the transcript,
-  tool calls, approvals to allow or decline (with fields to fill in when the
-  agent asks a question or an MCP server asks for a form), and a box for the
-  next message. An ended one waits on the sign-out sheet, and Resume reopens its
-  conversation on the same desk.
+- **A chat view for desks.** A desk's panel can open as a chat in place of a
+  terminal. Settings has an Agents group with View, Terminal or Chat, and
+  Terminal is the default. The hire dialog's "Chat view" switch starts at that
+  setting and can be changed for one hire. Codex, opencode and Cursor then run
+  without a terminal, and the building talks to the agent over its own protocol
+  (Codex's app-server, the Agent Client Protocol for opencode and Cursor). A
+  Claude Code chat desk is an ordinary Claude Code session in one of the app's
+  terminals. Its chat is drawn from the session's transcript and the hook feed,
+  so replies appear message by message, and a switch in the panel's head flips
+  between Chat and Terminal at any time. Antigravity stays in the terminal for
+  now, and its switch is greyed out with the reason. The chat is the same for
+  every tool: an agent's messages as Markdown with code blocks, tool calls as
+  cards that fold, with the command, the output and file changes drawn as
+  diffs, thinking folded away, and approvals to allow or decline where the tool
+  has them (with fields to fill in when the agent asks a question or an MCP
+  server asks for a form). A Claude Code permission prompt shows as a card
+  whose one button flips to the terminal, where you answer it. A message you
+  send is typed into a Claude Code terminal, or sent as the next turn, only
+  when the desk is idle. Until then it waits above the box with the reason and
+  a Withdraw button. "Stop turn" interrupts the turn that is running and never
+  ends the agent. Everything in a chat comes from an agent, so raw HTML is not
+  drawn, links and images show as text with their addresses and nothing in it
+  can be clicked or loaded. A chat opens at 60% of the floor's height and keeps
+  the height you drag it to. It shows the recent part of a long conversation,
+  and the terminal has the rest. An ended desk without a terminal waits on the
+  sign-out sheet, and Resume reopens its conversation on the same desk.
+  Markdown is drawn with `react-markdown` and `remark-gfm`.
 - **Usage signs** stand beside the building, one per installed tool, with its
   limit windows (5-hour session, week), the time the tool last measured them
   and a Re-check button. Re-check has Claude Code fetch its usage again
@@ -204,18 +223,19 @@ sessions as an **office building**:
   fuse box beside the toolbox on the Setup floor. Each event and each method
   has its own switch, the cooldown runs from 0 to 600 seconds, and "Test in 3
   seconds" sends a test alert. The Editor group picks the default editor for
-  "Open in". A change saves at once. Settings are kept in `settings.json` in
-  the app's data folder. The Connectors group holds the agent label and the
-  Linear key, which has its own Save button and is kept in the Keychain, not
-  in `settings.json`. The Quality assurance group sets how often GitHub is
-  asked (every 5 minutes unless you change it), whether every push is
-  reviewed or only a pull request's first commit, whether drafts are
-  skipped, whether a review with nothing to report is still posted, how
-  many reviews run at once, how many one pull request gets in a day, and
-  the reviewer's model and effort. The Manager group sets a manager's model
-  and effort, which apply to the next one you hire, how many desks a manager
-  may hire at once (3 unless you change it) and the spend ceiling for the
-  desks it hired (20 US dollars unless you change it).
+  "Open in". The Agents group picks the view new desks open in, Terminal or
+  Chat. A change saves at once. Settings are kept in `settings.json` in the
+  app's data folder. The Connectors group holds the agent label and the Linear
+  key, which has its own Save button and is kept in the Keychain, not in
+  `settings.json`. The Quality assurance group sets how often GitHub is asked
+  (every 5 minutes unless you change it), whether every push is reviewed or
+  only a pull request's first commit, whether drafts are skipped, whether a
+  review with nothing to report is still posted, how many reviews run at once,
+  how many one pull request gets in a day, and the reviewer's model and effort.
+  The Manager group sets a manager's model and effort, which apply to the next
+  one you hire, how many desks a manager may hire at once (3 unless you change
+  it) and the spend ceiling for the desks it hired (20 US dollars unless you
+  change it).
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -268,9 +288,12 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   what the same work would cost through the API, not what a subscription bills.
 - **Not yet:** answering a terminal agent's own question from the Decisions
   panel (answer it in the agent's terminal instead), and the app's own MCP
-  server for assistant agents. See `TODO.md`. Calls from a repo's decision
-  files, and approvals on desks without a terminal, are already answered in
-  the app.
+  server for assistant agents. In the chat view: Antigravity, a read-only chat
+  for sessions you started by hand, opening a link, images and attachments, a
+  model and effort switcher, plans as cards, sub-agent threads, paging in older
+  messages and word-by-word replies from Claude Code. See `TODO.md`. Calls from
+  a repo's decision files, and approvals on Codex, opencode and Cursor chat
+  desks, are already answered in the app.
 
 The backend is our own. CCC (claude-command-center) moved to a non-commercial,
 source-available licence on 2026-07-28, so we port logic only from its last MIT
@@ -357,37 +380,38 @@ src/
   assets/cast/            # the cut-out parts, one folder per character, plus pets
   components/
     building/             # the cutaway: storeys, lobby, roof, directory bar
-    floor/                # the room, its objects, rail, sidebar panels, terminal, hire dialog
-    settings/             # the Settings plate and its Notifications, Editor, Connectors, Quality assurance and Manager groups
+    floor/                # the room, its objects, rail, sidebar panels, terminal, the chat panel, hire dialog
+    settings/             # the Settings plate and its Notifications, Editor, Connectors, Quality assurance, Manager and Agents groups
     editor/               # the "Open in" button and its menu
     connectors/           # the Info panel's Linear row and its connect form
     qa/                   # the Info panel's Quality assurance row and the QA stamp
     manager/              # the Manager panel: hire, pause, the plan, waiting notes and the log
+    chat/                 # the chat view's parts: Markdown, tool cards, diffs, the approval card and the message box
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
 src-tauri/
   src/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
-    discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly
+    discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly, a Claude Code transcript read as a conversation
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, and handing notes to desks
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, and the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation)
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
-    settings.rs           # the app's settings (settings.json in the app data dir)
+    settings.rs, settings/ # the app's settings (settings.json in the app data dir)
     alerts.rs, alerts/    # alerts when an agent stops: state tracker, text, native delivery
     editor.rs             # the editors "Open in" knows: which are installed, how each is opened
     process.rs            # running other programs from an argument vector, with a fake for tests
     connectors/           # outside tools a floor's TODOs come from: the Connector trait, Linear, the hub that caches each floor's list
     qa/                   # the QA desk: the pull request watch, the gh and git calls, the reviewer's brief, its findings, the review that is posted
     manager/              # a floor's manager: its socket, tokens, the MCP server it talks to, the helper mode and the tool list
-    delivery/             # notes for desks: cleaning the text, deciding whether a desk can take one, the queue
+    delivery/             # notes and messages for desks: cleaning the text, deciding whether a desk can take one, the queue
     secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
     http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
     poll.rs               # a background job on a timer that backs off, waits when told to and can be woken
     options.rs, options/  # hireable tools, models and per-model efforts, tools' own model lists
     setup/                # the Setup floor's library, each tool's inventory, import, injection
-    structured/           # desks without a terminal: Codex app-server and ACP clients
+    structured/           # the conversation model every chat uses, and desks without a terminal: Codex app-server and ACP clients
     feed.rs               # the hook status feed from agents the app launches
     tools.rs              # which agent CLIs are installed
     usage.rs              # each tool's usage-limit windows
