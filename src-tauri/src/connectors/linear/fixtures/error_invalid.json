@@ -1,0 +1,11 @@
+{
+  "errors": [
+    {
+      "message": "Argument Validation Error",
+      "extensions": {
+        "type": "invalid input",
+        "userPresentableMessage": "Team\n  not found."
+      }
+    }
+  ]
+}

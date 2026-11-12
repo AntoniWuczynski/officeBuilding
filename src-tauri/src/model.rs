@@ -228,8 +228,129 @@ pub struct TodoItem {
     pub text: String,
     pub done: bool,
     pub assignee: Party,
-    /// The repo file the item lives in; None for the app's own records.
-    pub source_file: Option<String>,
+    /// Where the item lives. A store written before this field existed has none: the app's own.
+    #[serde(default)]
+    pub source: TodoSource,
+}
+
+/// Where a TODO item lives (`TodoSource` in types.ts).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum TodoSource {
+    /// The app's own records.
+    #[default]
+    App,
+    /// A checklist line in one of the repo's own files.
+    File { file: String },
+    /// An issue in Linear.
+    Linear { identifier: String, url: String },
+}
+
+/// An outside tool a floor's TODOs can come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConnectorKind {
+    Linear,
+}
+
+impl ConnectorKind {
+    pub const ALL: [Self; 1] = [Self::Linear];
+
+    /// The middle segment of its items' ids.
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Linear => "linear",
+        }
+    }
+
+    /// Its name in a sentence.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Linear => "Linear",
+        }
+    }
+}
+
+/// A project in Linear (not a floor).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinearProject {
+    pub id: String,
+    pub name: String,
+}
+
+/// What feeds a floor from a connector. One variant per connector, and a floor holds at
+/// most one link of each kind.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum Link {
+    Linear {
+        team_id: String,
+        /// "ENG": shown, never sent to Linear.
+        team_key: String,
+        team_name: String,
+        /// Only issues in this Linear project. None: any project.
+        project: Option<LinearProject>,
+        /// Only issues carrying this label. None: any label.
+        label: Option<String>,
+    },
+}
+
+impl Link {
+    #[must_use]
+    pub const fn kind(&self) -> ConnectorKind {
+        match self {
+            Self::Linear { .. } => ConnectorKind::Linear,
+        }
+    }
+}
+
+/// A floor's link and how its last check went (`Connection` in types.ts).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Connection {
+    pub project_id: String,
+    pub link: Link,
+    /// When its items were last fetched (ISO 8601). None until a check has worked.
+    pub fetched_at: Option<String>,
+    /// Why the last check failed, in words. None when it worked, or none has run yet.
+    pub error: Option<String>,
+    /// It cannot be checked until a key is saved, or allowed, in Settings.
+    pub needs_key: bool,
+    /// More issues match than are shown.
+    pub truncated: bool,
+}
+
+/// What the building knows about the Linear key. Never the key itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum LinearKeyStatus {
+    /// No key is saved.
+    Missing,
+    /// A key is in the Keychain. `account`: whose it is, when Linear has said so this launch.
+    Saved { account: Option<String> },
+    /// Linear refused the saved key.
+    Rejected,
+    /// The Keychain would not hand the key over.
+    Unavailable { reason: String },
+}
+
+/// A Linear team with its open projects, for the connect form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LinearTeam {
+    pub id: String,
+    pub key: String,
+    pub name: String,
+    pub projects: Vec<LinearProject>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -257,6 +378,8 @@ pub struct OfficeSnapshot {
     pub setup_project_id: String,
     /// Plain shells the human opened, listed in each floor's manager's office.
     pub shells: Vec<Shell>,
+    /// Each standing floor's links to connectors, with how the last check went.
+    pub connections: Vec<Connection>,
 }
 
 /// A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk.
@@ -396,4 +519,96 @@ pub struct TerminalBacklog {
     pub exit_code: Option<u32>,
     pub cols: u16,
     pub rows: u16,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn value<T: Serialize>(v: &T) -> serde_json::Value {
+        serde_json::to_value(v).expect("value")
+    }
+
+    #[test]
+    fn todo_sources_match_the_wire_json_and_read_back() {
+        let cases = [
+            (TodoSource::App, json!({ "kind": "app" })),
+            (
+                TodoSource::File {
+                    file: "TODO.md".into(),
+                },
+                json!({ "kind": "file", "file": "TODO.md" }),
+            ),
+            (
+                TodoSource::Linear {
+                    identifier: "ENG-101".into(),
+                    url: "https://linear.app/example/issue/ENG-101/x".into(),
+                },
+                json!({ "kind": "linear", "identifier": "ENG-101",
+                        "url": "https://linear.app/example/issue/ENG-101/x" }),
+            ),
+        ];
+        for (source, want) in cases {
+            assert_eq!(value(&source), want);
+            assert_eq!(
+                serde_json::from_value::<TodoSource>(want).expect("read"),
+                source
+            );
+        }
+    }
+
+    #[test]
+    fn a_link_matches_the_wire_json_and_names_its_kind() {
+        let link = Link::Linear {
+            team_id: "t1".into(),
+            team_key: "ENG".into(),
+            team_name: "Engineering".into(),
+            project: Some(LinearProject {
+                id: "pr1".into(),
+                name: "Checkout".into(),
+            }),
+            label: None,
+        };
+        let want = json!({ "kind": "linear", "teamId": "t1", "teamKey": "ENG",
+            "teamName": "Engineering", "project": { "id": "pr1", "name": "Checkout" },
+            "label": null });
+        assert_eq!(value(&link), want);
+        assert_eq!(serde_json::from_value::<Link>(want).expect("read"), link);
+        assert_eq!(link.kind(), ConnectorKind::Linear);
+    }
+
+    #[test]
+    fn a_connector_kind_has_an_id_and_a_label() {
+        assert_eq!(value(&ConnectorKind::Linear), json!("linear"));
+        assert_eq!(ConnectorKind::Linear.id(), "linear");
+        assert_eq!(ConnectorKind::Linear.label(), "Linear");
+    }
+
+    #[test]
+    fn key_statuses_match_the_wire_json() {
+        assert_eq!(
+            value(&LinearKeyStatus::Missing),
+            json!({ "kind": "missing" })
+        );
+        assert_eq!(
+            value(&LinearKeyStatus::Saved { account: None }),
+            json!({ "kind": "saved", "account": null })
+        );
+        assert_eq!(
+            value(&LinearKeyStatus::Rejected),
+            json!({ "kind": "rejected" })
+        );
+        assert_eq!(
+            value(&LinearKeyStatus::Unavailable {
+                reason: "locked".into()
+            }),
+            json!({ "kind": "unavailable", "reason": "locked" })
+        );
+    }
+
+    #[test]
+    fn a_default_snapshot_has_no_connections() {
+        assert_eq!(value(&OfficeSnapshot::default())["connections"], json!([]));
+    }
 }

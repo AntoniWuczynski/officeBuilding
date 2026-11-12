@@ -2,7 +2,7 @@
 //! owns sessions and questions; this owns what only the office knows. Saved as
 //! one JSON file in the app's data directory.
 
-use crate::model::{AgentMessage, Decision, TodoItem};
+use crate::model::{AgentMessage, Decision, Link, TodoItem};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -27,6 +27,9 @@ pub struct Records {
     /// before then stays hidden, and a session started there since brings them back.
     #[serde(default)]
     pub demolished_floors: BTreeMap<String, String>,
+    /// What feeds each floor from outside (absolute repo roots, like `pinned_floors`).
+    #[serde(default)]
+    pub connectors: BTreeMap<String, Vec<Link>>,
     #[serde(default)]
     pub seq: u64,
 }
@@ -86,6 +89,7 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), Str
 mod tests {
     use super::*;
     use crate::model::Party;
+    use crate::model::TodoSource;
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir()
@@ -105,7 +109,7 @@ mod tests {
             text: "x".into(),
             done: false,
             assignee: Party::Human,
-            source_file: None,
+            source: TodoSource::App,
         });
         for i in 0..25 {
             store.push_message(AgentMessage {
@@ -130,6 +134,47 @@ mod tests {
         fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
         fs::write(&path, "{not json").expect("write");
         assert!(Store::open(path.clone()).is_err());
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn an_old_store_loads_and_saves_back_equal() {
+        let path = temp_path("old");
+        fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+        fs::write(
+            &path,
+            r#"{"todos":[{"id":"t-1","projectId":"p","text":"x","done":false,"assignee":"human","sourceFile":null}],"pinnedFloors":[],"seq":1}"#,
+        )
+        .expect("write");
+        let store = Store::open(path.clone()).expect("open");
+        assert_eq!(store.records.todos[0].source, TodoSource::App);
+        assert!(store.records.connectors.is_empty());
+        store.save().expect("save");
+        assert_eq!(
+            Store::open(path.clone()).expect("reopen").records,
+            store.records
+        );
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn links_round_trip_through_a_save() {
+        let path = temp_path("links");
+        let mut store = Store::open(path.clone()).expect("open");
+        let link = Link::Linear {
+            team_id: "t".into(),
+            team_key: "ENG".into(),
+            team_name: "Engineering".into(),
+            project: None,
+            label: Some("bug".into()),
+        };
+        store
+            .records
+            .connectors
+            .insert("/r".into(), vec![link.clone()]);
+        store.save().expect("save");
+        let again = Store::open(path.clone()).expect("reopen");
+        assert_eq!(again.records.connectors["/r"], vec![link]);
         fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
     }
 }

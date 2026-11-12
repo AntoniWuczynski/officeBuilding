@@ -1,13 +1,14 @@
 //! The office: live discovery plus the app's own records, behind one lock.
 //! Every Tauri command goes through here, so there is one source of truth.
 
+use crate::connectors::hub::Hub;
 use crate::discovery::{self, Discovered, Discovery};
 use crate::feed::Feed;
 use crate::focus;
 use crate::model::{
     AgentMessage, AnswerVia, ControlMode, EndedSession, HireFailed, HireRequest, OfficeSnapshot,
-    Party, Project, QuestionAnswer, Session, SessionState, Shell, Spend, TerminalBacklog,
-    TerminalExit, TodoItem, ToolKind, ToolOptions,
+    Project, QuestionAnswer, Session, SessionState, Shell, Spend, TerminalBacklog, TerminalExit,
+    ToolKind, ToolOptions,
 };
 use crate::options;
 use crate::project_files::{self, ProjectFiles};
@@ -57,6 +58,8 @@ pub struct Office {
     structured: Arc<Desks>,
     /// The setup floor's project id: the library folder is its floor.
     setup_project_id: String,
+    /// The connectors' cache of each linked floor's items.
+    connectors: Arc<Hub>,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -312,6 +315,7 @@ impl Office {
                 shells: BTreeMap::new(),
             }),
             terminals,
+            connectors: Arc::new(Hub::new(Vec::new(), Box::new(|| {}))),
         }
     }
 
@@ -394,24 +398,6 @@ impl Office {
         changed
     }
 
-    /// A floor's TODOs for one assignee: its file when it has one, else the app's store.
-    fn todos_for(inner: &Inner, project_id: &str, assignee: Party) -> Vec<TodoItem> {
-        let from_file = inner.files.get(project_id).and_then(|f| match assignee {
-            Party::Human => f.human_todos.clone(),
-            Party::Ai => f.agent_todos.clone(),
-        });
-        from_file.unwrap_or_else(|| {
-            inner
-                .store
-                .records
-                .todos
-                .iter()
-                .filter(|t| t.project_id == project_id && t.assignee == assignee)
-                .cloned()
-                .collect()
-        })
-    }
-
     pub fn snapshot(&self) -> OfficeSnapshot {
         let inner = self.lock();
         let r = &inner.store.records;
@@ -424,16 +410,7 @@ impl Office {
                 .values()
                 .flat_map(|f| f.decided.iter().flatten().cloned()),
         );
-        let todos = inner
-            .found
-            .projects
-            .iter()
-            .flat_map(|p| {
-                let mut all = Self::todos_for(&inner, &p.id, Party::Human);
-                all.extend(Self::todos_for(&inner, &p.id, Party::Ai));
-                all
-            })
-            .collect();
+        let todos = self.all_todos(&inner);
         let (projects, sessions, ended) = with_structured(&inner.found, &self.structured);
         OfficeSnapshot {
             projects,
@@ -445,6 +422,7 @@ impl Office {
             messages: r.messages.clone(),
             setup_project_id: self.setup_project_id.clone(),
             shells: inner.shells.values().cloned().collect(),
+            connections: self.connections(&inner),
         }
     }
 
@@ -736,47 +714,6 @@ impl Office {
         Ok(())
     }
 
-    pub fn tick_todo(&self, todo_id: &str) -> Result<(), String> {
-        let from_file = {
-            let inner = self.lock();
-            inner
-                .files
-                .values()
-                .flat_map(|f| f.human_todos.iter().chain(f.agent_todos.iter()).flatten())
-                .find(|t| t.id == todo_id)
-                .map(|t| {
-                    (
-                        t.project_id.clone(),
-                        project_files::parse_item_id(todo_id)
-                            .map(|(file, line)| (file.to_string(), line)),
-                    )
-                })
-        };
-        if let Some((project_id, location)) = from_file {
-            let (file, line) = location.ok_or("malformed todo id")?;
-            let root = self
-                .lock()
-                .found
-                .roots
-                .get(&project_id)
-                .cloned()
-                .ok_or("that floor is no longer in the building")?;
-            project_files::tick(&root, &file, line)?;
-            self.refresh();
-            return Ok(());
-        }
-        let mut inner = self.lock();
-        let todo = inner
-            .store
-            .records
-            .todos
-            .iter_mut()
-            .find(|t| t.id == todo_id)
-            .ok_or_else(|| format!("unknown todo: {todo_id}"))?;
-        todo.done = true;
-        inner.store.save()
-    }
-
     /// Record a note between two agents (delivery into the recipient arrives with the MCP work).
     pub fn send_agent_message(&self, from: &str, to: &str, text: &str) -> Result<(), String> {
         let mut inner = self.lock();
@@ -960,12 +897,14 @@ fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
     }
 }
 
+mod connectors;
 mod desk_states;
 mod folders;
 mod launch;
 mod setup;
 mod shells;
 mod structured_desks;
+mod todos;
 use structured_desks::with_structured;
 #[cfg(test)]
 mod tests;

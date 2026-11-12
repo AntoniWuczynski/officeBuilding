@@ -3,16 +3,20 @@
 
 pub mod alerts;
 pub mod commands;
+pub mod connectors;
 pub mod discovery;
 pub mod editor;
 pub mod feed;
 pub mod focus;
+pub mod http;
 pub mod model;
 pub mod office;
 pub mod options;
+pub mod poll;
 pub mod process;
 pub mod project_files;
 pub mod pty;
+pub mod secrets;
 pub mod settings;
 pub mod setup;
 pub mod store;
@@ -23,11 +27,13 @@ pub mod usage;
 pub mod watch;
 
 use alerts::Alerts;
+use connectors::{Connector, hub::Hub, linear::Linear};
 use office::Office;
 use pty::{TerminalEvent, Terminals};
 use settings::SettingsStore;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use store::Store;
 use tauri::{Emitter, Manager};
 
@@ -38,6 +44,23 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let store = Store::open(data.join("store.json"))?;
     let settings = Arc::new(SettingsStore::open(data.join("settings.json")));
     let alerts = Arc::new(Alerts::new(Arc::clone(&settings)));
+    let http: Arc<dyn http::HttpClient> = Arc::new(http::UreqClient::new(Duration::from_secs(15)));
+    let keychain: Arc<dyn secrets::SecretStore> =
+        Arc::new(secrets::Keychain::new(app.config().identifier.clone()));
+    let linear = Arc::new(Linear::new(http, keychain, Arc::clone(&settings)));
+    let linear_connector: Arc<dyn Connector> = linear.clone();
+    let hub_handle = app.handle().clone();
+    let hub = Arc::new(Hub::new(
+        vec![linear_connector],
+        Box::new(move || {
+            // A closed webview just means nobody is listening right now.
+            if let Some(office) = hub_handle.try_state::<Arc<Office>>() {
+                let _ = hub_handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
+            }
+        }),
+    ));
+    app.manage(Arc::clone(&hub));
+    app.manage(linear);
     app.manage(settings);
     app.manage(Arc::new(editor::Editors::new(
         Arc::new(process::SystemRunner),
@@ -83,18 +106,15 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }));
-    let office = Arc::new(Office::new(
-        home.clone(),
-        store,
-        terminals,
-        setup,
-        feed,
-        structured,
-    ));
+    let office = Arc::new(
+        Office::new(home.clone(), store, terminals, setup, feed, structured)
+            .with_connectors(Arc::clone(&hub)),
+    );
     office.refresh();
     office.ensure_setup_floor()?;
     watch::start_setup(app.handle().clone(), watched_setup)?;
     app.manage(office.clone());
+    let polled = Arc::clone(&office);
     watch::start(
         app.handle().clone(),
         office,
@@ -107,6 +127,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             feed_dir,
         ],
     )?;
+    connectors::hub::start(&hub, move || polled.linked_floors())?;
     Ok(())
 }
 
@@ -158,6 +179,13 @@ pub fn run() -> tauri::Result<()> {
             commands::test_alert,
             commands::editors,
             commands::open_in_editor,
+            commands::linear_key_status,
+            commands::set_linear_key,
+            commands::linear_teams,
+            commands::connect_floor,
+            commands::disconnect_floor,
+            commands::recheck_connectors,
+            commands::open_todo_link,
         ])
         .run(tauri::generate_context!())
 }

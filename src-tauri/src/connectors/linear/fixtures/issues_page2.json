@@ -1,0 +1,17 @@
+{
+  "data": {
+    "issues": {
+      "nodes": [
+        {
+          "id": "0b0e0c1a-0000-4000-8000-000000000106",
+          "identifier": "ENG-106",
+          "title": "Rotate the tile API key",
+          "url": "https://linear.app/example/issue/ENG-106/rotate-the-tile-api-key",
+          "assignee": null,
+          "labels": { "nodes": [] }
+        }
+      ],
+      "pageInfo": { "hasNextPage": false, "endCursor": "cursor-page-2" }
+    }
+  }
+}

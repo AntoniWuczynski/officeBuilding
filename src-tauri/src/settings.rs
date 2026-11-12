@@ -10,6 +10,17 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub const COOLDOWN_MAX_SECS: u32 = 600;
+pub const AGENT_LABEL_MAX: usize = 80;
+const DEFAULT_AGENT_LABEL: &str = "agent";
+
+/// `raw` trimmed, if it is 1 to `AGENT_LABEL_MAX` characters.
+#[must_use]
+pub fn agent_label(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    (1..=AGENT_LABEL_MAX)
+        .contains(&raw.chars().count())
+        .then(|| raw.to_string())
+}
 
 /// Everything in Settings. One field per group; a missing group or field loads as its default.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,6 +28,7 @@ pub const COOLDOWN_MAX_SECS: u32 = 600;
 pub struct Settings {
     pub notifications: NotificationSettings,
     pub editor: EditorSettings,
+    pub connectors: ConnectorSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +71,21 @@ pub struct EditorSettings {
     pub preferred: Option<Editor>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ConnectorSettings {
+    /// Linear issues carrying this label go on the whiteboard (TODO), whoever holds them.
+    pub linear_agent_label: String,
+}
+
+impl Default for ConnectorSettings {
+    fn default() -> Self {
+        Self {
+            linear_agent_label: DEFAULT_AGENT_LABEL.to_string(),
+        }
+    }
+}
+
 /// A change from the Settings panel: each group present replaces that group whole.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -67,6 +94,8 @@ pub struct SettingsPatch {
     pub notifications: Option<NotificationSettings>,
     #[serde(default)]
     pub editor: Option<EditorSettings>,
+    #[serde(default)]
+    pub connectors: Option<ConnectorSettings>,
 }
 
 impl Settings {
@@ -85,6 +114,13 @@ impl Settings {
         }
         if let Some(editor) = patch.editor {
             self.editor = editor;
+        }
+        if let Some(mut connectors) = patch.connectors {
+            connectors.linear_agent_label = agent_label(&connectors.linear_agent_label)
+                .ok_or_else(|| {
+                    format!("the agent label must be 1 to {AGENT_LABEL_MAX} characters")
+                })?;
+            self.connectors = connectors;
         }
         Ok(())
     }
@@ -112,6 +148,9 @@ impl SettingsStore {
         };
         settings.notifications.cooldown_secs =
             settings.notifications.cooldown_secs.min(COOLDOWN_MAX_SECS);
+        settings.connectors.linear_agent_label =
+            agent_label(&settings.connectors.linear_agent_label)
+                .unwrap_or_else(|| DEFAULT_AGENT_LABEL.to_string());
         Self {
             path,
             current: Mutex::new(settings),
@@ -289,7 +328,8 @@ mod tests {
         let want: serde_json::Value = serde_json::from_str(
             r#"{ "notifications": { "finished": true, "needsYou": true, "stuck": true,
             "sound": true, "dockBounce": true, "systemNotification": true,
-            "cooldownSecs": 10 }, "editor": { "preferred": null } }"#,
+            "cooldownSecs": 10 }, "editor": { "preferred": null },
+            "connectors": { "linearAgentLabel": "agent" } }"#,
         )
         .expect("json");
         assert_eq!(
@@ -341,5 +381,59 @@ mod tests {
         assert!(
             serde_json::from_str::<SettingsPatch>(r#"{"editor":{"preferred":"notepad"}}"#).is_err()
         );
+    }
+
+    fn label_patch(label: &str) -> SettingsPatch {
+        SettingsPatch {
+            connectors: Some(ConnectorSettings {
+                linear_agent_label: label.to_string(),
+            }),
+            ..SettingsPatch::default()
+        }
+    }
+
+    #[test]
+    fn a_file_without_the_connectors_group_loads_the_default_label() {
+        let path = with_file("no-connectors", r#"{"editor":{}}"#);
+        let got = SettingsStore::open(path.clone()).get();
+        assert_eq!(got.connectors.linear_agent_label, "agent");
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_label_is_trimmed_saved_and_reloaded() {
+        let path = temp_path("label");
+        let store = SettingsStore::open(path.clone());
+        let saved = store.update(label_patch("  robot  ")).expect("update");
+        assert_eq!(saved.connectors.linear_agent_label, "robot");
+        assert_eq!(SettingsStore::open(path.clone()).get(), saved);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn an_empty_or_overlong_label_is_refused_and_changes_nothing() {
+        let path = temp_path("label-refuse");
+        let store = SettingsStore::open(path.clone());
+        store.update(label_patch("robot")).expect("update");
+        let before = fs::read_to_string(&path).expect("file");
+        for bad in ["", "   ", &"x".repeat(81)] {
+            let err = store.update(label_patch(bad)).expect_err("refused");
+            assert_eq!(err, "the agent label must be 1 to 80 characters");
+        }
+        assert_eq!(store.get().connectors.linear_agent_label, "robot");
+        assert_eq!(fs::read_to_string(&path).expect("file"), before);
+        assert!(store.update(label_patch(&"x".repeat(80))).is_ok());
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_file_with_a_bad_label_loads_the_default() {
+        for label in ["", "  ", &"x".repeat(81)] {
+            let text = format!(r#"{{"connectors":{{"linearAgentLabel":"{label}"}}}}"#);
+            let path = with_file("label-bad", &text);
+            let got = SettingsStore::open(path.clone()).get();
+            assert_eq!(got.connectors.linear_agent_label, "agent");
+            cleanup(&path);
+        }
     }
 }

@@ -6,20 +6,28 @@
 )]
 
 use crate::alerts::Alerts;
+use crate::connectors::{self, hub::Hub, linear::Linear};
 use crate::editor::{Editor, EditorList, Editors};
 use crate::model::{
-    HireRequest, OfficeSnapshot, Place, Project, QuestionAnswer, Session, Shell, TerminalBacklog,
-    ToolKind, ToolOptions, ToolUsage,
+    ConnectorKind, HireRequest, LinearKeyStatus, LinearTeam, Link, OfficeSnapshot, Place, Project,
+    QuestionAnswer, Session, Shell, TerminalBacklog, ToolKind, ToolOptions, ToolUsage,
 };
 use crate::office::Office;
+use crate::process::{Runner, SystemRunner};
 use crate::settings::{Settings, SettingsPatch, SettingsStore};
 use crate::setup::{ItemKind, SetupView, Targets};
 use crate::structured::desks::Backlog;
 use crate::watch::SNAPSHOT_EVENT;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
 type OfficeState<'a> = State<'a, Arc<Office>>;
+type HubState<'a> = State<'a, Arc<Hub>>;
+type LinearState<'a> = State<'a, Arc<Linear>>;
+
+/// How long `open` has to hand a link to the browser.
+const OPEN_WAIT: Duration = Duration::from_secs(5);
 
 /// Push the snapshot after a change the command rescanned itself: the watcher
 /// only pushes what its own rescan finds changed, so it would never send this.
@@ -160,9 +168,21 @@ pub fn answer_question(
     office.answer_question(&question_id, &answer)
 }
 
+/// On a blocking thread: ticking a connector's item waits for its service to answer.
 #[tauri::command]
-pub fn tick_todo(office: OfficeState<'_>, todo_id: String) -> Result<(), String> {
-    office.tick_todo(&todo_id)
+pub async fn tick_todo(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    todo_id: String,
+) -> Result<(), String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || {
+        office.tick_todo(&todo_id)?;
+        push_snapshot(&app, &office);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("the tick did not finish: {e}"))?
 }
 
 #[tauri::command]
@@ -262,12 +282,19 @@ pub fn get_settings(settings: State<'_, Arc<SettingsStore>>) -> Settings {
     settings.get()
 }
 
+/// A changed agent label re-sorts the connectors' items, so it polls them again.
 #[tauri::command]
 pub fn update_settings(
     settings: State<'_, Arc<SettingsStore>>,
+    hub: HubState<'_>,
     patch: SettingsPatch,
 ) -> Result<Settings, String> {
-    settings.update(patch)
+    let connectors_changed = patch.connectors.is_some();
+    let updated = settings.update(patch)?;
+    if connectors_changed {
+        hub.wake();
+    }
+    Ok(updated)
 }
 
 /// The desk whose panel is open (None: none), so it does not alert while the window is focused.
@@ -310,4 +337,91 @@ pub async fn open_in_editor(
     tauri::async_runtime::spawn_blocking(move || editors.open(&folder, editor, preferred))
         .await
         .map_err(|e| format!("the editor did not open: {e}"))?
+}
+
+/// On a blocking thread: it may read the Keychain, which can wait on a system prompt.
+#[tauri::command]
+pub async fn linear_key_status(linear: LinearState<'_>) -> Result<LinearKeyStatus, String> {
+    let linear = Arc::clone(&linear);
+    tauri::async_runtime::spawn_blocking(move || linear.key_status())
+        .await
+        .map_err(|e| format!("the key's status could not be read: {e}"))
+}
+
+/// On a blocking thread: the key is checked with Linear, then written to the Keychain.
+/// The only command that ever receives the key. None removes the saved one.
+#[tauri::command]
+pub async fn set_linear_key(
+    hub: HubState<'_>,
+    linear: LinearState<'_>,
+    key: Option<String>,
+) -> Result<LinearKeyStatus, String> {
+    let (hub, linear) = (Arc::clone(&hub), Arc::clone(&linear));
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = linear.set_key(key)?;
+        hub.recheck();
+        Ok(status)
+    })
+    .await
+    .map_err(|e| format!("the key could not be saved: {e}"))?
+}
+
+/// On a blocking thread: it asks Linear.
+#[tauri::command]
+pub async fn linear_teams(linear: LinearState<'_>) -> Result<Vec<LinearTeam>, String> {
+    let linear = Arc::clone(&linear);
+    tauri::async_runtime::spawn_blocking(move || linear.teams())
+        .await
+        .map_err(|e| format!("the Linear teams could not be listed: {e}"))?
+}
+
+#[tauri::command]
+pub fn connect_floor(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    hub: HubState<'_>,
+    project_id: String,
+    link: Link,
+) -> Result<(), String> {
+    office.connect_floor(&project_id, link)?;
+    hub.wake();
+    push_snapshot(&app, &office);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn disconnect_floor(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    project_id: String,
+    connector: ConnectorKind,
+) -> Result<(), String> {
+    office.disconnect_floor(&project_id, connector)?;
+    push_snapshot(&app, &office);
+    Ok(())
+}
+
+/// On a blocking thread: a connector's state lock can be held across a Keychain prompt.
+#[tauri::command]
+pub async fn recheck_connectors(hub: HubState<'_>) -> Result<(), String> {
+    let hub = Arc::clone(&hub);
+    tauri::async_runtime::spawn_blocking(move || hub.recheck())
+        .await
+        .map_err(|e| format!("the re-check did not start: {e}"))
+}
+
+/// The URL comes from the hub's cache, never from the webview, and must be the
+/// connector's own site. On a blocking thread: it waits for `open` to hand over.
+#[tauri::command]
+pub async fn open_todo_link(office: OfficeState<'_>, todo_id: String) -> Result<(), String> {
+    let url = office.todo_link(&todo_id)?;
+    let (_, kind, _) =
+        connectors::parse_item_id(&todo_id).ok_or("that item has no page to open")?;
+    let call = connectors::link_call(kind, &url)?;
+    tauri::async_runtime::spawn_blocking(move || match SystemRunner.launch(&call, OPEN_WAIT)? {
+        Some(0) | None => Ok(()),
+        Some(_) => Err("the link did not open".to_string()),
+    })
+    .await
+    .map_err(|e| format!("the link did not open: {e}"))?
 }

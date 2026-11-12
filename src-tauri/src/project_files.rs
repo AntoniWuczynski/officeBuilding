@@ -18,7 +18,7 @@
 //! indented lines under an item continue it. Answering a decision or ticking an
 //! item in the app writes back into the same file.
 
-use crate::model::{AnswerVia, Decision, Party, Question, QuestionOption, TodoItem};
+use crate::model::{AnswerVia, Decision, Party, Question, QuestionOption, TodoItem, TodoSource};
 use std::fs;
 use std::path::Path;
 
@@ -99,7 +99,7 @@ fn clean(text: &str) -> String {
         .join(" ")
 }
 
-fn truncate(text: &str, max: usize) -> String {
+pub(crate) fn truncate(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
     }
@@ -141,7 +141,9 @@ pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party
             text: truncate(&clean(&body), 300),
             done,
             assignee,
-            source_file: Some(file.to_string()),
+            source: TodoSource::File {
+                file: file.to_string(),
+            },
         });
     }
     items
