@@ -33,11 +33,19 @@ export function roomDeskSlot(index: number): Slot {
   return { x: ROOM.colX0 + col * ROOM.colGap, y: ROOM.rowY0 + row * ROOM.rowGap };
 }
 
-/** Room depth that fits `deskCount` desks plus the front walkway. */
-export function roomDepth(deskCount: number): number {
+/** The QA desk: the floor's front-left corner, where the plant room keeps its tank. */
+export const QA_DESK = { x: 10, back: 44, extra: 26 } as const;
+
+/** Top-left corner of the QA desk in a room of `depth`. */
+export function qaDeskSlot(depth: number): Slot {
+  return { x: QA_DESK.x, y: depth - QA_DESK.back };
+}
+
+/** Room depth that fits `deskCount` desks plus the front walkway, and the corner desk when `corner` is set. */
+export function roomDepth(deskCount: number, corner = false): number {
   const rows = Math.max(1, Math.ceil(deskCount / ROOM.columns));
   const lastRowY = ROOM.rowY0 + (rows - 1) * ROOM.rowGap;
-  return Math.max(ROOM.minDepth, lastRowY + DESK.d + ROOM.frontMargin);
+  return Math.max(ROOM.minDepth, lastRowY + DESK.d + ROOM.frontMargin + (corner ? QA_DESK.extra : 0));
 }
 
 /** The tiny desks a session's helpers (sub-agents) get beside its own. */

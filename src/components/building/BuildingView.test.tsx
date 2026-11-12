@@ -102,3 +102,20 @@ describe("floors coming and going", () => {
     expect(storey("p-arcade")).toHaveAttribute("data-phase", "here");
   });
 });
+
+describe("QA stamps on the nameplates", () => {
+  it("shows a floor's stamp and reads it out", () => {
+    render(view(makeSeedSnapshot()));
+    const plate = within(storey("p-shop") ?? document.body).getByTestId("floor-nameplate");
+    expect(within(plate).getByTestId("qa-stamp")).toHaveTextContent("QA notes");
+    expect(plate).toHaveAttribute("aria-label", expect.stringContaining(", QA found problems. Go to floor."));
+  });
+
+  it("shows none for a floor with QA off, or a stamp left over from before it was switched off", () => {
+    const seed = makeSeedSnapshot();
+    const stale = { ...seed, qa: seed.qa.map((q) => (q.projectId === "p-office" ? { ...q, enabled: false } : q)) };
+    render(view(stale));
+    expect(within(storey("p-notes") ?? document.body).queryByTestId("qa-stamp")).not.toBeInTheDocument();
+    expect(within(storey("p-office") ?? document.body).queryByTestId("qa-stamp")).not.toBeInTheDocument();
+  });
+});

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { FloorLight, Project, Session } from "../../types";
+import type { FloorLight, Project, Session, Verdict } from "../../types";
 import type { Counts } from "../../state/selectors";
 import { lightWords, poseForState } from "../../lib/animation";
 import { STOREY, floorSpotOf, seatOf, storeyDeskCount, storeyDeskX } from "../../lib/layout";
@@ -11,6 +11,8 @@ import { materialsFor } from "../../scene/materials";
 import { Duct, Tank } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
 import { DemolishIcon } from "../icons";
+import { QaStamp } from "../qa/QaStamp";
+import { STAMP_WORDS } from "../../state/selectors";
 import { usePresence } from "../../state/usePresence";
 import type { Phase } from "../../state/usePresence";
 
@@ -25,6 +27,8 @@ export interface FloorModel {
   readonly dimmed: boolean;
   /** The setup floor: a plant room below the lobby. */
   readonly plant: boolean;
+  /** The floor's QA stamp, when its QA is on and a review has left one. */
+  readonly stamp: Verdict | null;
 }
 
 interface StoreyProps {
@@ -57,7 +61,7 @@ const WALL_H = STOREY.height - STOREY.slab;
 /** One storey of the cutaway: a room you can see into. Click it to go inside. */
 export function Storey({ level, width, floor, phase, animate, onEnter, onDemolish, onGone }: StoreyProps): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null);
-  const { project, sessions, light, counts, pending, dimmed, plant } = floor;
+  const { project, sessions, light, counts, pending, dimmed, plant, stamp } = floor;
   const look = materialsFor(plant);
   const shown = sessions.slice(0, storeyDeskCount(sessions.length));
   const overflow = sessions.length - shown.length;
@@ -163,7 +167,7 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
           type="button"
           className="nameplate"
           data-testid="floor-nameplate"
-          aria-label={`${project.name}: ${counts.active} of ${counts.total} active, ${lightWords(light)}${pending > 0 ? `, ${pending} waiting on you` : ""}. Go to floor.`}
+          aria-label={`${project.name}: ${counts.active} of ${counts.total} active, ${lightWords(light)}${pending > 0 ? `, ${pending} waiting on you` : ""}${stamp === null ? "" : `, ${STAMP_WORDS[stamp].spoken}`}. Go to floor.`}
         >
           <i className="lamp" aria-hidden />
           <span className="nameplate-name">{project.name}</span>
@@ -171,6 +175,7 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
           <span className="nameplate-count">
             {counts.active}/{counts.total}
           </span>
+          {stamp === null ? null : <QaStamp verdict={stamp} />}
         </button>
         {plant ? null : (
         <button

@@ -4,6 +4,7 @@ import type { OfficeSnapshot, Project, ToolUsage } from "../../types";
 import {
   floorLight,
   matchesQuery,
+  qaFor,
   questionsForProject,
   sessionCounts,
   sessionsForProject,
@@ -48,6 +49,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
 
   const floors: FloorModel[] = snapshot.projects.map((project) => {
     const sessions = sessionsForProject(snapshot, project.id);
+    const qa = qaFor(snapshot, project.id);
     return {
       project,
       sessions,
@@ -56,6 +58,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
       pending: questionsForProject(snapshot, project.id).length,
       dimmed: !matchesQuery(project, query),
       plant: project.id === snapshot.setupProjectId,
+      stamp: qa?.enabled === true ? qa.stamp : null,
     };
   });
   const standing = usePresence(floors, (f) => f.project.id, animate);

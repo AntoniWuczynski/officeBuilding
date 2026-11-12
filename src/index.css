@@ -8,6 +8,7 @@
 @import "./styles/settings.css";
 @import "./styles/editor.css";
 @import "./styles/connectors.css";
+@import "./styles/qa.css";
 @import "./styles/conversation.css";
 
 html,

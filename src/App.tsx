@@ -17,6 +17,8 @@ import { EditorContext } from "./components/editor/EditorContext";
 import type { EditorActions } from "./components/editor/EditorContext";
 import { ConnectorsContext } from "./components/connectors/ConnectorsContext";
 import type { ConnectorActions } from "./components/connectors/ConnectorsContext";
+import { QaContext } from "./components/qa/QaContext";
+import type { QaActions } from "./components/qa/QaContext";
 import { SettingsPanel } from "./components/settings/SettingsPanel";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
@@ -278,6 +280,21 @@ export function App({ api }: Props): React.ReactElement {
     [api, toast, openSettings],
   );
 
+  const qaActions = useMemo<QaActions>(
+    () => ({
+      setFloor: (projectId, enabled) =>
+        api.setFloorQa(projectId, enabled).then(() => toast("ok", enabled ? "QA is on for this floor. The floor is pinned." : "QA is off for this floor.")),
+      recheck: () => {
+        api.recheckQa().catch((err: unknown) => toast("error", `Could not ask GitHub: ${message(err)}.`));
+      },
+      openReview: (projectId, review) => {
+        api.openReview(projectId, review.number, review.head).catch((err: unknown) => toast("error", `Could not open that review: ${message(err)}.`));
+      },
+      openSettings,
+    }),
+    [api, toast, openSettings],
+  );
+
   const tick = useCallback(
     (todoId: string) => {
       api.tickTodo(todoId).catch((err: unknown) => toast("error", `Could not tick that off: ${message(err)}.`));
@@ -370,11 +387,13 @@ export function App({ api }: Props): React.ReactElement {
       <ConversationApiContext value={api}>
       <EditorContext value={editorActions}>
       <ConnectorsContext value={connectorActions}>
+      <QaContext value={qaActions}>
         <div className="app">
           {body}
-          {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} onTestAlert={testAlert} onClose={closeSettings} /> : null}
+          {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </QaContext>
       </ConnectorsContext>
       </EditorContext>
       </ConversationApiContext>

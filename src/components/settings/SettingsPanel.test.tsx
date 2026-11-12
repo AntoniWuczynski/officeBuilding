@@ -20,6 +20,7 @@ function open(
       load={overrides.load ?? (() => api.getSettings())}
       save={overrides.save ?? ((p) => api.updateSettings(p))}
       editors={overrides.editors === undefined ? LIST : overrides.editors}
+      loadHireOptions={() => api.hireOptions()}
       onTestAlert={() => api.testAlert()}
       onClose={onClose}
     />,
@@ -165,5 +166,10 @@ describe("SettingsPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the Quality assurance group once the settings have loaded", async () => {
+    open();
+    expect(await screen.findByRole("heading", { name: "Quality assurance" })).toBeInTheDocument();
   });
 });

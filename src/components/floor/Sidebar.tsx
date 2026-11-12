@@ -1,10 +1,11 @@
 import { motion } from "framer-motion";
-import type { Connection, OfficeSnapshot, Project, Session } from "../../types";
+import type { Connection, OfficeSnapshot, Project, QaFloor, Session } from "../../types";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
 import {
   STATE_LABEL,
   TOOL_LABEL,
   connectionFor,
+  qaFor,
   decisionsForProject,
   endedForProject,
   formatTokens,
@@ -18,6 +19,7 @@ import {
 import { relativeTime } from "../../lib/time";
 import { CloseIcon } from "../icons";
 import { LinearRow } from "../connectors/LinearRow";
+import { QaRow } from "../qa/QaRow";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { TodoList } from "./TodoList";
 import { SetupPanel } from "./SetupPanel";
@@ -110,7 +112,7 @@ function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpen
     case "spend":
       return <SpendBody sessions={sessions} allSessions={snapshot.sessions} onOpenSession={onOpenSession} />;
     case "info":
-      return <InfoBody project={project} sessions={sessions} now={now} connection={connectionFor(snapshot, project.id)} />;
+      return <InfoBody project={project} sessions={sessions} now={now} connection={connectionFor(snapshot, project.id)} qa={qaFor(snapshot, project.id)} onOpenSession={onOpenSession} />;
     case "signed-out":
       return <SignOutSheet ended={endedForProject(snapshot, project.id)} now={now} onResume={onResume} />;
     case "shells":
@@ -151,7 +153,16 @@ function SpendBody({ sessions, allSessions, onOpenSession }: { readonly sessions
   );
 }
 
-function InfoBody({ project, sessions, now, connection }: { readonly project: Project; readonly sessions: readonly Session[]; readonly now: Date; readonly connection: Connection | undefined }): React.ReactElement {
+interface InfoProps {
+  readonly project: Project;
+  readonly sessions: readonly Session[];
+  readonly now: Date;
+  readonly connection: Connection | undefined;
+  readonly qa: QaFloor | undefined;
+  readonly onOpenSession: (session: Session) => void;
+}
+
+function InfoBody({ project, sessions, now, connection, qa, onOpenSession }: InfoProps): React.ReactElement {
   const counts = sessionCounts(sessions);
   const latest = [...sessions].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0];
   const tools = [...new Set(sessions.map((s) => TOOL_LABEL[s.tool]))];
@@ -171,6 +182,7 @@ function InfoBody({ project, sessions, now, connection }: { readonly project: Pr
           <OpenInEditor place={{ kind: "floor", projectId: project.id }} what={`the ${project.name} floor`} opens="this floor's folder" />
         </dd>
         <LinearRow project={project} connection={connection} />
+        <QaRow project={project} qa={qa} sessions={sessions} now={now} onOpenSession={onOpenSession} />
         <dt>Agents</dt>
         <dd>
           {counts.active} of {counts.total} active

@@ -56,3 +56,12 @@ export function Plant({ x, y, z, scale = 1 }: PlantProps): React.ReactElement {
     </>
   );
 }
+
+/** A magnifying glass on a desk: the QA desk's prop. */
+export function MagnifyingGlass({ x, y, z }: { readonly x: number; readonly y: number; readonly z: number }): React.ReactElement {
+  return (
+    <Billboard x={x} y={y} z={z}>
+      <span className="desk-glass" data-testid="desk-glass" />
+    </Billboard>
+  );
+}

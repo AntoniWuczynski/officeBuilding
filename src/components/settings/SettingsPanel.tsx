@@ -1,20 +1,22 @@
 import { useEffect, useRef } from "react";
-import type { EditorList, Settings, SettingsPatch } from "../../types";
+import type { EditorList, Settings, SettingsPatch, ToolOptions } from "../../types";
 import { useSettings } from "../../state/useSettings";
 import { EditorGroup } from "./EditorGroup";
 import { ConnectorsGroup } from "./ConnectorsGroup";
 import { NotificationsGroup } from "./NotificationsGroup";
+import { QaGroup } from "./QaGroup";
 
 interface Props {
   readonly load: () => Promise<Settings>;
   readonly save: (patch: SettingsPatch) => Promise<Settings>;
   readonly editors: EditorList | null;
+  readonly loadHireOptions: () => Promise<readonly ToolOptions[]>;
   readonly onTestAlert: () => Promise<void>;
   readonly onClose: () => void;
 }
 
 /** The app's settings, as a plate over the room. Changes save at once. */
-export function SettingsPanel({ load, save, editors, onTestAlert, onClose }: Props): React.ReactElement {
+export function SettingsPanel({ load, save, editors, loadHireOptions, onTestAlert, onClose }: Props): React.ReactElement {
   const { state, change, retry } = useSettings(load, save);
   const done = useRef<HTMLButtonElement>(null);
 
@@ -60,6 +62,10 @@ export function SettingsPanel({ load, save, editors, onTestAlert, onClose }: Pro
             <section className="settings-group">
               <h3>Connectors</h3>
               <ConnectorsGroup value={state.settings.connectors} onChange={(connectors) => change({ connectors })} />
+            </section>
+            <section className="settings-group">
+              <h3>Quality assurance</h3>
+              <QaGroup value={state.settings.qa} loadOptions={loadHireOptions} onChange={(qa) => change({ qa })} />
             </section>
           </>
         ) : null}

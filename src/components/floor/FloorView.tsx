@@ -4,12 +4,14 @@ import type { OfficeSnapshot, Project, Session, ToolOptions } from "../../types"
 import type { HireRequest, QuestionAnswer } from "../../api/DiscoveryApi";
 import {
   endedForProject,
+  qaFor,
   formatUsd,
   openCount,
   questionsForProject,
   searchSessions,
   sessionCounts,
   sessionsForProject,
+  splitReviewer,
   todosForProject,
   totalSpend,
 } from "../../state/selectors";
@@ -70,7 +72,10 @@ export function FloorView(props: Props): React.ReactElement {
   const aiTodos = todosForProject(snapshot, project.id, "ai");
   const spend = totalSpend(sessions);
   const ended = endedForProject(snapshot, project.id);
-  const depth = roomDepth(sessions.length + 1);
+  const qa = qaFor(snapshot, project.id);
+  const qaDesk = qa !== undefined && qa.enabled;
+  const { seated, reviewer } = splitReviewer(sessions, qa);
+  const depth = roomDepth(seated.length + 1, qaDesk);
   const openSession = sessions.find((s) => s.id === openSessionId);
   const shells = snapshot.shells.filter((s) => s.projectId === project.id);
   const openShell = shells.find((s) => s.id === openSessionId);
@@ -136,7 +141,9 @@ export function FloorView(props: Props): React.ReactElement {
             className="room-stage"
           >
             <Room
-              sessions={sessions}
+              sessions={seated}
+              qa={qaDesk ? qa : null}
+              reviewer={reviewer}
               depth={depth}
               query={query}
               now={now}

@@ -7,6 +7,8 @@ import {
   POD,
   floorSpotOf,
   podFor,
+  QA_DESK,
+  qaDeskSlot,
   roomDepth,
   roomDeskSlot,
   seatOf,
@@ -93,5 +95,19 @@ describe("helper pods", () => {
         expect(s.y + pod.cell).toBeLessThanOrEqual(pod.region.y + pod.region.h + 1e-9);
       }
     }
+  });
+});
+
+describe("QA corner desk", () => {
+  it("stands in the front-left corner", () => {
+    expect(qaDeskSlot(300)).toEqual({ x: QA_DESK.x, y: 300 - QA_DESK.back });
+  });
+
+  it("adds no depth to a room at its minimum", () => {
+    expect(roomDepth(2, true)).toBe(roomDepth(2));
+  });
+
+  it("makes a room with three rows deeper by the corner's extra", () => {
+    expect(roomDepth(7, true)).toBe(roomDepth(7) + QA_DESK.extra);
   });
 });

@@ -1,0 +1,92 @@
+/* The Info panel's Quality assurance row. */
+.qa-status {
+  margin: 6px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.qa-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.qa-confirm {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  font-size: 13px;
+}
+.qa-confirm p {
+  margin: 0;
+}
+.qa-reviews {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.qa-reviews li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 3px 0;
+}
+.qa-reviews li > span {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+/* The desk's tag: a gap between the word and the stamp. */
+.qa-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A magnifying glass lying on the desk: a ring and a handle. */
+.desk-glass {
+  position: absolute;
+  bottom: 0;
+  left: -3.5px;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: var(--window);
+}
+.desk-glass::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 5px;
+  height: 1.5px;
+  background: var(--timber-front);
+  transform-origin: 0 50%;
+  transform: rotate(45deg);
+}
+
+/* A rubber stamp is a physical mark, so uppercase signage type is allowed. */
+.qa-stamp {
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  padding: 1px 3px;
+  font: 700 9px/1 var(--font-sign);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: rotate(-6deg);
+}
+.qa-stamp.is-pass {
+  color: var(--ok);
+}
+.qa-stamp.is-concerns {
+  color: var(--wait);
+}
