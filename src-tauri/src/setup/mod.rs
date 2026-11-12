@@ -12,7 +12,7 @@
 mod files;
 mod import;
 mod inject;
-pub use inject::{Launch, Opt, RoleSetup};
+pub use inject::{Launch, Opt, RoleServer, RoleSetup};
 mod inventory;
 #[cfg(test)]
 mod role_tests;

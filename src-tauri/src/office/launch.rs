@@ -137,6 +137,7 @@ pub(super) fn launch_command(
 ) -> Result<String, String> {
     let quote = |s: &str| pty::quote(shell, s);
     let env = setup.prefix(&quote);
+    let refuse_peer_messages = setup.refuse_peer_messages;
     let setup = setup.args(&quote);
     let bare_effort = req.effort == DEFAULT_EFFORT;
     // `--` ends the options, so a task starting with `-` stays the prompt.
@@ -153,10 +154,17 @@ pub(super) fn launch_command(
             } else {
                 format!(" --effort {}", quote(&req.effort))
             };
+            // One `--settings` only, so a fixed role's refusal shares the JSON
+            // (<https://code.claude.com/docs/en/settings-reference>, `crossSessionInbound`).
+            let refuse = if refuse_peer_messages {
+                ",\"crossSessionInbound\":\"refuse\""
+            } else {
+                ""
+            };
             format!(
                 "{env}{binary}{setup} --model {}{effort} --settings {}{prompt}",
                 quote(&model.id),
-                quote(&format!("{{\"ultracode\":{}}}", req.ultracode))
+                quote(&format!("{{\"ultracode\":{}{refuse}}}", req.ultracode))
             )
         }
         ToolKind::Codex => {
@@ -232,6 +240,41 @@ mod tests {
             ultracode: Some(false),
             structured: false,
         }
+    }
+
+    #[test]
+    fn an_ordinary_hire_is_unchanged_and_a_fixed_role_refuses_messages() {
+        let tool = options();
+        let req = HireRequest {
+            tool: ToolKind::ClaudeCode,
+            title: "fix it".to_string(),
+            model: "opus".to_string(),
+            effort: "high".to_string(),
+            ultracode: true,
+            structured: false,
+        };
+        let mut setup = Launch {
+            opts: vec![crate::setup::Opt {
+                flag: "--plugin-dir",
+                value: "/b/claude-code".to_string(),
+            }],
+            ..Launch::default()
+        };
+        let command = launch_command(&req, &tool.models[1], "fix it", "/bin/zsh", &setup);
+        assert_eq!(
+            command.as_deref(),
+            Ok(
+                r#"claude --plugin-dir '/b/claude-code' --model 'opus' --effort 'high' --settings '{"ultracode":true}' -- 'fix it'"#
+            )
+        );
+        setup.refuse_peer_messages = true;
+        let command = launch_command(&req, &tool.models[1], "fix it", "/bin/zsh", &setup);
+        assert_eq!(
+            command.as_deref(),
+            Ok(
+                r#"claude --plugin-dir '/b/claude-code' --model 'opus' --effort 'high' --settings '{"ultracode":true,"crossSessionInbound":"refuse"}' -- 'fix it'"#
+            )
+        );
     }
 
     #[test]

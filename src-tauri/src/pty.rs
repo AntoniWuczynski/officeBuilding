@@ -201,8 +201,21 @@ impl Terminals {
     /// their usual PATH), as Terminal.app would. `exec` keeps the agent's pid.
     /// Quote its words for [`login_shell`].
     pub fn spawn_shell(&self, cwd: &Path, command: &str) -> Result<String, String> {
+        self.spawn_shell_with(cwd, command, &[])
+    }
+
+    /// `spawn_shell`, with `env` set in the shell's own environment. Nothing in `env` is put on a command line.
+    pub fn spawn_shell_with(
+        &self,
+        cwd: &Path,
+        command: &str,
+        env: &[(&str, &str)],
+    ) -> Result<String, String> {
         let mut cmd = CommandBuilder::new(login_shell());
         cmd.args(["-l", "-i", "-c", &format!("exec {command}")]);
+        for (name, value) in env {
+            cmd.env(name, value);
+        }
         self.spawn(cmd, cwd)
     }
 
@@ -365,6 +378,15 @@ impl Terminals {
             cols: s.size.cols,
             rows: s.size.rows,
         })
+    }
+
+    /// Whether the agent has bracketed paste switched on now (DEC private mode 2004).
+    pub fn bracketed_paste(&self, id: &str) -> Result<bool, String> {
+        let t = self.get(id)?;
+        let s = lock(&t.state);
+        let mut modes = s.modes_at_start.clone();
+        track_modes(&s.scrollback, &mut modes);
+        Ok(modes.private.get(&2004) == Some(&true))
     }
 
     /// Keystrokes from the panel, as the terminal would send them. Queued for
@@ -782,20 +804,25 @@ mod tests {
     }
 
     #[test]
-    fn a_login_shell_runs_the_command_in_place() {
-        let (sink, _) = collecting();
-        let terminals = Terminals::new(sink);
+    fn a_login_shell_runs_the_command_in_place_with_its_variables_off_the_command_line() {
+        let terminals = Terminals::new(collecting().0);
+        let script = "/bin/sh -c '/usr/bin/env; echo hired; /bin/cat'";
+        let env = [("OB_PTY_SECRET", "kept-out-of-argv")];
         let id = terminals
-            .spawn_shell(Path::new("/"), "/bin/echo hired")
+            .spawn_shell_with(Path::new("/"), script, &env)
             .expect("spawn");
+        let data = || terminals.backlog(&id).expect("backlog").data;
+        wait_for("hired", || data().contains("hired"));
+        assert!(data().contains("OB_PTY_SECRET=kept-out-of-argv"));
+        let pid = terminals.pid(&id).expect("pid").to_string();
+        let ps = std::process::Command::new("/bin/ps")
+            .args(["-o", "command=", "-p", &pid])
+            .output()
+            .expect("ps");
+        let argv = String::from_utf8_lossy(&ps.stdout);
+        assert!(argv.contains("/usr/bin/env") && !argv.contains("kept-out-of-argv"));
+        terminals.write(&id, "\u{4}").expect("eot");
         wait_for("exit", || terminals.backlog(&id).is_ok_and(|b| !b.running));
-        assert!(
-            terminals
-                .backlog(&id)
-                .expect("backlog")
-                .data
-                .contains("hired")
-        );
     }
 
     #[test]
@@ -890,6 +917,24 @@ mod tests {
             mode_prefix(&modes),
             "\x1b[?1h\x1b[?7l\x1b[?1000h\x1b[?1004h\x1b[?1006h"
         );
+    }
+
+    #[test]
+    fn follows_the_agents_bracketed_paste_switch() {
+        let (sink, _) = collecting();
+        let terminals = Terminals::new(sink);
+        let script = r"read a; printf '\033[?2004hON'; read b; printf '\033[?2004lOFF'; read c";
+        let id = terminals
+            .spawn(command("/bin/sh", &["-c", script]), Path::new("/"))
+            .expect("spawn");
+        assert_eq!(terminals.bracketed_paste(&id), Ok(false));
+        let printed = |s: &str| terminals.backlog(&id).is_ok_and(|b| b.data.contains(s));
+        for (mark, on) in [("ON", true), ("OFF", false)] {
+            terminals.write(&id, "\r").expect("write");
+            wait_for(mark, || printed(mark));
+            assert_eq!(terminals.bracketed_paste(&id), Ok(on));
+        }
+        terminals.write(&id, "\r").expect("write");
     }
 
     #[test]

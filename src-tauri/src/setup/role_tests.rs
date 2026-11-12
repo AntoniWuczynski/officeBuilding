@@ -12,6 +12,7 @@ fn reviewer(hooks: Vec<Hook>) -> RoleSetup<'static> {
         name: "qa-floor_1",
         instructions: "Review the diff.",
         hooks,
+        server: None,
     }
 }
 
@@ -33,6 +34,7 @@ fn flags_follow_the_options() {
             value: "Read".to_string(),
         }],
         flags: vec!["--strict-mcp-config"],
+        refuse_peer_messages: false,
     };
     assert_eq!(launch.args(&quote), " --tools 'Read' --strict-mcp-config");
 }
@@ -113,6 +115,7 @@ fn a_bad_role_name_and_another_tool_are_refused() {
             name,
             instructions: "x",
             hooks: Vec::new(),
+            server: None,
         };
         assert_eq!(
             lib.role_launch(ToolKind::ClaudeCode, &role, None),
@@ -125,4 +128,93 @@ fn a_bad_role_name_and_another_tool_are_refused() {
             Err("only Claude Code can take a fixed job so far".to_string())
         );
     }
+}
+
+#[derive(serde::Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct McpFile {
+    mcp_servers: BTreeMap<String, McpEntry>,
+}
+
+#[derive(serde::Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct McpEntry {
+    #[serde(rename = "type")]
+    kind: String,
+    command: String,
+    args: Vec<String>,
+    always_load: bool,
+}
+
+#[test]
+fn a_role_with_a_server_gets_exactly_one_stdio_server_and_a_stale_file_goes() {
+    let (lib, dir) = library("role-server");
+    let exe = dir.join("Office Building.app/Contents/MacOS/office-building");
+    let role = RoleSetup {
+        name: "manager-p-1",
+        instructions: "Coordinate.",
+        hooks: Vec::new(),
+        server: Some(RoleServer {
+            name: "office",
+            command: &exe,
+            args: vec!["manager-mcp".to_string(), "/data/ipc/m.sock".to_string()],
+        }),
+    };
+    let l = lib
+        .role_launch(ToolKind::ClaudeCode, &role, None)
+        .expect("launch");
+    let file = dir.join("build/roles/manager-p-1/mcp.json");
+    assert!(
+        l.args(&quote)
+            .ends_with(&format!(" --mcp-config '{}'", file.display()))
+    );
+    let text = fs::read_to_string(&file).expect("mcp.json");
+    assert!(!text.contains("env"), "{text}");
+    let parsed: McpFile = serde_json::from_str(&text).expect("shape");
+    assert_eq!(
+        parsed,
+        McpFile {
+            mcp_servers: BTreeMap::from([(
+                "office".to_string(),
+                McpEntry {
+                    kind: "stdio".to_string(),
+                    command: exe.to_string_lossy().into_owned(),
+                    args: vec!["manager-mcp".to_string(), "/data/ipc/m.sock".to_string()],
+                    always_load: true,
+                }
+            )])
+        }
+    );
+    assert!(!l.refuse_peer_messages, "the launch options add that mark");
+
+    let bare = RoleSetup {
+        server: None,
+        ..role
+    };
+    let l = lib
+        .role_launch(ToolKind::ClaudeCode, &bare, None)
+        .expect("launch");
+    assert!(!file.exists(), "a stale mcp.json is removed");
+    assert!(!l.args(&quote).contains("--mcp-config"));
+}
+
+#[test]
+fn a_command_path_that_is_not_text_is_refused() {
+    use std::os::unix::ffi::OsStrExt;
+    let (lib, _) = library("role-server-bad");
+    let exe = Path::new(std::ffi::OsStr::from_bytes(b"/bin/\xff"));
+    let role = RoleSetup {
+        name: "manager-p-2",
+        instructions: "Coordinate.",
+        hooks: Vec::new(),
+        server: Some(RoleServer {
+            name: "office",
+            command: exe,
+            args: Vec::new(),
+        }),
+    };
+    assert_eq!(
+        lib.role_launch(ToolKind::ClaudeCode, &role, None),
+        Err("the app's own path is not valid text".to_string())
+    );
 }

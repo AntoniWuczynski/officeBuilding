@@ -51,6 +51,8 @@ pub struct Launch {
     pub opts: Vec<Opt>,
     /// Options that take no value, after `opts`.
     pub flags: Vec<&'static str>,
+    /// Claude Code is told to drop messages from other sessions (`crossSessionInbound`).
+    pub refuse_peer_messages: bool,
 }
 
 /// What an agent with a fixed job is launched with, on top of its tool's own options.
@@ -61,6 +63,34 @@ pub struct RoleSetup<'a> {
     pub instructions: &'a str,
     /// Hooks of its own, beside the status feed's.
     pub hooks: Vec<Hook>,
+    /// The one MCP server it is given, if any.
+    pub server: Option<RoleServer<'a>>,
+}
+
+/// The one MCP server an agent with a fixed job is given: a program the building starts for it.
+pub struct RoleServer<'a> {
+    pub name: &'a str,
+    pub command: &'a Path,
+    pub args: Vec<String>,
+}
+
+/// `{"mcpServers":{"<name>":{"type":"stdio","command":…,"args":[…],"alwaysLoad":true}}}`, the
+/// file passed with `--mcp-config` (<https://code.claude.com/docs/en/mcp>). No `env`: the
+/// server inherits Claude Code's environment.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoleMcpFile<'a> {
+    mcp_servers: BTreeMap<&'a str, RoleMcp<'a>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoleMcp<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    command: &'a str,
+    args: &'a [String],
+    always_load: bool,
 }
 
 impl Launch {
@@ -406,11 +436,31 @@ impl Library {
                 .collect(),
         };
         let mut launch = Launch::default();
-        self.claude(
-            &self.build.join("roles").join(role.name),
-            &wanted,
-            &mut launch,
-        )?;
+        let base = self.build.join("roles").join(role.name);
+        self.claude(&base, &wanted, &mut launch)?;
+        let file = base.join("mcp.json");
+        match &role.server {
+            Some(server) => {
+                let command = server
+                    .command
+                    .to_str()
+                    .ok_or("the app's own path is not valid text")?;
+                let config = RoleMcpFile {
+                    mcp_servers: BTreeMap::from([(
+                        server.name,
+                        RoleMcp {
+                            kind: "stdio",
+                            command,
+                            args: &server.args,
+                            always_load: true,
+                        },
+                    )]),
+                };
+                write_file(&file, &json(&config)?)?;
+                launch.opt("--mcp-config", &file);
+            }
+            None => write_or_remove(&file, None)?,
+        }
         Ok(launch)
     }
 
