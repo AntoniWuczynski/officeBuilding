@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MockApi } from "./mockApi";
+import { STRUCTURED } from "./mockConversation";
 import { makeSeedSnapshot } from "./mockData";
 import { makeSettings } from "./mockSettings";
 
@@ -53,21 +54,101 @@ describe("MockApi", () => {
     const api = new MockApi(makeSeedSnapshot(), fixedNow);
     const listener = vi.fn();
     api.subscribe(listener);
-    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "  port the renderer ", model: "gpt-5.5", effort: "high", ultracode: false, structured: false });
+    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "  port the renderer ", model: "gpt-5.5", effort: "high", ultracode: false, view: "terminal" });
     expect(session).toMatchObject({ projectId: "p-arcade", tool: "codex", state: "thinking", control: "full", title: "port the renderer", model: "gpt-5.5", effort: "high", lastActivityAt: NOW.toISOString() });
     const snap = await api.getSnapshot();
     expect(snap.projects.find((p) => p.id === "p-arcade")?.sessionIds).toContain(session.id);
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it("a chat desk's backlog carries the structured capabilities, and an edit prompt yields a diff", async () => {
+    const api = new MockApi();
+    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "", model: "gpt-5.5", effort: "high", ultracode: false, view: "chat" });
+    const first = await api.structuredBacklog(session.id);
+    expect(first.capabilities).toEqual(STRUCTURED);
+    expect(first.earlier).toBe(false);
+    await api.structuredPrompt(session.id, "edit the notes");
+    const entry = (await api.structuredBacklog(session.id)).transcript.find((e) => e.kind === "tool");
+    expect(entry).toMatchObject({ title: "Edit notes.txt", status: "done", detail: "" });
+    expect(entry?.kind === "tool" ? entry.diffs : []).toHaveLength(1);
+  });
+
   it("spawnSession names an untitled task and rejects bad requests", async () => {
     const api = new MockApi();
-    const ok = { tool: "claude-code", title: "   ", model: "claude-opus-5-5", effort: "high", ultracode: false, structured: false } as const;
+    const ok = { tool: "claude-code", title: "   ", model: "claude-opus-5-5", effort: "high", ultracode: false, view: "terminal" } as const;
     await expect(api.spawnSession("p-arcade", ok)).resolves.toMatchObject({ title: "New task" });
     await expect(api.spawnSession("nope", ok)).rejects.toThrow(/unknown project/);
     await expect(api.spawnSession("p-arcade", { ...ok, model: "gpt-5.5" })).rejects.toThrow(/not a model the app can start/);
     await expect(api.spawnSession("p-arcade", { ...ok, tool: "opencode" })).rejects.toThrow(/not a model the app can start/);
     await expect(api.spawnSession("p-arcade", { ...ok, tool: "codex", model: "gpt-5.5", effort: "max" })).rejects.toThrow(/does not support max effort/);
+  });
+
+  it("hireOptions follows the Agents setting where chat is available", async () => {
+    const api = new MockApi();
+    expect((await api.hireOptions()).every((o) => o.view === "terminal")).toBe(true);
+    await api.updateSettings({ agents: { view: "chat" } });
+    const views = Object.fromEntries((await api.hireOptions()).map((o) => [o.tool, o.view]));
+    expect(views).toEqual({ "claude-code": "chat", codex: "chat", antigravity: "terminal", opencode: "terminal", cursor: "terminal" });
+  });
+
+  it("hires chat desks by whether the tool keeps a terminal, and refuses chat where it is unavailable", async () => {
+    const api = new MockApi();
+    const claude = { tool: "claude-code", title: "a", model: "claude-opus-5-5", effort: "high", ultracode: false, view: "chat" } as const;
+    const full = await api.spawnSession("p-arcade", claude);
+    expect(full.control).toBe("full");
+    expect((await api.getSnapshot()).chatDesks).toEqual([full.id]);
+    const codex = await api.spawnSession("p-arcade", { ...claude, tool: "codex", model: "gpt-5.5" });
+    expect(codex.control).toBe("structured");
+    expect((await api.getSnapshot()).chatDesks).toEqual([full.id]);
+    await expect(api.spawnSession("p-arcade", { ...claude, tool: "antigravity", model: "Gemini 3.6 Flash" })).rejects.toThrow(
+      "chat for Antigravity is not built yet, so it runs in the terminal",
+    );
+  });
+
+  it("keeps a message sent to a desk with an open approval in snapshot.queued until the turn ends", async () => {
+    const api = new MockApi();
+    const desk = await api.spawnSession("p-arcade", { tool: "codex", title: "", model: "gpt-5.5", effort: "high", ultracode: false, view: "chat" });
+    await api.structuredPrompt(desk.id, "run it");
+    await api.structuredPrompt(desk.id, "then this");
+    const waiting = (await api.getSnapshot()).queued;
+    expect(waiting).toEqual([expect.objectContaining({ toSessionId: desk.id, text: "then this", hold: "waiting-on-you" })]);
+    const approval = (await api.structuredBacklog(desk.id)).approval;
+    await api.structuredAnswer(desk.id, approval?.id ?? "", "deny", {});
+    expect((await api.getSnapshot()).queued).toEqual([]);
+    expect((await api.structuredBacklog(desk.id)).transcript.map((e) => (e.kind === "agent" ? e.text : ""))).toContain("Done: then this");
+  });
+
+  it("withdrawMessage removes a waiting message, and rejects the second time", async () => {
+    const api = new MockApi();
+    const desk = await api.spawnSession("p-arcade", { tool: "codex", title: "", model: "gpt-5.5", effort: "high", ultracode: false, view: "chat" });
+    await api.structuredPrompt(desk.id, "run it");
+    await api.structuredPrompt(desk.id, "never mind");
+    const id = (await api.getSnapshot()).queued[0]?.id ?? "";
+    await api.withdrawMessage(id);
+    expect((await api.getSnapshot()).queued).toEqual([]);
+    await expect(api.withdrawMessage(id)).rejects.toThrow("that message is no longer waiting");
+  });
+
+  it("gives a Claude Code chat desk the terminal capabilities and a card a line break in its terminal closes", async () => {
+    const api = new MockApi();
+    const claude = { tool: "claude-code", title: "", model: "claude-opus-5-5", effort: "high", ultracode: false, view: "chat" } as const;
+    const desk = await api.spawnSession("p-arcade", claude);
+    expect((await api.structuredBacklog(desk.id)).capabilities).toEqual({ compose: true, stop: true, end: false, approvals: "terminal", terminal: true });
+    await api.structuredPrompt(desk.id, "run the tests");
+    expect((await api.structuredBacklog(desk.id)).approval).toEqual({
+      id: "terminal-prompt",
+      title: "Claude Code is waiting for your answer",
+      detail: "Claude needs your permission to use Bash",
+      fields: [],
+      choices: [],
+    });
+    await api.writeTerminal(desk.id, "1");
+    expect((await api.structuredBacklog(desk.id)).approval).not.toBeNull();
+    await api.writeTerminal(desk.id, "\r");
+    expect((await api.structuredBacklog(desk.id)).approval).toBeNull();
+    await api.structuredCancel(desk.id);
+    expect((await api.structuredBacklog(desk.id)).transcript.at(-1)).toMatchObject({ kind: "notice", text: "Turn stopped." });
+    await expect(api.structuredStop(desk.id)).rejects.toThrow("only a structured desk can be ended from its conversation");
   });
 
   it("answerQuestion (option) clears the question, unblocks the session and records a decision", async () => {
@@ -356,6 +437,7 @@ describe("MockApi floors", () => {
         connectors: { linearAgentLabel: "agent" },
         qa: { defaultOn: false, pollMinutes: 5, everyPush: true, skipDrafts: true, postWhenClean: true, maxConcurrent: 1, reviewsPerDay: 3, tool: "claude-code", model: null, effort: null },
         manager: { tool: "claude-code", model: null, effort: null, maxDesks: 3, spendCeilingUsd: 20 },
+        agents: { view: "terminal" },
       });
     });
 

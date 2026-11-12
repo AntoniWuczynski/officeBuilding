@@ -436,6 +436,19 @@ export function logLine(entry: ManagerLogEntry): string {
   }
 }
 
+/** Why one of your own messages waits: the manager's reasons, with three of your own. */
+export const QUEUE_WORDS: Record<NoteHold, string> = {
+  ...HOLD_WORDS,
+  "you-typed": "its terminal holds something you typed and have not sent",
+  "awaiting-turn": "it has not picked up your last message yet",
+  "no-idle-signal": "it has not told the building it is idle yet, which can take a minute after it starts",
+};
+
+/** Your own messages waiting for one desk, oldest first. */
+export function queuedFor(snapshot: OfficeSnapshot, sessionId: string): readonly QueuedNote[] {
+  return snapshot.queued.filter((n) => n.toSessionId === sessionId);
+}
+
 /** The notes waiting for one desk. */
 export function notesFor(manager: ManagerFloor | undefined, sessionId: string): readonly QueuedNote[] {
   return manager?.queue.filter((n) => n.toSessionId === sessionId) ?? [];

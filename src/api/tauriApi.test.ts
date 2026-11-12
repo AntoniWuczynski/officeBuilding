@@ -55,6 +55,20 @@ describe("wire", () => {
     expect(() => parseWire(snapshotSchema, "snapshot", { ...seed, sessions: [bare, ...rest] })).toThrow(/sessions\.0\.branch/);
   });
 
+  it("needs chat and view on hire options and chatDesks on the snapshot", () => {
+    const [first, ...rest] = makeHireOptions();
+    if (first === undefined) throw new Error("no options");
+    const { chat: _chat, view: _view, ...old } = first;
+    expect(() => parseWire(hireOptionsSchema, "options", [{ ...old, structured: false }, ...rest])).toThrow(/options at 0\.chat/);
+    const { chatDesks: _desks, ...bare } = makeSeedSnapshot();
+    expect(() => parseWire(snapshotSchema, "snapshot", bare)).toThrow(/chatDesks/);
+  });
+
+  it("needs queued on the snapshot", () => {
+    const { queued: _queued, ...bare } = makeSeedSnapshot();
+    expect(() => parseWire(snapshotSchema, "snapshot", bare)).toThrow(/queued/);
+  });
+
   it("names where a payload went wrong", () => {
     const bad = { ...makeSeedSnapshot(), sessions: [{ id: 1 }] };
     expect(() => parseWire(snapshotSchema, "snapshot", bad)).toThrow(/unexpected snapshot at sessions\.0\.id/);
@@ -84,7 +98,7 @@ describe("TauriApi", () => {
       .mockResolvedValueOnce("/Users/me/code/app")
       .mockResolvedValueOnce(null);
     await api.hireOptions();
-    const request = { tool: "codex", title: "x", model: "gpt-5.5", effort: "high", ultracode: false, structured: false } as const;
+    const request = { tool: "codex", title: "x", model: "gpt-5.5", effort: "high", ultracode: false, view: "terminal" } as const;
     await expect(api.spawnSession("p-1", request)).resolves.toEqual(session);
     await api.answerQuestion("q-1", { kind: "option", optionId: "o-1" });
     await api.tickTodo("t-1");
@@ -105,6 +119,12 @@ describe("TauriApi", () => {
       ["pick_folder", undefined],
       ["resume_session", { sessionId: "e-1" }],
     ]);
+  });
+
+  it("withdraws a waiting message by id", async () => {
+    invoke.mockResolvedValueOnce(null);
+    await new TauriApi().withdrawMessage("q-1");
+    expect(invoke.mock.calls).toEqual([["withdraw_message", { messageId: "q-1" }]]);
   });
 
   it("calls the settings and alert commands", async () => {
@@ -191,6 +211,34 @@ describe("TauriApi", () => {
     await flush();
     expect(unlisten).toHaveBeenCalledTimes(1);
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  describe("conversations", () => {
+    const tool = { kind: "tool", id: "t", title: "Edit a.txt", status: "done", detail: "", diffs: [{ path: "a.txt", text: "-x\n+y" }] };
+    const capabilities = { compose: true, stop: true, end: false, approvals: "terminal", terminal: true };
+    const backlog = { transcript: [tool], state: "idle", approval: null, ended: null, capabilities, earlier: false };
+    const update = { sessionId: "s-1", entry: tool, state: "idle", approval: null, ended: null, reset: false };
+    const STRUCTURED_EVENT = "office://structured";
+
+    it("reads a full backlog and refuses one without capabilities", async () => {
+      invoke.mockResolvedValueOnce(backlog);
+      await expect(new TauriApi().structuredBacklog("s-1")).resolves.toEqual(backlog);
+      const { capabilities: _caps, ...bare } = backlog;
+      invoke.mockResolvedValueOnce(bare);
+      await expect(new TauriApi().structuredBacklog("s-1")).rejects.toThrow(/conversation/);
+    });
+
+    it("passes a full update on and drops a tool entry without diffs", async () => {
+      const seen: unknown[] = [];
+      const stop = new TauriApi().subscribeStructured("s-1", (u) => seen.push(u));
+      await flush();
+      push(STRUCTURED_EVENT, update);
+      const { diffs: _diffs, ...old } = tool;
+      push(STRUCTURED_EVENT, { ...update, entry: old });
+      push(STRUCTURED_EVENT, { ...update, reset: undefined });
+      expect(seen).toEqual([update]);
+      stop();
+    });
   });
 
   describe("terminals", () => {

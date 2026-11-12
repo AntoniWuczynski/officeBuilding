@@ -18,5 +18,6 @@ export function makeSettings(): Settings {
     connectors: { linearAgentLabel: "agent" },
     qa: makeQaSettings(),
     manager: makeManagerSettings(),
+    agents: { view: "terminal" },
   };
 }

@@ -59,6 +59,8 @@ export function makeSeedSnapshot(): OfficeSnapshot {
     connections: [],
     qa: makeSeedQa(),
     managers: makeSeedManagers(),
+    chatDesks: [],
+    queued: [],
   };
 }
 

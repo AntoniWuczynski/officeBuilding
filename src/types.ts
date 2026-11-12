@@ -241,8 +241,24 @@ export interface ToolOptions {
   readonly defaultModel: string;
   /** Null when the tool has no ultracode; otherwise its default (Claude Code). */
   readonly ultracode: boolean | null;
-  /** It can run as a structured desk: no terminal, typed messages and approvals. */
-  readonly structured: boolean;
+  /** Whether its desks can open in the chat view, or why not. */
+  readonly chat: ChatSupport;
+  /** The view the hire dialog starts on: the Settings default, or the terminal when chat is unavailable. */
+  readonly view: DeskView;
+}
+
+/** How a desk's panel opens (`DeskView` in model.rs). */
+export type DeskView = "terminal" | "chat";
+
+/** Whether a tool's desks can open in the chat view (`ChatSupport` in model.rs). */
+export type ChatSupport =
+  | { readonly kind: "available"; readonly terminal: boolean }
+  | { readonly kind: "unavailable"; readonly reason: string };
+
+/** One file's change inside a tool call (`FileDiff` in structured/mod.rs). */
+export interface FileDiff {
+  readonly path: string;
+  readonly text: string;
 }
 
 export type ToolStatus = "pending" | "running" | "done" | "failed";
@@ -252,8 +268,19 @@ export type ConversationEntry =
   | { readonly kind: "user"; readonly id: string; readonly text: string }
   | { readonly kind: "agent"; readonly id: string; readonly text: string }
   | { readonly kind: "thought"; readonly id: string; readonly text: string }
-  | { readonly kind: "tool"; readonly id: string; readonly title: string; readonly status: ToolStatus; readonly detail: string }
+  | { readonly kind: "tool"; readonly id: string; readonly title: string; readonly status: ToolStatus; readonly detail: string; readonly diffs: readonly FileDiff[] }
   | { readonly kind: "notice"; readonly id: string; readonly text: string };
+
+export type ApprovalMode = "inline" | "terminal" | "none";
+
+/** What a conversation's panel may offer (`Capabilities` in structured/mod.rs). */
+export interface ChatCapabilities {
+  readonly compose: boolean;
+  readonly stop: boolean;
+  readonly end: boolean;
+  readonly approvals: ApprovalMode;
+  readonly terminal: boolean;
+}
 
 /** What a field of an approval takes. */
 export type FieldKind =
@@ -287,6 +314,10 @@ export interface ConversationBacklog {
   readonly approval: Approval | null;
   /** Why the agent is gone, once it is. */
   readonly ended: string | null;
+  /** What the panel may offer; fixed while it is open. */
+  readonly capabilities: ChatCapabilities;
+  /** Older entries were left out of `transcript`. */
+  readonly earlier: boolean;
 }
 
 /** A change to a structured desk, pushed while its panel is open. */
@@ -296,6 +327,8 @@ export interface ConversationUpdate {
   readonly state: SessionState;
   readonly approval: Approval | null;
   readonly ended: string | null;
+  /** The transcript was read again from the top: empty it before applying `entry`. */
+  readonly reset: boolean;
 }
 
 /** One usage-limit window of a tool, as the tool itself last measured it. */
@@ -339,6 +372,10 @@ export interface OfficeSnapshot {
   readonly qa: readonly QaFloor[];
   /** One entry per standing floor except the setup floor, in floor order. */
   readonly managers: readonly ManagerFloor[];
+  /** Sessions in the app's own terminals whose desk opens in the chat view, by session id. */
+  readonly chatDesks: readonly string[];
+  /** Your own messages waiting for their desks, oldest first. */
+  readonly queued: readonly QueuedNote[];
 }
 
 /** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */
@@ -524,6 +561,11 @@ export interface QaSettings {
   readonly effort: string | null;
 }
 
+/** How new desks open (`AgentSettings` in settings/agents.rs). */
+export interface AgentSettings {
+  readonly view: DeskView;
+}
+
 /** The app's settings, kept by the backend. One field per group. */
 export interface Settings {
   readonly notifications: NotificationSettings;
@@ -531,6 +573,7 @@ export interface Settings {
   readonly connectors: ConnectorSettings;
   readonly qa: QaSettings;
   readonly manager: ManagerSettings;
+  readonly agents: AgentSettings;
 }
 
 /** A change to the settings: each group present replaces that group whole. */

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, QueuedNote, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
 
 // Runtime schemas for everything the Rust backend sends. The `satisfies`
@@ -87,6 +87,8 @@ const reviewSchema = z.object({
   ]),
 });
 const noteHold = z.enum(["busy", "waiting-on-you", "stuck", "finished", "you-typed", "awaiting-turn", "hand-started", "no-idle-signal", "paused"]);
+const queuedNoteSchema = z.object({ id: z.string(), toSessionId: z.string(), text: z.string(), queuedAt: z.string(), hold: noteHold }) satisfies z.ZodType<QueuedNote>;
+
 const managerFloorSchema = z.object({
   projectId: z.string(),
   status: z.discriminatedUnion("kind", [
@@ -98,7 +100,7 @@ const managerFloorSchema = z.object({
   escalated: z.boolean(),
   managed: z.array(z.string()),
   caps: z.object({ maxDesks: z.number(), hiredNow: z.number(), spendCeilingUsd: z.number(), spentUsd: z.number(), unpricedDesks: z.number() }),
-  queue: z.array(z.object({ id: z.string(), toSessionId: z.string(), text: z.string(), queuedAt: z.string(), hold: noteHold })),
+  queue: z.array(queuedNoteSchema),
   log: z.array(
     z.object({
       id: z.string(),
@@ -170,6 +172,8 @@ export const snapshotSchema = z.object({
   connections: z.array(connectionSchema),
   qa: z.array(qaFloorSchema),
   managers: z.array(managerFloorSchema),
+  chatDesks: z.array(z.string()),
+  queued: z.array(queuedNoteSchema),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [
@@ -200,6 +204,12 @@ export const setupViewSchema = z.object({
   problems: z.array(z.string()),
 }) satisfies z.ZodType<SetupView>;
 
+const deskView = z.enum(["terminal", "chat"]);
+const chatSupportSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("available"), terminal: z.boolean() }),
+  z.object({ kind: z.literal("unavailable"), reason: z.string() }),
+]);
+
 const effortSchema = z.object({ id: z.string(), label: z.string(), description: z.string() });
 
 export const hireOptionsSchema = z.array(
@@ -209,7 +219,8 @@ export const hireOptionsSchema = z.array(
     models: z.array(z.object({ id: z.string(), label: z.string(), efforts: z.array(effortSchema), defaultEffort: z.string() })),
     defaultModel: z.string(),
     ultracode: z.boolean().nullable(),
-    structured: z.boolean(),
+    chat: chatSupportSchema,
+    view: deskView,
   }),
 ) satisfies z.ZodType<ToolOptions[]>;
 
@@ -217,7 +228,7 @@ const entrySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: z.string(), text: z.string() }),
   z.object({ kind: z.literal("agent"), id: z.string(), text: z.string() }),
   z.object({ kind: z.literal("thought"), id: z.string(), text: z.string() }),
-  z.object({ kind: z.literal("tool"), id: z.string(), title: z.string(), status: z.enum(["pending", "running", "done", "failed"]), detail: z.string() }),
+  z.object({ kind: z.literal("tool"), id: z.string(), title: z.string(), status: z.enum(["pending", "running", "done", "failed"]), detail: z.string(), diffs: z.array(z.object({ path: z.string(), text: z.string() })) }),
   z.object({ kind: z.literal("notice"), id: z.string(), text: z.string() }),
 ]);
 const fieldKindSchema = z.discriminatedUnion("kind", [
@@ -235,11 +246,21 @@ const approvalSchema = z.object({
   choices: z.array(z.object({ id: z.string(), label: z.string(), allow: z.boolean() })),
 });
 
+const capabilitiesSchema = z.object({
+  compose: z.boolean(),
+  stop: z.boolean(),
+  end: z.boolean(),
+  approvals: z.enum(["inline", "terminal", "none"]),
+  terminal: z.boolean(),
+});
+
 export const conversationBacklogSchema = z.object({
   transcript: z.array(entrySchema),
   state: sessionState,
   approval: approvalSchema.nullable(),
   ended: z.string().nullable(),
+  capabilities: capabilitiesSchema,
+  earlier: z.boolean(),
 }) satisfies z.ZodType<ConversationBacklog>;
 
 export const conversationUpdateSchema = z.object({
@@ -248,6 +269,7 @@ export const conversationUpdateSchema = z.object({
   state: sessionState,
   approval: approvalSchema.nullable(),
   ended: z.string().nullable(),
+  reset: z.boolean(),
 }) satisfies z.ZodType<ConversationUpdate>;
 
 export const toolUsageSchema = z.array(
@@ -323,6 +345,7 @@ export const settingsSchema = z.object({
     maxDesks: z.number(),
     spendCeilingUsd: z.number(),
   }),
+  agents: z.object({ view: deskView }),
 }) satisfies z.ZodType<Settings>;
 
 /** Parse a backend payload, turning a shape mismatch into a readable error. */

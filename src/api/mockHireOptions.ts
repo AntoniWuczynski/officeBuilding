@@ -1,4 +1,4 @@
-import type { EffortOption, ToolOptions } from "../types";
+import type { ChatSupport, DeskView, EffortOption, ToolOptions } from "../types";
 
 // Demo catalogue for Phase 1, copied from the real sources on 2026-09-29 so the
 // hire dialog shows what the tools actually accept. The Phase-2 backend reads
@@ -38,7 +38,8 @@ export function makeHireOptions(): readonly ToolOptions[] {
     {
       tool: "claude-code",
       available: true,
-      structured: false,
+      chat: { kind: "available", terminal: true },
+      view: "terminal",
       ultracode: false,
       defaultModel: "claude-opus-5-5",
       models: [
@@ -51,7 +52,8 @@ export function makeHireOptions(): readonly ToolOptions[] {
     {
       tool: "codex",
       available: true,
-      structured: true,
+      chat: { kind: "available", terminal: false },
+      view: "terminal",
       ultracode: null,
       defaultModel: "gpt-6-astra",
       models: [
@@ -65,7 +67,8 @@ export function makeHireOptions(): readonly ToolOptions[] {
     {
       tool: "antigravity",
       available: true,
-      structured: false,
+      chat: { kind: "unavailable", reason: "chat for Antigravity is not built yet, so it runs in the terminal" },
+      view: "terminal",
       ultracode: null,
       defaultModel: "Gemini 3.6 Flash",
       models: [
@@ -76,7 +79,14 @@ export function makeHireOptions(): readonly ToolOptions[] {
         { id: "GPT-OSS 120B", label: "GPT-OSS 120B", efforts: AGY_MEDIUM, defaultEffort: "medium" },
       ],
     },
-    { tool: "opencode", available: false, structured: false, ultracode: null, defaultModel: "", models: [] },
-    { tool: "cursor", available: false, structured: false, ultracode: null, defaultModel: "", models: [] },
+    { tool: "opencode", available: false, chat: NOT_INSTALLED, view: "terminal", ultracode: null, defaultModel: "", models: [] },
+    { tool: "cursor", available: false, chat: NOT_INSTALLED, view: "terminal", ultracode: null, defaultModel: "", models: [] },
   ];
+}
+
+const NOT_INSTALLED: ChatSupport = { kind: "unavailable", reason: "it is not installed on this Mac" };
+
+/** The options with each tool's starting view set: the given view where chat is available, else the terminal. */
+export function withDefaultView(options: readonly ToolOptions[], view: DeskView): readonly ToolOptions[] {
+  return options.map((o) => ({ ...o, view: o.chat.kind === "available" ? view : "terminal" }));
 }

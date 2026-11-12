@@ -1,4 +1,4 @@
-import type { ConnectorKind, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConnectorKind, DeskView, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -13,8 +13,8 @@ export interface HireRequest {
   readonly effort: string;
   /** Run with ultracode on (Claude Code only, a setting beside the effort). */
   readonly ultracode: boolean;
-  /** Run as a structured desk instead of in a terminal (tools whose options say they can). */
-  readonly structured: boolean;
+  /** The view its desk opens in. Chat without a terminal starts a structured desk. */
+  readonly view: DeskView;
 }
 
 /** A hired agent that exited before it reached a desk. */
@@ -175,20 +175,23 @@ export interface DiscoveryApi {
    */
   resumeSession(sessionId: string): Promise<void>;
 
-  /** A `structured` desk's conversation so far. */
+  /** A chat desk's (structured, or Claude Code in an app terminal) conversation so far. */
   structuredBacklog(sessionId: string): Promise<ConversationBacklog>;
 
-  /** Hear every change to a `structured` desk. Returns an unsubscribe. */
+  /** Hear every change to a chat desk. Returns an unsubscribe. */
   subscribeStructured(sessionId: string, listener: (update: ConversationUpdate) => void): () => void;
 
-  /** Send the human's message to a `structured` desk as its next turn. */
+  /** Send the human's message to a chat desk (structured, or Claude Code in an app terminal). It waits when the desk is busy. */
   structuredPrompt(sessionId: string, text: string): Promise<void>;
 
-  /** Answer a `structured` desk's open approval with one of its choices and the fields' values, by field id. */
+  /** Answer a structured desk's open approval with one of its choices and the fields' values, by field id. */
   structuredAnswer(sessionId: string, approvalId: string, choiceId: string, values: Readonly<Record<string, string>>): Promise<void>;
 
-  /** Stop the turn a `structured` desk is running. */
+  /** Stop the turn a chat desk is running. */
   structuredCancel(sessionId: string): Promise<void>;
+
+  /** Withdraw one of your own messages that is still waiting for its desk. */
+  withdrawMessage(messageId: string): Promise<void>;
 
   /** End a `structured` desk's agent; the desk leaves once it has stopped. */
   structuredStop(sessionId: string): Promise<void>;

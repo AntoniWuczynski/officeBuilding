@@ -367,6 +367,10 @@ export class TauriApi implements DiscoveryApi {
     await call("structured_cancel", { sessionId });
   }
 
+  async withdrawMessage(messageId: string): Promise<void> {
+    await call("withdraw_message", { messageId });
+  }
+
   async structuredStop(sessionId: string): Promise<void> {
     await call("structured_stop", { sessionId });
   }

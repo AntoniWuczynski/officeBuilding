@@ -27,7 +27,7 @@ import type {
 } from "../types";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
-import { makeHireOptions } from "./mockHireOptions";
+import { makeHireOptions, withDefaultView } from "./mockHireOptions";
 import { COOLDOWN_MAX_SECS } from "../lib/cooldown";
 import { AGENT_LABEL_MAX } from "../lib/agentLabel";
 import { MOCK_TEAMS, mockLinearTodos } from "./mockConnectors";
@@ -37,7 +37,7 @@ import { makeSettings } from "./mockSettings";
 import { hasQueuedNote, makeAbsentManager, managerPatchError, withManagerHired, withManagerSwitch, withNoteWithdrawn } from "./mockManager";
 import { qaPatchError, withQaChecked, withQaSwitch } from "./mockQa";
 import { makeSetupView } from "./mockSetup";
-import { MockConversations } from "./mockConversation";
+import { CLAUDE_TERMINAL, MockConversations, STRUCTURED } from "./mockConversation";
 
 type Listener = (snapshot: OfficeSnapshot) => void;
 
@@ -93,15 +93,14 @@ export class MockApi implements DiscoveryApi {
   private readonly reviewLog: string[] = [];
   /** A structured desk's state follows its conversation; one that ends leaves its floor. */
   private readonly conversations = new MockConversations((sessionId, state) => {
-    if (state === null) {
-      this.commit({
-        ...this.snapshot,
-        sessions: this.snapshot.sessions.filter((x) => x.id !== sessionId),
-        projects: this.snapshot.projects.map((p) => ({ ...p, sessionIds: p.sessionIds.filter((x) => x !== sessionId) })),
-      });
-      return;
-    }
-    this.commit({ ...this.snapshot, sessions: this.snapshot.sessions.map((x) => (x.id === sessionId ? { ...x, state } : x)) });
+    const queued = this.conversations.queued();
+    const gone = state === null;
+    this.commit({
+      ...this.snapshot,
+      queued,
+      sessions: gone ? this.snapshot.sessions.filter((x) => x.id !== sessionId) : this.snapshot.sessions.map((x) => (x.id === sessionId ? { ...x, state } : x)),
+      projects: gone ? this.snapshot.projects.map((p) => ({ ...p, sessionIds: p.sessionIds.filter((x) => x !== sessionId) })) : this.snapshot.projects,
+    });
   });
   private readonly shells = new Map<string, FakeShell>();
 
@@ -248,7 +247,7 @@ export class MockApi implements DiscoveryApi {
   }
 
   hireOptions(): Promise<readonly ToolOptions[]> {
-    return Promise.resolve(this.options);
+    return Promise.resolve(withDefaultView(this.options, this.settings.agents.view));
   }
 
   toolUsage(): Promise<readonly ToolUsage[]> {
@@ -306,9 +305,9 @@ export class MockApi implements DiscoveryApi {
     if (request.ultracode && tool?.ultracode === null) {
       return Promise.reject(new Error(`${request.tool} has no ultracode`));
     }
-    if (request.structured && tool?.structured !== true) {
-      return Promise.reject(new Error(`${request.tool} can only run in a terminal`));
-    }
+    const chat = request.view === "chat" ? tool?.chat : undefined;
+    if (chat?.kind === "unavailable") return Promise.reject(new Error(chat.reason));
+    const structured = chat?.kind === "available" && !chat.terminal;
     const id = this.nextId("s-new");
     const session: Session = {
       id,
@@ -316,7 +315,7 @@ export class MockApi implements DiscoveryApi {
       projectId,
       title: request.title.trim() === "" ? "New task" : request.title.trim(),
       state: "thinking",
-      control: request.structured ? "structured" : "full",
+      control: structured ? "structured" : "full",
       model: model.id,
       effort: request.effort,
       lastActivityAt: this.stamp(),
@@ -334,8 +333,9 @@ export class MockApi implements DiscoveryApi {
       ...this.snapshot,
       projects,
       sessions: [...this.snapshot.sessions, session],
+      chatDesks: chat?.kind === "available" && chat.terminal ? [...this.snapshot.chatDesks, id] : this.snapshot.chatDesks,
     });
-    if (request.structured) this.conversations.start(id, request.title.trim());
+    if (chat?.kind === "available") this.conversations.start(id, request.title.trim(), structured ? STRUCTURED : CLAUDE_TERMINAL);
     return Promise.resolve(session);
   }
 
@@ -364,8 +364,13 @@ export class MockApi implements DiscoveryApi {
   }
 
   structuredStop(sessionId: string): Promise<void> {
-    this.conversations.stop(sessionId);
-    return Promise.resolve();
+    const e = this.conversations.stop(sessionId);
+    return e === null ? Promise.resolve() : Promise.reject(e);
+  }
+
+  withdrawMessage(messageId: string): Promise<void> {
+    const e = this.conversations.withdraw(messageId);
+    return e === null ? Promise.resolve() : Promise.reject(e);
   }
 
   /** The agent walks back in at once, thinking, in its own (fake) terminal. */
@@ -757,6 +762,7 @@ export class MockApi implements DiscoveryApi {
 
   /** A tiny fake shell: echoes what is typed and answers each line. */
   writeTerminal(sessionId: string, data: string): Promise<void> {
+    this.conversations.answeredInTerminal(sessionId, data);
     const shell = this.shell(sessionId);
     if (shell instanceof Error) return Promise.reject(shell);
     let out = "";
