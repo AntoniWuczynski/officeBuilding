@@ -60,7 +60,7 @@ export interface Question {
    * bring its own terminal window to the front. "file": an open call in the
    * repo's decisions file; the answer is written back there.
    */
-  readonly answerVia: "app" | "terminal" | "file";
+  readonly answerVia: "app" | "terminal" | "file" | "store";
   /** Lower = more urgent; the queue is sorted ascending. */
   readonly priority: number;
   readonly askedAt: string;
@@ -337,6 +337,8 @@ export interface OfficeSnapshot {
   readonly connections: readonly Connection[];
   /** One QA desk per standing floor except the setup floor, in floor order. */
   readonly qa: readonly QaFloor[];
+  /** One entry per standing floor except the setup floor, in floor order. */
+  readonly managers: readonly ManagerFloor[];
 }
 
 /** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */
@@ -528,7 +530,78 @@ export interface Settings {
   readonly editor: EditorSettings;
   readonly connectors: ConnectorSettings;
   readonly qa: QaSettings;
+  readonly manager: ManagerSettings;
 }
 
 /** A change to the settings: each group present replaces that group whole. */
 export type SettingsPatch = Partial<Settings>;
+
+/** Why a note has not been handed to its desk (`Hold` in delivery/gate.rs). */
+export type NoteHold = "busy" | "waiting-on-you" | "stuck" | "finished" | "you-typed" | "awaiting-turn" | "hand-started" | "no-idle-signal" | "paused";
+
+/** A note waiting to reach a desk (`QueuedNote` in manager/wire.rs). */
+export interface QueuedNote {
+  readonly id: string;
+  readonly toSessionId: string;
+  readonly text: string;
+  readonly queuedAt: string;
+  readonly hold: NoteHold;
+}
+
+/** What became of a note (`NoteState` in manager/wire.rs). */
+export type NoteState = "queued" | "delivered" | "withdrawn" | "overridden" | "dropped" | "failed";
+
+export type ManagerLogEvent =
+  | { readonly kind: "note"; readonly noteId: string; readonly toSessionId: string; readonly toTitle: string; readonly text: string; readonly state: NoteState }
+  | { readonly kind: "hire"; readonly tool: ToolKind; readonly task: string }
+  | { readonly kind: "escalation"; readonly title: string }
+  | { readonly kind: "refused"; readonly tool: string; readonly reason: string };
+
+export interface ManagerLogEntry {
+  readonly id: string;
+  readonly at: string;
+  readonly event: ManagerLogEvent;
+}
+
+export type ManagerStatus =
+  | { readonly kind: "absent" }
+  | { readonly kind: "hired"; readonly sessionId: string | null; readonly startedAt: string; readonly lastCallAt: string | null };
+
+export interface ManagerCaps {
+  readonly maxDesks: number;
+  readonly hiredNow: number;
+  readonly spendCeilingUsd: number;
+  readonly spentUsd: number;
+  readonly unpricedDesks: number;
+}
+
+/** A floor's manager (`ManagerFloor` in manager/wire.rs). */
+export interface ManagerFloor {
+  readonly projectId: string;
+  readonly status: ManagerStatus;
+  readonly paused: boolean;
+  readonly mayHire: boolean;
+  /** A call it escalated is still open. */
+  readonly escalated: boolean;
+  /** Desks it hired or has sent a note to, by session id. */
+  readonly managed: readonly string[];
+  readonly caps: ManagerCaps;
+  /** Oldest first. */
+  readonly queue: readonly QueuedNote[];
+  /** Newest first, at most 50. */
+  readonly log: readonly ManagerLogEntry[];
+}
+
+/** The tools that can be a floor's manager (`ManagerTool` in settings.rs). */
+export type ManagerTool = "claude-code";
+
+/** Manager defaults for the whole building (`ManagerSettings` in settings.rs). */
+export interface ManagerSettings {
+  readonly tool: ManagerTool;
+  readonly model: string | null;
+  readonly effort: string | null;
+  /** 1 to 10. */
+  readonly maxDesks: number;
+  /** Whole US dollars, 1 to 1000. */
+  readonly spendCeilingUsd: number;
+}

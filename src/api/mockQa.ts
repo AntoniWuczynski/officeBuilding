@@ -1,5 +1,5 @@
 import type { QaFloor, QaSettings } from "../types";
-import { between, QA_MAX_CONCURRENT, QA_POLL_MINUTES, QA_REVIEWS_PER_DAY } from "../lib/qaLimits";
+import { between, inRange, QA_MAX_CONCURRENT, QA_POLL_MINUTES, QA_REVIEWS_PER_DAY } from "../lib/qaLimits";
 
 /** The demo QA desks, one per seeded floor (invented data). */
 export function makeSeedQa(): QaFloor[] {
@@ -65,13 +65,6 @@ export function makeQaSettings(): QaSettings {
     effort: null,
   };
 }
-
-interface Range {
-  readonly min: number;
-  readonly max: number;
-}
-
-const inRange = (n: number, r: Range): boolean => Number.isInteger(n) && n >= r.min && n <= r.max;
 
 /** Why a QA patch would be refused, with the backend's words, or null. */
 export function qaPatchError(qa: QaSettings): string | null {

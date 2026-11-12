@@ -34,6 +34,7 @@ import { MOCK_TEAMS, mockLinearTodos } from "./mockConnectors";
 import { MOCK_EDITORS } from "./mockEditors";
 import { joinNames } from "../state/selectors";
 import { makeSettings } from "./mockSettings";
+import { hasQueuedNote, makeAbsentManager, managerPatchError, withManagerHired, withManagerSwitch, withNoteWithdrawn } from "./mockManager";
 import { qaPatchError, withQaChecked, withQaSwitch } from "./mockQa";
 import { makeSetupView } from "./mockSetup";
 import { MockConversations } from "./mockConversation";
@@ -135,6 +136,8 @@ export class MockApi implements DiscoveryApi {
     }
     const qaError = patch.qa === undefined ? null : qaPatchError(patch.qa);
     if (qaError !== null) return Promise.reject(new Error(qaError));
+    const managerError = patch.manager === undefined ? null : managerPatchError(patch.manager);
+    if (managerError !== null) return Promise.reject(new Error(managerError));
     this.settings = { ...this.settings, ...patch };
     return Promise.resolve(this.settings);
   }
@@ -540,7 +543,7 @@ export class MockApi implements DiscoveryApi {
     if (existing !== undefined) return Promise.resolve(existing);
     const name = clean.split("/").pop() ?? clean;
     const project: Project = { id: this.nextId("p"), name, path: clean, sessionIds: [] };
-    this.commit({ ...this.snapshot, projects: [...this.snapshot.projects, project] });
+    this.commit({ ...this.snapshot, projects: [...this.snapshot.projects, project], managers: [...this.snapshot.managers, makeAbsentManager(project.id)] });
     return Promise.resolve(project);
   }
 
@@ -558,6 +561,7 @@ export class MockApi implements DiscoveryApi {
       ended: this.snapshot.ended.filter((e) => e.projectId !== projectId),
       questions: this.snapshot.questions.filter((q) => q.projectId !== projectId),
       connections: this.snapshot.connections.filter((c) => c.projectId !== projectId),
+      managers: this.snapshot.managers.filter((m) => m.projectId !== projectId),
     });
     return Promise.resolve();
   }
@@ -647,6 +651,38 @@ export class MockApi implements DiscoveryApi {
       return Promise.reject(new Error(`${projectId} is not a floor of this building`));
     }
     this.commit({ ...this.snapshot, qa: withQaSwitch(this.snapshot.qa, projectId, enabled) });
+    return Promise.resolve();
+  }
+
+  hireManager(projectId: string): Promise<void> {
+    if (projectId === this.snapshot.setupProjectId) return Promise.reject(new Error("the plant room has no manager"));
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    if (this.snapshot.managers.some((m) => m.projectId === projectId && m.status.kind === "hired")) {
+      return Promise.reject(new Error("this floor already has a manager"));
+    }
+    this.commit({ ...this.snapshot, managers: withManagerHired(this.snapshot.managers, projectId, this.now().toISOString()) });
+    return Promise.resolve();
+  }
+
+  setManagerPaused(projectId: string, paused: boolean): Promise<void> {
+    return this.setManagerSwitch(projectId, "paused", paused);
+  }
+
+  setManagerHiring(projectId: string, allowed: boolean): Promise<void> {
+    return this.setManagerSwitch(projectId, "mayHire", allowed);
+  }
+
+  private setManagerSwitch(projectId: string, key: "paused" | "mayHire", on: boolean): Promise<void> {
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) {
+      return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    }
+    this.commit({ ...this.snapshot, managers: withManagerSwitch(this.snapshot.managers, projectId, key, on) });
+    return Promise.resolve();
+  }
+
+  withdrawManagerNote(projectId: string, noteId: string): Promise<void> {
+    if (!hasQueuedNote(this.snapshot.managers, projectId, noteId)) return Promise.reject(new Error("that note is no longer waiting"));
+    this.commit({ ...this.snapshot, managers: withNoteWithdrawn(this.snapshot.managers, projectId, noteId) });
     return Promise.resolve();
   }
 

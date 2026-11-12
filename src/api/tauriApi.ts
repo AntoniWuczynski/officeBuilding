@@ -193,6 +193,22 @@ export class TauriApi implements DiscoveryApi {
     await call("set_floor_qa", { projectId, enabled });
   }
 
+  async hireManager(projectId: string): Promise<void> {
+    await call("hire_manager", { projectId });
+  }
+
+  async setManagerPaused(projectId: string, paused: boolean): Promise<void> {
+    await call("set_manager_paused", { projectId, paused });
+  }
+
+  async setManagerHiring(projectId: string, allowed: boolean): Promise<void> {
+    await call("set_manager_hiring", { projectId, allowed });
+  }
+
+  async withdrawManagerNote(projectId: string, noteId: string): Promise<void> {
+    await call("withdraw_manager_note", { projectId, noteId });
+  }
+
   async recheckQa(): Promise<void> {
     await call("recheck_qa");
   }

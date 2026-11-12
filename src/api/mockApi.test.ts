@@ -355,6 +355,7 @@ describe("MockApi floors", () => {
         editor: { preferred: null },
         connectors: { linearAgentLabel: "agent" },
         qa: { defaultOn: false, pollMinutes: 5, everyPush: true, skipDrafts: true, postWhenClean: true, maxConcurrent: 1, reviewsPerDay: 3, tool: "claude-code", model: null, effort: null },
+        manager: { tool: "claude-code", model: null, effort: null, maxDesks: 3, spendCeilingUsd: 20 },
       });
     });
 

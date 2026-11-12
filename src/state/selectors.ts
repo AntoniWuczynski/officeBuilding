@@ -6,9 +6,15 @@ import type {
   EndedSession,
   FloorLight,
   FloorLink,
+  ManagerCaps,
+  ManagerFloor,
+  ManagerLogEntry,
+  NoteHold,
+  NoteState,
   OfficeSnapshot,
   Project,
   QaFloor,
+  QueuedNote,
   Question,
   Review,
   Session,
@@ -356,4 +362,81 @@ export function splitReviewer(
   const id = qa?.enabled === true ? qa.run?.sessionId : null;
   const reviewer = id === null || id === undefined ? undefined : sessions.find((s) => s.id === id);
   return { seated: reviewer === undefined ? sessions : sessions.filter((s) => s !== reviewer), reviewer };
+}
+
+/** A floor's manager, if the floor has one (the setup floor has none). */
+export function managerFor(snapshot: OfficeSnapshot, projectId: string): ManagerFloor | undefined {
+  return snapshot.managers.find((m) => m.projectId === projectId);
+}
+
+/** The floor's sessions without its manager, and the manager's session when it has one. */
+export function splitManager(
+  sessions: readonly Session[],
+  manager: ManagerFloor | undefined,
+): { readonly rest: readonly Session[]; readonly managerSession: Session | undefined } {
+  const id = manager?.status.kind === "hired" ? manager.status.sessionId : null;
+  if (id === null) return { rest: sessions, managerSession: undefined };
+  return { rest: sessions.filter((s) => s.id !== id), managerSession: sessions.find((s) => s.id === id) };
+}
+
+/** Why a note waits, to finish the sentence "Waiting: …". */
+export const HOLD_WORDS: Record<NoteHold, string> = {
+  busy: "it is busy",
+  "waiting-on-you": "it is waiting on you",
+  stuck: "it is stuck",
+  finished: "it has finished",
+  "you-typed": "you typed there in the last minute",
+  "awaiting-turn": "it has not picked up the last note yet",
+  "hand-started": "it was started outside the building, so nothing is typed into it",
+  "no-idle-signal": "its tool does not tell the building when it is idle",
+  paused: "the manager is paused",
+};
+
+export const NOTE_STATE_WORDS: Record<NoteState, string> = {
+  queued: "Waiting",
+  delivered: "Delivered",
+  withdrawn: "Withdrawn by you",
+  overridden: "Replaced by your message",
+  dropped: "Dropped: the desk or the manager left",
+  failed: "Could not be handed over",
+};
+
+/** The manager's desk light as a session state the desk's light already draws: green, yellow or off. */
+export function managerLamp(manager: ManagerFloor): "running" | "waiting-human" | "done" {
+  if (manager.status.kind === "absent" || manager.paused) return "done";
+  return manager.escalated ? "waiting-human" : "running";
+}
+
+/** The manager in a few words: "Nobody is hired", "Starting", "Paused", or its session's state. */
+export function managerLine(manager: ManagerFloor | undefined, session: Session | undefined): string {
+  if (manager === undefined || manager.status.kind === "absent") return "Nobody is hired";
+  if (manager.paused) return "Paused";
+  return session === undefined ? "Starting" : STATE_LABEL[session.state];
+}
+
+/** "1 of 3 desks hired, $4.10 of $20.00 spent". */
+export function capsLine(caps: ManagerCaps): string {
+  return `${caps.hiredNow} of ${caps.maxDesks} desks hired, ${formatUsd(caps.spentUsd)} of ${formatUsd(caps.spendCeilingUsd)} spent`;
+}
+
+const REFUSED_WHAT: Partial<Record<string, string>> = { send_to_desk: "a note", hire_desk: "a hire", escalate: "a question for you" };
+
+/** One log entry in words. */
+export function logLine(entry: ManagerLogEntry): string {
+  const { event } = entry;
+  switch (event.kind) {
+    case "note":
+      return `To \u201c${event.toTitle}\u201d: ${event.text}`;
+    case "hire":
+      return `Hired ${TOOL_LABEL[event.tool]} for \u201c${event.task}\u201d`;
+    case "escalation":
+      return `Asked you: ${event.title}`;
+    case "refused":
+      return `Refused ${REFUSED_WHAT[event.tool] ?? "a request"}: ${event.reason}`;
+  }
+}
+
+/** The notes waiting for one desk. */
+export function notesFor(manager: ManagerFloor | undefined, sessionId: string): readonly QueuedNote[] {
+  return manager?.queue.filter((n) => n.toSessionId === sessionId) ?? [];
 }

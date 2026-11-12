@@ -234,4 +234,16 @@ export interface DiscoveryApi {
 
   /** Open a QA review (or its pull request, when nothing was posted) in the browser. */
   openReview(projectId: string, number: number, head: string): Promise<void>;
+
+  /** Hire this floor's manager. Rejects when one is already there or it cannot be started. */
+  hireManager(projectId: string): Promise<void>;
+
+  /** Pause or resume a floor's manager. Paused, it can read but nothing is sent or hired. */
+  setManagerPaused(projectId: string, paused: boolean): Promise<void>;
+
+  /** Let a floor's manager hire desks, or not. Off until switched on. */
+  setManagerHiring(projectId: string, allowed: boolean): Promise<void>;
+
+  /** Withdraw a note the manager has waiting for a desk. */
+  withdrawManagerNote(projectId: string, noteId: string): Promise<void>;
 }

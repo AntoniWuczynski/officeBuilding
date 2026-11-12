@@ -86,6 +86,33 @@ const reviewSchema = z.object({
     z.object({ kind: z.literal("failed"), reason: z.string() }),
   ]),
 });
+const noteHold = z.enum(["busy", "waiting-on-you", "stuck", "finished", "you-typed", "awaiting-turn", "hand-started", "no-idle-signal", "paused"]);
+const managerFloorSchema = z.object({
+  projectId: z.string(),
+  status: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("absent") }),
+    z.object({ kind: z.literal("hired"), sessionId: z.string().nullable(), startedAt: z.string(), lastCallAt: z.string().nullable() }),
+  ]),
+  paused: z.boolean(),
+  mayHire: z.boolean(),
+  escalated: z.boolean(),
+  managed: z.array(z.string()),
+  caps: z.object({ maxDesks: z.number(), hiredNow: z.number(), spendCeilingUsd: z.number(), spentUsd: z.number(), unpricedDesks: z.number() }),
+  queue: z.array(z.object({ id: z.string(), toSessionId: z.string(), text: z.string(), queuedAt: z.string(), hold: noteHold })),
+  log: z.array(
+    z.object({
+      id: z.string(),
+      at: z.string(),
+      event: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("note"), noteId: z.string(), toSessionId: z.string(), toTitle: z.string(), text: z.string(), state: z.enum(["queued", "delivered", "withdrawn", "overridden", "dropped", "failed"]) }),
+        z.object({ kind: z.literal("hire"), tool: toolKind, task: z.string() }),
+        z.object({ kind: z.literal("escalation"), title: z.string() }),
+        z.object({ kind: z.literal("refused"), tool: z.string(), reason: z.string() }),
+      ]),
+    }),
+  ),
+});
+
 const qaFloorSchema = z.object({
   projectId: z.string(),
   enabled: z.boolean(),
@@ -122,7 +149,7 @@ export const snapshotSchema = z.object({
       prompt: z.string(),
       options: z.array(z.object({ id: z.string(), label: z.string() })),
       allowOther: z.boolean(),
-      answerVia: z.enum(["app", "terminal", "file"]),
+      answerVia: z.enum(["app", "terminal", "file", "store"]),
       priority: z.number(),
       askedAt: z.string(),
       context: z.string(),
@@ -142,6 +169,7 @@ export const snapshotSchema = z.object({
   shells: z.array(shellSchema),
   connections: z.array(connectionSchema),
   qa: z.array(qaFloorSchema),
+  managers: z.array(managerFloorSchema),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [
@@ -287,6 +315,13 @@ export const settingsSchema = z.object({
     tool: z.enum(["claude-code"]),
     model: z.string().nullable(),
     effort: z.string().nullable(),
+  }),
+  manager: z.object({
+    tool: z.enum(["claude-code"]),
+    model: z.string().nullable(),
+    effort: z.string().nullable(),
+    maxDesks: z.number(),
+    spendCeilingUsd: z.number(),
   }),
 }) satisfies z.ZodType<Settings>;
 
