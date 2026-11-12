@@ -388,6 +388,10 @@ pub struct OfficeSnapshot {
     pub qa: Vec<QaFloor>,
     /// One entry per standing floor except the setup floor, in floor order.
     pub managers: Vec<ManagerFloor>,
+    /// Sessions in the app's own terminals whose desk opens in the chat view, by session id.
+    pub chat_desks: Vec<String>,
+    /// A Human's own messages waiting for their desks, oldest first.
+    pub queued: Vec<crate::manager::wire::QueuedNote>,
 }
 
 /// What a floor's QA desk is doing (`QaStatus` in types.ts).
@@ -476,8 +480,53 @@ pub struct ToolOptions {
     pub default_model: String,
     /// None when the tool has no ultracode; otherwise its default (Claude Code).
     pub ultracode: Option<bool>,
-    /// It can run as a structured desk (no terminal, typed messages and approvals).
-    pub structured: bool,
+    /// Whether its desks can open in the chat view, or why not.
+    pub chat: ChatSupport,
+    /// The view the hire dialog starts on: the Settings default, or the terminal when chat is unavailable.
+    pub view: DeskView,
+}
+
+impl ToolOptions {
+    /// A listing whose chat support is not known yet: `Office::hire_options` fills in `chat` and `view`.
+    #[must_use]
+    pub fn new(
+        tool: ToolKind,
+        available: bool,
+        models: Vec<ModelOption>,
+        default_model: String,
+        ultracode: Option<bool>,
+    ) -> Self {
+        Self {
+            tool,
+            available,
+            models,
+            default_model,
+            ultracode,
+            chat: ChatSupport::Unavailable {
+                reason: String::new(),
+            },
+            view: DeskView::Terminal,
+        }
+    }
+}
+
+/// How a desk's panel opens (`DeskView` in types.ts).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeskView {
+    #[default]
+    Terminal,
+    Chat,
+}
+
+/// Whether a tool's desks can open in the chat view (`ChatSupport` in types.ts).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ChatSupport {
+    /// `terminal`: the desk keeps a terminal of the app's, so its panel can flip between the two.
+    Available { terminal: bool },
+    /// Why not, in words. Lower-case start, no trailing full stop.
+    Unavailable { reason: String },
 }
 
 /// Everything needed to start a new agent session (`HireRequest` in DiscoveryApi.ts).
@@ -490,9 +539,10 @@ pub struct HireRequest {
     /// Run with ultracode on (Claude Code only, a setting beside the effort).
     #[serde(default)]
     pub ultracode: bool,
-    /// Run as a structured desk instead of in a terminal (tools whose options say they can).
+    /// The view its desk opens in. For a tool with no terminal chat (Codex, opencode, Cursor) `Chat`
+    /// starts a structured desk.
     #[serde(default)]
-    pub structured: bool,
+    pub view: DeskView,
 }
 
 /// One usage-limit window of a tool, as the tool itself last measured it.

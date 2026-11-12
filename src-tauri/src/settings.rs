@@ -10,6 +10,9 @@ use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+mod agents;
+pub use agents::AgentSettings;
+
 pub const COOLDOWN_MAX_SECS: u32 = 600;
 pub const AGENT_LABEL_MAX: usize = 80;
 pub const QA_POLL_MINUTES: RangeInclusive<u32> = 1..=60;
@@ -38,6 +41,7 @@ pub struct Settings {
     pub connectors: ConnectorSettings,
     pub qa: QaSettings,
     pub manager: ManagerSettings,
+    pub agents: AgentSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -304,6 +308,8 @@ pub struct SettingsPatch {
     pub qa: Option<QaSettings>,
     #[serde(default)]
     pub manager: Option<ManagerSettings>,
+    #[serde(default)]
+    pub agents: Option<AgentSettings>,
 }
 
 impl Settings {
@@ -335,6 +341,9 @@ impl Settings {
         }
         if let Some(manager) = patch.manager {
             self.manager = manager.checked()?;
+        }
+        if let Some(agents) = patch.agents {
+            self.agents = agents;
         }
         Ok(())
     }
@@ -550,7 +559,8 @@ mod tests {
             "postWhenClean": true, "maxConcurrent": 1, "reviewsPerDay": 3,
             "tool": "claude-code", "model": null, "effort": null },
             "manager": { "tool": "claude-code", "model": null, "effort": null,
-            "maxDesks": 3, "spendCeilingUsd": 20 } }"#,
+            "maxDesks": 3, "spendCeilingUsd": 20 },
+            "agents": { "view": "terminal" } }"#,
         )
         .expect("json");
         assert_eq!(

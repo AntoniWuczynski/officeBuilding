@@ -9,7 +9,7 @@ use super::wire::{
     ToolCallContent, ToolCallFields, ToolCallStatus,
 };
 use crate::model::SessionState;
-use crate::structured::{Approval, Choice, Entry, Event, ToolStatus, Values};
+use crate::structured::{Approval, Choice, Entry, Event, FileDiff, ToolStatus, Values, difftext};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 
@@ -33,6 +33,7 @@ struct Tool {
     title: String,
     status: ToolStatus,
     detail: String,
+    diffs: Vec<FileDiff>,
 }
 
 struct Open {
@@ -259,6 +260,7 @@ impl Transcript {
                 title: "Tool call".to_string(),
                 status: ToolStatus::Pending,
                 detail: String::new(),
+                diffs: Vec::new(),
             });
         if let Some(title) = &t.title {
             tool.title.clone_from(title);
@@ -267,7 +269,7 @@ impl Transcript {
             tool.status = tool_status(status);
         }
         if let Some(content) = &t.content {
-            tool.detail = tool_detail(content);
+            (tool.detail, tool.diffs) = tool_detail(content);
         }
         tool_entry(&t.tool_call_id, tool)
     }
@@ -294,14 +296,21 @@ impl Transcript {
 
     fn permission(&mut self, rpc: Id, req: PermissionRequest) -> Vec<Event> {
         let tool = self.tool(&req.tool_call);
-        let (title, mut detail) = match &tool {
-            Event::Entry(Entry::Tool { title, detail, .. }) => (title.clone(), detail.clone()),
-            _ => (String::new(), String::new()),
+        let (title, mut detail, diffs) = match &tool {
+            Event::Entry(Entry::Tool {
+                title,
+                detail,
+                diffs,
+                ..
+            }) => (title.clone(), detail.clone(), diffs.clone()),
+            _ => (String::new(), String::new(), Vec::new()),
         };
-        if detail.is_empty()
-            && let Some(raw) = &req.tool_call.raw_input
-        {
-            detail = raw.get().to_string();
+        if detail.is_empty() {
+            if !diffs.is_empty() {
+                detail = difftext::joined(&diffs);
+            } else if let Some(raw) = &req.tool_call.raw_input {
+                detail = raw.get().to_string();
+            }
         }
         let approval_id = self.fresh_id("approval");
         let choices = req
@@ -462,6 +471,7 @@ fn tool_entry(id: &str, tool: &Tool) -> Event {
         title: tool.title.clone(),
         status: tool.status,
         detail: tool.detail.clone(),
+        diffs: tool.diffs.clone(),
     })
 }
 
@@ -482,42 +492,29 @@ fn block_text(b: &ContentBlock) -> Option<String> {
     }
 }
 
-/// A tool call's content as text: output as written, diffs as `-`/`+` lines.
-fn tool_detail(content: &[ToolCallContent]) -> String {
-    content
+/// A tool call's content: output as written, and each diff block as a file diff.
+fn tool_detail(content: &[ToolCallContent]) -> (String, Vec<FileDiff>) {
+    let text = content
         .iter()
         .filter_map(|c| match c {
             ToolCallContent::Content { content } => block_text(content),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let diffs = content
+        .iter()
+        .filter_map(|c| match c {
             ToolCallContent::Diff {
                 path,
                 old_text,
                 new_text,
-            } => Some(diff(path, old_text.as_deref().unwrap_or(""), new_text)),
-            ToolCallContent::Other => None,
+            } => Some(FileDiff {
+                path: path.clone(),
+                text: difftext::changed(old_text.as_deref().unwrap_or(""), new_text),
+            }),
+            _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// The changed middle of a file: lines shared at the start and end are left out.
-fn diff(path: &str, old: &str, new: &str) -> String {
-    let old: Vec<&str> = old.lines().collect();
-    let new: Vec<&str> = new.lines().collect();
-    let head = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let tail = old[head..]
-        .iter()
-        .rev()
-        .zip(new[head..].iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
-    let mut out = format!("--- {path}\n+++ {path}");
-    for line in &old[head..old.len() - tail] {
-        out.push_str("\n-");
-        out.push_str(line);
-    }
-    for line in &new[head..new.len() - tail] {
-        out.push_str("\n+");
-        out.push_str(line);
-    }
-    out
+        .collect();
+    (text, diffs)
 }

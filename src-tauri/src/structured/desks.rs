@@ -2,7 +2,7 @@
 //! and open approval, kept for the conversation panel, and the driver that
 //! talks to its agent. Driver events arrive on the drivers' own threads.
 
-use super::{Approval, Driver, Entry, Event, Spawn};
+use super::{Approval, Capabilities, Driver, Entry, Event, Spawn, capabilities, capped, window};
 use crate::model::{ControlMode, EndedSession, Session, SessionState, Spend, ToolKind};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -44,6 +44,8 @@ pub struct Update {
     pub approval: Option<Approval>,
     /// Why the agent is gone, once it is.
     pub ended: Option<String>,
+    /// Drop every entry shown so far before applying this update: the conversation was read again from the start.
+    pub reset: bool,
     /// The desk itself changed (state, or it left): the building should redraw.
     #[serde(skip)]
     pub desk_changed: bool,
@@ -53,10 +55,14 @@ pub struct Update {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Backlog {
+    /// The newest entries, oldest first: at most `BACKLOG_MAX`, and at most `BACKLOG_CHARS` of text.
     pub transcript: Vec<Entry>,
     pub state: SessionState,
     pub approval: Option<Approval>,
     pub ended: Option<String>,
+    pub capabilities: Capabilities,
+    /// Older entries exist that are not in `transcript`.
+    pub earlier: bool,
 }
 
 pub type Notify = Arc<dyn Fn(Update) + Send + Sync>;
@@ -150,6 +156,7 @@ impl Desks {
             let mut entry = None;
             match event {
                 Event::Entry(e) => {
+                    let e = capped(e);
                     match desk.transcript.iter_mut().find(|old| old.id() == e.id()) {
                         Some(old) => *old = e.clone(),
                         None => desk.transcript.push(e.clone()),
@@ -182,6 +189,7 @@ impl Desks {
                 state: desk.state,
                 approval: desk.approval.clone(),
                 ended: desk.ended.clone(),
+                reset: false,
                 desk_changed: before != (desk.state, desk.ended.is_some()),
             }
         };
@@ -329,11 +337,14 @@ impl Desks {
         let desk = live
             .get(id)
             .ok_or_else(|| format!("{id} is not a desk the app is running"))?;
+        let (transcript, earlier) = window(&desk.transcript);
         Ok(Backlog {
-            transcript: desk.transcript.clone(),
+            transcript,
             state: desk.state,
             approval: desk.approval.clone(),
             ended: desk.ended.clone(),
+            capabilities: capabilities(desk.info.tool),
+            earlier,
         })
     }
 
@@ -437,6 +448,39 @@ mod tests {
     }
 
     #[test]
+    fn a_backlog_carries_the_capabilities_of_the_desks_tool() {
+        let desks = desks_with_one(Arc::new(Mutex::new(Vec::new())));
+        let backlog = desks.backlog("structured-1").expect("backlog");
+        assert_eq!(backlog.capabilities, Capabilities::STRUCTURED);
+        assert!(!backlog.earlier);
+    }
+
+    #[test]
+    fn an_over_long_tool_detail_arrives_cut_in_the_update_and_the_backlog() {
+        let updates = Arc::new(Mutex::new(Vec::new()));
+        let desks = desks_with_one(Arc::clone(&updates));
+        desks.on_event(
+            "structured-1",
+            Event::Entry(Entry::Tool {
+                id: "t1".to_string(),
+                title: "cat big".to_string(),
+                status: ToolStatus::Done,
+                detail: "x".repeat(super::super::OUTPUT_MAX + 5),
+                diffs: Vec::new(),
+            }),
+        );
+        let detail_of = |entry: Option<&Entry>| match entry {
+            Some(Entry::Tool { detail, .. }) => detail.chars().count(),
+            other => panic!("no tool entry: {other:?}"),
+        };
+        let sent = lock(&updates)[0].entry.clone();
+        let kept = desks.backlog("structured-1").expect("backlog").transcript;
+        let want = super::super::OUTPUT_MAX + "\n… cut here: the rest is not kept".chars().count();
+        assert_eq!(detail_of(sent.as_ref()), want);
+        assert_eq!(detail_of(kept.first()), want);
+    }
+
+    #[test]
     fn an_approval_raises_the_hand_until_it_is_resolved() {
         let updates = Arc::new(Mutex::new(Vec::new()));
         let desks = desks_with_one(updates);
@@ -468,6 +512,7 @@ mod tests {
                 title: "echo hi".to_string(),
                 status: ToolStatus::Done,
                 detail: "hi".to_string(),
+                diffs: Vec::new(),
             }),
         );
         assert_eq!(
