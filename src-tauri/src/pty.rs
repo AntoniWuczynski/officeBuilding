@@ -53,6 +53,7 @@ const MODES_ON_BY_DEFAULT: &[u16] = &[7, 25];
 /// Claude Code's own configuration (`CLAUDE_CODE_USE_BEDROCK` and the like) is kept.
 const LAUNCHER_IDENTITY: &[&str] = &[
     "CLAUDECODE",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID",
     "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_ENTRYPOINT",
     "CLAUDE_CODE_EXECPATH",
