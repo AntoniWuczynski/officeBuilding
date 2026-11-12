@@ -1,4 +1,4 @@
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -77,6 +77,18 @@ export interface DiscoveryApi {
 
   /** The setup floor's items and each harness's own setup, re-read on every call. */
   setupView(): Promise<SetupView>;
+
+  /** The app's settings, read from the backend's settings file. */
+  getSettings(): Promise<Settings>;
+
+  /** Change settings: each group in `patch` replaces that group. Resolves to the saved settings. */
+  updateSettings(patch: SettingsPatch): Promise<Settings>;
+
+  /** Tell the backend which desk's panel is open (null: none), so it does not alert for it. */
+  setOpenDesk(sessionId: string | null): Promise<void>;
+
+  /** Send a test alert in three seconds, by the methods switched on. */
+  testAlert(): Promise<void>;
 
   /** Hear when anything the Setup panel shows may have changed on disk. Returns an unsubscribe. */
   subscribeSetupChanges(listener: () => void): () => void;

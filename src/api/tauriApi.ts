@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
@@ -13,6 +13,7 @@ import {
   conversationBacklogSchema,
   conversationUpdateSchema,
   sessionSchema,
+  settingsSchema,
   setupViewSchema,
   shellSchema,
   snapshotSchema,
@@ -72,6 +73,22 @@ function follow<T>(start: (deliver: (value: T) => void) => Promise<() => void>, 
 
 /** {@link DiscoveryApi} backed by the Rust side (src-tauri/src/commands.rs). */
 export class TauriApi implements DiscoveryApi {
+  async getSettings(): Promise<Settings> {
+    return parseWire(settingsSchema, "settings", await call("get_settings"));
+  }
+
+  async updateSettings(patch: SettingsPatch): Promise<Settings> {
+    return parseWire(settingsSchema, "settings", await call("update_settings", { patch }));
+  }
+
+  async setOpenDesk(sessionId: string | null): Promise<void> {
+    await call("set_open_desk", { sessionId });
+  }
+
+  async testAlert(): Promise<void> {
+    await call("test_alert");
+  }
+
   async getSnapshot(): Promise<OfficeSnapshot> {
     return parseWire(snapshotSchema, "snapshot", await call("get_snapshot"));
   }

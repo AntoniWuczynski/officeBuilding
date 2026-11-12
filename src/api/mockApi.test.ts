@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MockApi } from "./mockApi";
 import { makeSeedSnapshot } from "./mockData";
+import { makeSettings } from "./mockSettings";
 
 const NOW = new Date("2026-09-29T12:00:00Z");
 const fixedNow = (): Date => NOW;
@@ -285,5 +286,47 @@ describe("MockApi floors", () => {
     expect(after.ended.some((e) => e.projectId === "p-shop")).toBe(false);
     expect(after.questions.some((q) => q.projectId === "p-shop")).toBe(false);
     await expect(api.demolishFloor("p-shop")).rejects.toThrow(/not a floor/);
+  });
+
+  describe("settings", () => {
+    it("starts on the defaults", async () => {
+      const settings = await new MockApi().getSettings();
+      expect(settings).toEqual({
+        notifications: { finished: true, needsYou: true, stuck: true, sound: true, dockBounce: true, systemNotification: true, cooldownSecs: 10 },
+      });
+    });
+
+    it("merges an update, returns it and reads it back", async () => {
+      const api = new MockApi();
+      const notifications = { ...makeSettings().notifications, sound: false, cooldownSecs: 600 };
+      await expect(api.updateSettings({ notifications })).resolves.toEqual({ notifications });
+      await expect(api.getSettings()).resolves.toEqual({ notifications });
+    });
+
+    it("resolves an empty patch and changes nothing", async () => {
+      const api = new MockApi();
+      await expect(api.updateSettings({})).resolves.toEqual(makeSettings());
+    });
+
+    it.each([601, -1, 1.5])("rejects a cooldown of %s and changes nothing", async (cooldownSecs) => {
+      const api = new MockApi();
+      await expect(api.updateSettings({ notifications: { ...makeSettings().notifications, cooldownSecs } })).rejects.toThrow(
+        "the cooldown must be between 0 and 600 seconds",
+      );
+      await expect(api.getSettings()).resolves.toEqual(makeSettings());
+    });
+
+    it("records the open desk and the test alerts", async () => {
+      const api = new MockApi();
+      expect(api.openDesk).toBeNull();
+      expect(api.testAlerts).toBe(0);
+      await api.setOpenDesk("s-1");
+      await api.testAlert();
+      await api.testAlert();
+      expect(api.openDesk).toBe("s-1");
+      expect(api.testAlerts).toBe(2);
+      await api.setOpenDesk(null);
+      expect(api.openDesk).toBeNull();
+    });
   });
 });

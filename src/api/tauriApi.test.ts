@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions } from "./mockHireOptions";
-import { hireOptionsSchema, parseWire, snapshotSchema } from "./wire";
+import { makeSettings } from "./mockSettings";
+import { hireOptionsSchema, parseWire, settingsSchema, snapshotSchema } from "./wire";
 
 const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>();
 const listeners = new Map<string, (event: { payload: unknown }) => void>();
@@ -38,6 +39,10 @@ describe("wire", () => {
   it("accepts the shapes the app uses", () => {
     expect(parseWire(snapshotSchema, "snapshot", makeSeedSnapshot())).toEqual(makeSeedSnapshot());
     expect(parseWire(hireOptionsSchema, "options", makeHireOptions())).toHaveLength(5);
+  });
+  it("accepts settings and drops a group it does not know", () => {
+    expect(parseWire(settingsSchema, "settings", makeSettings())).toEqual(makeSettings());
+    expect(parseWire(settingsSchema, "settings", { ...makeSettings(), editor: { name: "zed" } })).toEqual(makeSettings());
   });
   it("names where a payload went wrong", () => {
     const bad = { ...makeSeedSnapshot(), sessions: [{ id: 1 }] };
@@ -89,6 +94,34 @@ describe("TauriApi", () => {
       ["pick_folder", undefined],
       ["resume_session", { sessionId: "e-1" }],
     ]);
+  });
+
+  it("calls the settings and alert commands", async () => {
+    const api = new TauriApi();
+    const patch = { notifications: { ...makeSettings().notifications, sound: false } };
+    invoke
+      .mockResolvedValueOnce(makeSettings())
+      .mockResolvedValueOnce(patch)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    await expect(api.getSettings()).resolves.toEqual(makeSettings());
+    await expect(api.updateSettings(patch)).resolves.toEqual(patch);
+    await api.setOpenDesk("s-1");
+    await api.setOpenDesk(null);
+    await api.testAlert();
+    expect(invoke.mock.calls).toEqual([
+      ["get_settings", undefined],
+      ["update_settings", { patch }],
+      ["set_open_desk", { sessionId: "s-1" }],
+      ["set_open_desk", { sessionId: null }],
+      ["test_alert", undefined],
+    ]);
+  });
+
+  it("rejects settings of the wrong shape", async () => {
+    invoke.mockResolvedValueOnce({ notifications: { sound: "loud" } });
+    await expect(new TauriApi().getSettings()).rejects.toThrow(/unexpected settings/);
   });
 
   it("turns rejected commands into errors carrying the backend's message", async () => {

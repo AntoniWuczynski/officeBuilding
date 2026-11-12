@@ -342,3 +342,23 @@ export interface SetupView {
   /** What in the library could not be used, in words. */
   readonly problems: readonly string[];
 }
+
+/** When and how the building tells you an agent stopped (`NotificationSettings` in settings.rs). */
+export interface NotificationSettings {
+  readonly finished: boolean;
+  readonly needsYou: boolean;
+  readonly stuck: boolean;
+  readonly sound: boolean;
+  readonly dockBounce: boolean;
+  readonly systemNotification: boolean;
+  /** At most one alert every this many seconds, 0 to 600. */
+  readonly cooldownSecs: number;
+}
+
+/** The app's settings, kept by the backend. One field per group. */
+export interface Settings {
+  readonly notifications: NotificationSettings;
+}
+
+/** A change to the settings: each group present replaces that group whole. */
+export type SettingsPatch = Partial<Settings>;

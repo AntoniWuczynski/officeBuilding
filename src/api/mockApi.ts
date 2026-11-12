@@ -7,6 +7,8 @@ import type {
   Project,
   Session,
   SessionState,
+  Settings,
+  SettingsPatch,
   SetupItemKind,
   SetupView,
   Shell,
@@ -18,6 +20,8 @@ import type {
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions } from "./mockHireOptions";
+import { COOLDOWN_MAX_SECS } from "../lib/cooldown";
+import { makeSettings } from "./mockSettings";
 import { makeSetupView } from "./mockSetup";
 import { MockConversations } from "./mockConversation";
 
@@ -63,6 +67,9 @@ export class MockApi implements DiscoveryApi {
   private readonly now: () => Date;
   private readonly options: readonly ToolOptions[] = makeHireOptions();
   private setup: SetupView = makeSetupView();
+  private settings: Settings = makeSettings();
+  private openDeskId: string | null = null;
+  private testAlertCount = 0;
   /** A structured desk's state follows its conversation; one that ends leaves its floor. */
   private readonly conversations = new MockConversations((sessionId, state) => {
     if (state === null) {
@@ -80,6 +87,39 @@ export class MockApi implements DiscoveryApi {
   constructor(seed: OfficeSnapshot = makeSeedSnapshot(), now: () => Date = () => new Date()) {
     this.snapshot = seed;
     this.now = now;
+  }
+
+  /** The desk whose panel was last reported open, for tests. */
+  get openDesk(): string | null {
+    return this.openDeskId;
+  }
+
+  /** How many test alerts were asked for, for tests. */
+  get testAlerts(): number {
+    return this.testAlertCount;
+  }
+
+  getSettings(): Promise<Settings> {
+    return Promise.resolve(this.settings);
+  }
+
+  updateSettings(patch: SettingsPatch): Promise<Settings> {
+    const cooldown = patch.notifications?.cooldownSecs;
+    if (cooldown !== undefined && !(Number.isInteger(cooldown) && cooldown >= 0 && cooldown <= COOLDOWN_MAX_SECS)) {
+      return Promise.reject(new Error(`the cooldown must be between 0 and ${COOLDOWN_MAX_SECS} seconds`));
+    }
+    this.settings = { ...this.settings, ...patch };
+    return Promise.resolve(this.settings);
+  }
+
+  setOpenDesk(sessionId: string | null): Promise<void> {
+    this.openDeskId = sessionId;
+    return Promise.resolve();
+  }
+
+  testAlert(): Promise<void> {
+    this.testAlertCount += 1;
+    return Promise.resolve();
   }
 
   setupView(): Promise<SetupView> {

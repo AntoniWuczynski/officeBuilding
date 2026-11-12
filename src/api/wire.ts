@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
 
 // Runtime schemas for everything the Rust backend sends. The `satisfies`
@@ -188,6 +188,20 @@ export const hireFailureSchema = z.object({
   exitCode: z.number().nullable(),
   lastLines: z.array(z.string()),
 }) satisfies z.ZodType<HireFailure>;
+
+const notificationSettingsSchema = z.object({
+  finished: z.boolean(),
+  needsYou: z.boolean(),
+  stuck: z.boolean(),
+  sound: z.boolean(),
+  dockBounce: z.boolean(),
+  systemNotification: z.boolean(),
+  cooldownSecs: z.number(),
+});
+
+export const settingsSchema = z.object({
+  notifications: notificationSettingsSchema,
+}) satisfies z.ZodType<Settings>;
 
 /** Parse a backend payload, turning a shape mismatch into a readable error. */
 export function parseWire<T>(schema: z.ZodType<T>, what: string, payload: unknown): T {
