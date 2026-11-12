@@ -16,6 +16,7 @@ pub mod poll;
 pub mod process;
 pub mod project_files;
 pub mod pty;
+pub mod qa;
 pub mod secrets;
 pub mod settings;
 pub mod setup;
@@ -36,6 +37,29 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::Store;
 use tauri::{Emitter, Manager};
+
+/// The pull request watch behind the QA desks, handed to Tauri. It pushes a snapshot when
+/// anything it shows has changed.
+fn qa_watch(
+    app: &tauri::App,
+    settings: &Arc<SettingsStore>,
+    data: PathBuf,
+) -> Arc<qa::watch::Watch> {
+    let handle = app.handle().clone();
+    let qa_watch = Arc::new(qa::watch::Watch::new(
+        Arc::new(process::SystemRunner),
+        Arc::clone(settings),
+        data,
+        Box::new(move || {
+            // A closed webview just means nobody is listening right now.
+            if let Some(office) = handle.try_state::<Arc<Office>>() {
+                let _ = handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
+            }
+        }),
+    ));
+    app.manage(Arc::clone(&qa_watch));
+    qa_watch
+}
 
 /// Open the stores, start discovery and the watchers, and hand Tauri the shared state.
 fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -61,7 +85,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     ));
     app.manage(Arc::clone(&hub));
     app.manage(linear);
-    app.manage(settings);
+    app.manage(Arc::clone(&settings));
     app.manage(Arc::new(editor::Editors::new(
         Arc::new(process::SystemRunner),
         vec![PathBuf::from("/Applications"), home.join("Applications")],
@@ -106,15 +130,19 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }));
+    let qa_watch = qa_watch(app, &settings, data.clone());
     let office = Arc::new(
         Office::new(home.clone(), store, terminals, setup, feed, structured)
-            .with_connectors(Arc::clone(&hub)),
+            .with_connectors(Arc::clone(&hub))
+            .with_settings(Arc::clone(&settings))
+            .with_qa(Arc::clone(&qa_watch)),
     );
     office.refresh();
     office.ensure_setup_floor()?;
     watch::start_setup(app.handle().clone(), watched_setup)?;
     app.manage(office.clone());
     let polled = Arc::clone(&office);
+    let reviewed: Arc<dyn qa::watch::Building> = office.clone();
     watch::start(
         app.handle().clone(),
         office,
@@ -128,6 +156,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ],
     )?;
     connectors::hub::start(&hub, move || polled.linked_floors())?;
+    qa::watch::start(&qa_watch, reviewed)?;
     Ok(())
 }
 
@@ -186,6 +215,9 @@ pub fn run() -> tauri::Result<()> {
             commands::disconnect_floor,
             commands::recheck_connectors,
             commands::open_todo_link,
+            commands::set_floor_qa,
+            commands::open_review,
+            commands::recheck_qa,
         ])
         .run(tauri::generate_context!())
 }

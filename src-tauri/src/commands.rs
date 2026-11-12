@@ -13,7 +13,8 @@ use crate::model::{
     QuestionAnswer, Session, Shell, TerminalBacklog, ToolKind, ToolOptions, ToolUsage,
 };
 use crate::office::Office;
-use crate::process::{Runner, SystemRunner};
+use crate::process::{Runner, SystemRunner, browser_call};
+use crate::qa::watch::Watch;
 use crate::settings::{Settings, SettingsPatch, SettingsStore};
 use crate::setup::{ItemKind, SetupView, Targets};
 use crate::structured::desks::Backlog;
@@ -25,6 +26,7 @@ use tauri::{AppHandle, Emitter, State};
 type OfficeState<'a> = State<'a, Arc<Office>>;
 type HubState<'a> = State<'a, Arc<Hub>>;
 type LinearState<'a> = State<'a, Arc<Linear>>;
+type WatchState<'a> = State<'a, Arc<Watch>>;
 
 /// How long `open` has to hand a link to the browser.
 const OPEN_WAIT: Duration = Duration::from_secs(5);
@@ -282,17 +284,23 @@ pub fn get_settings(settings: State<'_, Arc<SettingsStore>>) -> Settings {
     settings.get()
 }
 
-/// A changed agent label re-sorts the connectors' items, so it polls them again.
+/// A changed agent label re-sorts the connectors' items, so it polls them again. Changed QA
+/// settings ask GitHub again at once.
 #[tauri::command]
 pub fn update_settings(
     settings: State<'_, Arc<SettingsStore>>,
     hub: HubState<'_>,
+    watch: WatchState<'_>,
     patch: SettingsPatch,
 ) -> Result<Settings, String> {
     let connectors_changed = patch.connectors.is_some();
+    let qa_changed = patch.qa.is_some();
     let updated = settings.update(patch)?;
     if connectors_changed {
         hub.wake();
+    }
+    if qa_changed {
+        watch.recheck();
     }
     Ok(updated)
 }
@@ -418,6 +426,47 @@ pub async fn open_todo_link(office: OfficeState<'_>, todo_id: String) -> Result<
     let (_, kind, _) =
         connectors::parse_item_id(&todo_id).ok_or("that item has no page to open")?;
     let call = connectors::link_call(kind, &url)?;
+    tauri::async_runtime::spawn_blocking(move || match SystemRunner.launch(&call, OPEN_WAIT)? {
+        Some(0) | None => Ok(()),
+        Some(_) => Err("the link did not open".to_string()),
+    })
+    .await
+    .map_err(|e| format!("the link did not open: {e}"))?
+}
+
+/// Switch a floor's QA desk on or off. Switching it on pins the floor.
+#[tauri::command]
+pub fn set_floor_qa(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    watch: WatchState<'_>,
+    project_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    office.set_floor_qa(&project_id, enabled)?;
+    push_snapshot(&app, &office);
+    watch.recheck();
+    Ok(())
+}
+
+/// Ask GitHub for pull requests again now. It only sets a flag and wakes the watch.
+#[tauri::command]
+pub fn recheck_qa(watch: WatchState<'_>) {
+    watch.recheck();
+}
+
+/// The URL is built from the stored review, never taken from the webview, and must be a
+/// GitHub page. On a blocking thread: it waits for `open` to hand over.
+#[tauri::command]
+pub async fn open_review(
+    office: OfficeState<'_>,
+    project_id: String,
+    number: u64,
+    head: String,
+) -> Result<(), String> {
+    let url = office.review_link(&project_id, number, &head)?;
+    let call = browser_call(&url, "https://github.com/")
+        .ok_or_else(|| "that link does not go to GitHub".to_string())?;
     tauri::async_runtime::spawn_blocking(move || match SystemRunner.launch(&call, OPEN_WAIT)? {
         Some(0) | None => Ok(()),
         Some(_) => Err("the link did not open".to_string()),

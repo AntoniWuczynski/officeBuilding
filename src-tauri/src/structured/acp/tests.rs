@@ -416,6 +416,7 @@ mod live {
         let launch = Launch {
             env,
             opts: Vec::new(),
+            flags: Vec::new(),
         };
         let (tx, rx) = mpsc::channel();
         let driver = start(

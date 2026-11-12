@@ -2,6 +2,7 @@
 //! request types of `src/api/DiscoveryApi.ts`. Everything serialises in the
 //! shape the frontend expects (camelCase fields, kebab-case enum values).
 
+use crate::qa::record::{Review, Verdict};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -380,6 +381,55 @@ pub struct OfficeSnapshot {
     pub shells: Vec<Shell>,
     /// Each standing floor's links to connectors, with how the last check went.
     pub connections: Vec<Connection>,
+    /// One entry per standing floor except the setup floor, in floor order.
+    pub qa: Vec<QaFloor>,
+}
+
+/// What a floor's QA desk is doing (`QaStatus` in types.ts).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum QaStatus {
+    /// Switched off for this floor.
+    Off,
+    /// On, and GitHub has not been asked yet.
+    Waiting,
+    /// The last check worked. `open`: A Human's open pull requests there, drafts included.
+    Watching {
+        repo: String,
+        checked_at: String,
+        open: u32,
+    },
+    /// It cannot review: why, in words. No trailing full stop.
+    Blocked { reason: String },
+}
+
+/// The review a floor's desk is running now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QaRun {
+    pub number: u64,
+    pub title: String,
+    pub started_at: String,
+    /// The reviewer's desk, once discovery has bound its session to its terminal.
+    pub session_id: Option<String>,
+}
+
+/// A floor's QA desk (`QaFloor` in types.ts).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QaFloor {
+    pub project_id: String,
+    pub enabled: bool,
+    pub status: QaStatus,
+    pub run: Option<QaRun>,
+    /// Newest first, at most 5.
+    pub reviews: Vec<Review>,
+    /// The stamp on the nameplate: the verdict standing for the pull requests' current heads.
+    pub stamp: Option<Verdict>,
 }
 
 /// A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk.
@@ -605,6 +655,72 @@ mod tests {
             }),
             json!({ "kind": "unavailable", "reason": "locked" })
         );
+    }
+
+    #[test]
+    fn qa_types_match_the_wire_json() {
+        use crate::qa::record::ReviewOutcome;
+        assert_eq!(value(&QaStatus::Off), json!({ "kind": "off" }));
+        assert_eq!(value(&QaStatus::Waiting), json!({ "kind": "waiting" }));
+        assert_eq!(
+            value(&QaStatus::Watching {
+                repo: "example-org/widgets".into(),
+                checked_at: "2026-11-12T10:15:00Z".into(),
+                open: 2
+            }),
+            json!({ "kind": "watching", "repo": "example-org/widgets",
+                    "checkedAt": "2026-11-12T10:15:00Z", "open": 2 })
+        );
+        assert_eq!(
+            value(&QaStatus::Blocked {
+                reason: "gh is not signed in".into()
+            }),
+            json!({ "kind": "blocked", "reason": "gh is not signed in" })
+        );
+        let floor = QaFloor {
+            project_id: "p-1a2b3c4d".into(),
+            enabled: true,
+            status: QaStatus::Waiting,
+            run: Some(QaRun {
+                number: 14,
+                title: "Cache the price list".into(),
+                started_at: "2026-11-12T10:20:05Z".into(),
+                session_id: Some("s-7".into()),
+            }),
+            reviews: vec![Review {
+                repo: "example-org/widgets".into(),
+                number: 12,
+                title: "Add a retry to the uploader".into(),
+                head: "0123456789abcdef0123456789abcdef01234567".into(),
+                at: "2026-11-12T10:05:00Z".into(),
+                outcome: ReviewOutcome::Posted {
+                    verdict: Verdict::Concerns,
+                    findings: 2,
+                    review_id: 90210,
+                },
+            }],
+            stamp: Some(Verdict::Concerns),
+        };
+        assert_eq!(
+            value(&floor),
+            json!({
+                "projectId": "p-1a2b3c4d", "enabled": true, "status": { "kind": "waiting" },
+                "run": { "number": 14, "title": "Cache the price list",
+                         "startedAt": "2026-11-12T10:20:05Z", "sessionId": "s-7" },
+                "reviews": [{ "repo": "example-org/widgets", "number": 12,
+                    "title": "Add a retry to the uploader",
+                    "head": "0123456789abcdef0123456789abcdef01234567",
+                    "at": "2026-11-12T10:05:00Z",
+                    "outcome": { "kind": "posted", "verdict": "concerns",
+                                 "findings": 2, "reviewId": 90210 } }],
+                "stamp": "concerns"
+            })
+        );
+    }
+
+    #[test]
+    fn a_default_snapshot_has_no_qa_floors() {
+        assert_eq!(value(&OfficeSnapshot::default())["qa"], json!([]));
     }
 
     #[test]

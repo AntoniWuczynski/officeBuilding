@@ -712,6 +712,7 @@ fn own_home(name: &str) -> (std::path::PathBuf, crate::setup::Launch) {
     let launch = crate::setup::Launch {
         env: vec![("CODEX_HOME", home.to_string_lossy().into_owned())],
         opts: Vec::new(),
+        flags: Vec::new(),
     };
     (home, launch)
 }
@@ -755,6 +756,7 @@ fn live_approval() {
     let launch = crate::setup::Launch {
         env: vec![("CODEX_HOME", home.to_string_lossy().into_owned())],
         opts: Vec::new(),
+        flags: Vec::new(),
     };
     let mut asked = false;
     let (thread, dir) = live(

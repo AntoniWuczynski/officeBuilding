@@ -3,6 +3,7 @@
 //! one JSON file in the app's data directory.
 
 use crate::model::{AgentMessage, Decision, Link, TodoItem};
+use crate::qa::record::QaRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -30,6 +31,9 @@ pub struct Records {
     /// What feeds each floor from outside (absolute repo roots, like `pinned_floors`).
     #[serde(default)]
     pub connectors: BTreeMap<String, Vec<Link>>,
+    /// Each floor's QA switch and reviews (absolute repo roots, like `pinned_floors`).
+    #[serde(default)]
+    pub qa: BTreeMap<String, QaRecord>,
     #[serde(default)]
     pub seq: u64,
 }
@@ -149,6 +153,7 @@ mod tests {
         let store = Store::open(path.clone()).expect("open");
         assert_eq!(store.records.todos[0].source, TodoSource::App);
         assert!(store.records.connectors.is_empty());
+        assert!(store.records.qa.is_empty());
         store.save().expect("save");
         assert_eq!(
             Store::open(path.clone()).expect("reopen").records,
@@ -175,6 +180,29 @@ mod tests {
         store.save().expect("save");
         let again = Store::open(path.clone()).expect("reopen");
         assert_eq!(again.records.connectors["/r"], vec![link]);
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn a_qa_record_with_a_review_round_trips_through_a_save() {
+        use crate::qa::record::{Review, ReviewOutcome};
+        let path = temp_path("qa");
+        let mut store = Store::open(path.clone()).expect("open");
+        let record = QaRecord {
+            enabled: Some(true),
+            reviews: vec![Review {
+                repo: "example-org/widgets".into(),
+                number: 3,
+                title: "Cache the price list".into(),
+                head: "a".repeat(40),
+                at: "2026-11-12T10:00:00Z".into(),
+                outcome: ReviewOutcome::Clean,
+            }],
+        };
+        store.records.qa.insert("/r".into(), record.clone());
+        store.save().expect("save");
+        let again = Store::open(path.clone()).expect("reopen");
+        assert_eq!(again.records.qa["/r"], record);
         fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
     }
 }

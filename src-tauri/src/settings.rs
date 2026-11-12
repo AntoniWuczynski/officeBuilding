@@ -6,11 +6,16 @@ use crate::store::write_json_atomic;
 use crate::sync::lock;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub const COOLDOWN_MAX_SECS: u32 = 600;
 pub const AGENT_LABEL_MAX: usize = 80;
+pub const QA_POLL_MINUTES: RangeInclusive<u32> = 1..=60;
+pub const QA_MAX_CONCURRENT: RangeInclusive<u32> = 1..=4;
+pub const QA_REVIEWS_PER_DAY: RangeInclusive<u32> = 1..=20;
+pub const QA_NAME_MAX: usize = 100;
 const DEFAULT_AGENT_LABEL: &str = "agent";
 
 /// `raw` trimmed, if it is 1 to `AGENT_LABEL_MAX` characters.
@@ -29,6 +34,7 @@ pub struct Settings {
     pub notifications: NotificationSettings,
     pub editor: EditorSettings,
     pub connectors: ConnectorSettings,
+    pub qa: QaSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +92,129 @@ impl Default for ConnectorSettings {
     }
 }
 
+/// The tools that can be the QA reviewer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewerTool {
+    #[default]
+    ClaudeCode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each switch is its own wire field the Settings panel toggles"
+)]
+pub struct QaSettings {
+    /// Whether a floor A Human has never switched has QA on.
+    pub default_on: bool,
+    /// Minutes between checks of GitHub: 1 to 60.
+    pub poll_minutes: u32,
+    /// Review each new head commit. False: only a pull request's first.
+    pub every_push: bool,
+    pub skip_drafts: bool,
+    /// Post a short summary when nothing was found. False: post nothing.
+    pub post_when_clean: bool,
+    /// Reviews running at once across the building: 1 to 4.
+    pub max_concurrent: u32,
+    /// Reviews of one pull request in 24 hours: 1 to 20.
+    pub reviews_per_day: u32,
+    pub tool: ReviewerTool,
+    /// None: the tool's default model.
+    pub model: Option<String>,
+    /// None: the model's default effort.
+    pub effort: Option<String>,
+}
+
+impl Default for QaSettings {
+    fn default() -> Self {
+        Self {
+            default_on: false,
+            poll_minutes: 5,
+            every_push: true,
+            skip_drafts: true,
+            post_when_clean: true,
+            max_concurrent: 1,
+            reviews_per_day: 3,
+            tool: ReviewerTool::ClaudeCode,
+            model: None,
+            effort: None,
+        }
+    }
+}
+
+/// `raw` trimmed, if it is empty (None) or a name of at most `QA_NAME_MAX` characters
+/// with no control character. Err: it is not a valid name.
+fn qa_name(raw: &str) -> Result<Option<String>, ()> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let valid = raw.chars().count() <= QA_NAME_MAX && !raw.chars().any(char::is_control);
+    if valid {
+        Ok(Some(raw.to_string()))
+    } else {
+        Err(())
+    }
+}
+
+/// A range in words: "between 1 and 60".
+fn between(range: &RangeInclusive<u32>) -> String {
+    format!("between {} and {}", range.start(), range.end())
+}
+
+impl QaSettings {
+    /// The same settings with each name trimmed (empty becomes None), or why one is not valid.
+    fn checked(mut self) -> Result<Self, String> {
+        self.model = self
+            .model
+            .as_deref()
+            .map(qa_name)
+            .transpose()
+            .map_err(|()| "that model name is not valid".to_string())?
+            .flatten();
+        self.effort = self
+            .effort
+            .as_deref()
+            .map(qa_name)
+            .transpose()
+            .map_err(|()| "that effort name is not valid".to_string())?
+            .flatten();
+        if !QA_POLL_MINUTES.contains(&self.poll_minutes) {
+            return Err(format!(
+                "the check interval must be {} minutes",
+                between(&QA_POLL_MINUTES)
+            ));
+        }
+        if !QA_MAX_CONCURRENT.contains(&self.max_concurrent) {
+            return Err(format!(
+                "reviews at once must be {}",
+                between(&QA_MAX_CONCURRENT)
+            ));
+        }
+        if !QA_REVIEWS_PER_DAY.contains(&self.reviews_per_day) {
+            return Err(format!(
+                "reviews a day must be {}",
+                between(&QA_REVIEWS_PER_DAY)
+            ));
+        }
+        Ok(self)
+    }
+
+    /// Clamp the numbers into range and drop a name that is not valid, as a file may hold any.
+    fn clamped(mut self) -> Self {
+        let clamp = |v: u32, r: &RangeInclusive<u32>| v.clamp(*r.start(), *r.end());
+        self.poll_minutes = clamp(self.poll_minutes, &QA_POLL_MINUTES);
+        self.max_concurrent = clamp(self.max_concurrent, &QA_MAX_CONCURRENT);
+        self.reviews_per_day = clamp(self.reviews_per_day, &QA_REVIEWS_PER_DAY);
+        let name = |n: Option<String>| n.and_then(|n| qa_name(&n).ok().flatten());
+        self.model = name(self.model);
+        self.effort = name(self.effort);
+        self
+    }
+}
+
 /// A change from the Settings panel: each group present replaces that group whole.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -96,6 +225,8 @@ pub struct SettingsPatch {
     pub editor: Option<EditorSettings>,
     #[serde(default)]
     pub connectors: Option<ConnectorSettings>,
+    #[serde(default)]
+    pub qa: Option<QaSettings>,
 }
 
 impl Settings {
@@ -121,6 +252,9 @@ impl Settings {
                     format!("the agent label must be 1 to {AGENT_LABEL_MAX} characters")
                 })?;
             self.connectors = connectors;
+        }
+        if let Some(qa) = patch.qa {
+            self.qa = qa.checked()?;
         }
         Ok(())
     }
@@ -151,6 +285,7 @@ impl SettingsStore {
         settings.connectors.linear_agent_label =
             agent_label(&settings.connectors.linear_agent_label)
                 .unwrap_or_else(|| DEFAULT_AGENT_LABEL.to_string());
+        settings.qa = settings.qa.clamped();
         Self {
             path,
             current: Mutex::new(settings),
@@ -329,7 +464,10 @@ mod tests {
             r#"{ "notifications": { "finished": true, "needsYou": true, "stuck": true,
             "sound": true, "dockBounce": true, "systemNotification": true,
             "cooldownSecs": 10 }, "editor": { "preferred": null },
-            "connectors": { "linearAgentLabel": "agent" } }"#,
+            "connectors": { "linearAgentLabel": "agent" },
+            "qa": { "defaultOn": false, "pollMinutes": 5, "everyPush": true, "skipDrafts": true,
+            "postWhenClean": true, "maxConcurrent": 1, "reviewsPerDay": 3,
+            "tool": "claude-code", "model": null, "effort": null } }"#,
         )
         .expect("json");
         assert_eq!(
@@ -435,5 +573,150 @@ mod tests {
             assert_eq!(got.connectors.linear_agent_label, "agent");
             cleanup(&path);
         }
+    }
+
+    type Change = fn(&mut QaSettings);
+
+    fn qa_patch(change: impl FnOnce(&mut QaSettings)) -> SettingsPatch {
+        let mut qa = QaSettings::default();
+        change(&mut qa);
+        SettingsPatch {
+            qa: Some(qa),
+            ..SettingsPatch::default()
+        }
+    }
+
+    #[test]
+    fn a_file_without_the_qa_group_loads_the_defaults() {
+        let path = with_file("no-qa", r#"{"editor":{}}"#);
+        assert_eq!(
+            SettingsStore::open(path.clone()).get().qa,
+            QaSettings::default()
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn out_of_range_qa_numbers_are_refused_and_change_nothing() {
+        let path = temp_path("qa-refuse");
+        let store = SettingsStore::open(path.clone());
+        store
+            .update(qa_patch(|q| q.default_on = true))
+            .expect("update");
+        let before = fs::read_to_string(&path).expect("file");
+        let bad: [(Change, &str); 6] = [
+            (
+                |q| q.poll_minutes = 0,
+                "the check interval must be between 1 and 60 minutes",
+            ),
+            (
+                |q| q.poll_minutes = 61,
+                "the check interval must be between 1 and 60 minutes",
+            ),
+            (
+                |q| q.max_concurrent = 0,
+                "reviews at once must be between 1 and 4",
+            ),
+            (
+                |q| q.max_concurrent = 5,
+                "reviews at once must be between 1 and 4",
+            ),
+            (
+                |q| q.reviews_per_day = 0,
+                "reviews a day must be between 1 and 20",
+            ),
+            (
+                |q| q.reviews_per_day = 21,
+                "reviews a day must be between 1 and 20",
+            ),
+        ];
+        for (change, message) in bad {
+            assert_eq!(
+                store.update(qa_patch(change)).expect_err("refused"),
+                message
+            );
+        }
+        assert!(store.get().qa.default_on);
+        assert_eq!(fs::read_to_string(&path).expect("file"), before);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn the_ends_of_the_qa_ranges_are_accepted() {
+        let path = temp_path("qa-ends");
+        let store = SettingsStore::open(path.clone());
+        for (poll, at_once, per_day) in [(1, 1, 1), (60, 4, 20)] {
+            let saved = store
+                .update(qa_patch(|q| {
+                    q.poll_minutes = poll;
+                    q.max_concurrent = at_once;
+                    q.reviews_per_day = per_day;
+                }))
+                .expect("ends");
+            assert_eq!(
+                (
+                    saved.qa.poll_minutes,
+                    saved.qa.max_concurrent,
+                    saved.qa.reviews_per_day
+                ),
+                (poll, at_once, per_day)
+            );
+        }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn qa_names_are_trimmed_emptied_or_refused() {
+        let path = temp_path("qa-names");
+        let store = SettingsStore::open(path.clone());
+        let saved = store
+            .update(qa_patch(|q| {
+                q.model = Some("  opus  ".into());
+                q.effort = Some(String::new());
+            }))
+            .expect("update");
+        assert_eq!(saved.qa.model.as_deref(), Some("opus"));
+        assert_eq!(saved.qa.effort, None);
+        let long = "x".repeat(101);
+        let err = store
+            .update(qa_patch(|q| q.model = Some(long.clone())))
+            .expect_err("long");
+        assert_eq!(err, "that model name is not valid");
+        let err = store
+            .update(qa_patch(|q| q.effort = Some(long.clone())))
+            .expect_err("long");
+        assert_eq!(err, "that effort name is not valid");
+        let err = store
+            .update(qa_patch(|q| q.model = Some("o\npus".into())))
+            .expect_err("control");
+        assert_eq!(err, "that model name is not valid");
+        assert!(
+            store
+                .update(qa_patch(|q| q.model = Some("x".repeat(100))))
+                .is_ok()
+        );
+        assert_eq!(SettingsStore::open(path.clone()).get(), store.get());
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_file_with_out_of_range_qa_values_loads_clamped() {
+        let path = with_file(
+            "qa-clamp",
+            r#"{"qa":{"pollMinutes":0,"maxConcurrent":99,"reviewsPerDay":500,"model":"  ","effort":"bad\u0007"}}"#,
+        );
+        let qa = SettingsStore::open(path.clone()).get().qa;
+        assert_eq!(
+            (qa.poll_minutes, qa.max_concurrent, qa.reviews_per_day),
+            (1, 4, 20)
+        );
+        assert_eq!((qa.model, qa.effort), (None, None));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_patch_naming_an_unknown_reviewer_tool_does_not_deserialise() {
+        assert!(serde_json::from_str::<SettingsPatch>(r#"{"qa":{"tool":"codex"}}"#).is_err());
+        assert!(serde_json::from_str::<SettingsPatch>(r#"{"qa":{"tool":"claude-code"}}"#).is_ok());
     }
 }

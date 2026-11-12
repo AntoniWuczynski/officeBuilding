@@ -1,0 +1,9 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "/data/example/transcript.jsonl",
+  "cwd": "/data/example/worktree",
+  "permission_mode": "dontAsk",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "```json\n{\n  \"verdict\": \"concerns\",\n  \"summary\": \"The retry loop never stops on a 4xx reply.\",\n  \"findings\": [\n    {\n      \"file\": \"src/upload.rs\",\n      \"line\": 42,\n      \"severity\": \"high\",\n      \"summary\": \"A 404 is retried forever.\",\n      \"failure_scenario\": \"Deleting the bucket makes every upload spin until the process is killed.\"\n    }\n  ]\n}\n```"
+}

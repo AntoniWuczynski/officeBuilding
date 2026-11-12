@@ -13,12 +13,14 @@ use crate::model::{
 use crate::options;
 use crate::project_files::{self, ProjectFiles};
 use crate::pty::{self, Terminals};
+use crate::qa;
+use crate::settings::SettingsStore;
 use crate::setup::{Launch, Library};
 use crate::store::Store;
 use crate::structured::{self, desks::Desks};
 use launch::{
-    DESK_ACTIVE, Desk, Launched, desk_session, desk_session_id, hireable, is_discovered,
-    launch_command,
+    DESK_ACTIVE, Desk, Launched, chosen_model, desk_session, desk_session_id, hireable,
+    is_discovered, launch_command,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -47,6 +49,9 @@ struct Inner {
     desks: BTreeMap<String, Desk>,
     /// Plain shells the human opened, by terminal id, until they exit.
     shells: BTreeMap<String, Shell>,
+    /// The terminal of each running QA reviewer, with its floor's project id. Only
+    /// `seat_reviewer` adds to it and only `dismiss_reviewer` removes from it.
+    reviewers: BTreeMap<String, String>,
 }
 
 pub struct Office {
@@ -60,6 +65,10 @@ pub struct Office {
     setup_project_id: String,
     /// The connectors' cache of each linked floor's items.
     connectors: Arc<Hub>,
+    /// The app's settings, if this office was given them.
+    settings: Option<Arc<SettingsStore>>,
+    /// The pull request watch behind each floor's QA desk, if this office was given one.
+    qa: Option<Arc<qa::watch::Watch>>,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -313,9 +322,12 @@ impl Office {
                 hired: BTreeMap::new(),
                 desks: BTreeMap::new(),
                 shells: BTreeMap::new(),
+                reviewers: BTreeMap::new(),
             }),
             terminals,
             connectors: Arc::new(Hub::new(Vec::new(), Box::new(|| {}))),
+            settings: None,
+            qa: None,
         }
     }
 
@@ -333,6 +345,9 @@ impl Office {
         let mut found = inner.discovery.scan(SystemTime::now());
         let pinned = inner.store.records.pinned_floors.clone();
         drop_demolished(&mut found, &inner.store.records.demolished_floors);
+        if let Some(data) = inner.store.path().parent() {
+            reviewers::hide_ended_reviewers(&mut found, &qa::worktrees_dir(data));
+        }
         let running = self.terminals.running_children();
         inner
             .desks
@@ -423,6 +438,7 @@ impl Office {
             setup_project_id: self.setup_project_id.clone(),
             shells: inner.shells.values().cloned().collect(),
             connections: self.connections(&inner),
+            qa: self.qa_floors(&inner),
         }
     }
 
@@ -446,17 +462,7 @@ impl Office {
             .cloned()
             .ok_or_else(|| format!("unknown project: {project_id}"))?;
         let tool = hireable(self.hire_options(), req.tool)?;
-        let model = tool
-            .models
-            .iter()
-            .find(|m| m.id == req.model)
-            .ok_or_else(|| format!("{} is not a model the app can start", req.model))?;
-        if !model.efforts.iter().any(|e| e.id == req.effort) {
-            return Err(format!(
-                "{} does not support {} effort",
-                model.label, req.effort
-            ));
-        }
+        let (model, _) = chosen_model(&tool, Some(&req.model), Some(&req.effort))?;
         let task = req.title.trim();
         if req.structured {
             return self.spawn_structured(project_id, &root, req, model, task);
@@ -901,8 +907,11 @@ mod connectors;
 mod desk_states;
 mod folders;
 mod launch;
+mod qa_desk;
+mod reviewers;
 mod setup;
 mod shells;
+mod staff;
 mod structured_desks;
 mod todos;
 use structured_desks::with_structured;
