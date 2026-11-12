@@ -1,7 +1,7 @@
 //! Editors the building can open a folder in: which are installed, which is the default,
 //! and the launch. The folder always comes from the backend (`Office::folder_of`).
 
-use crate::process::{Call, Runner};
+use crate::process::{Call, Runner, login_paths};
 use crate::sync::lock;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
@@ -105,16 +105,6 @@ pub struct Installed {
     pub routes: Vec<Route>,
 }
 
-/// The probe script: built from the constant command names only, never from data.
-fn probe_script() -> String {
-    SPECS
-        .iter()
-        .flat_map(|s| s.commands)
-        .map(|name| format!("command -v {name}"))
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-
 /// Whether `command` sits inside the app bundle of a listed editor other than `spec`'s.
 /// Cursor ships a `code` command in its own bundle, which must not count as VS Code.
 fn owned_by_another(command: &Path, spec: &Spec) -> bool {
@@ -151,16 +141,11 @@ fn app_route(spec: &Spec, app_dirs: &[PathBuf]) -> Option<Route> {
 
 /// The installed editors, in list order. One login-shell run plus a look in `app_dirs`.
 pub fn detect(runner: &dyn Runner, shell: &str, app_dirs: &[PathBuf]) -> Vec<Installed> {
-    let probe = Call::new(shell, ["-l".to_string(), "-c".to_string(), probe_script()]);
-    // A probe that cannot start finds no commands. Its exit code says nothing: `command -v`
-    // fails for the last name whenever that one is missing, whatever was found before it.
-    let stdout = runner.capture(&probe).map(|c| c.stdout).unwrap_or_default();
-    let paths: Vec<PathBuf> = stdout
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with('/'))
-        .map(PathBuf::from)
-        .collect();
+    let paths = login_paths(
+        runner,
+        shell,
+        SPECS.iter().flat_map(|s| s.commands).copied(),
+    );
     SPECS
         .iter()
         .filter_map(|spec| {

@@ -2,6 +2,7 @@
 
 use std::ffi::OsString;
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -15,6 +16,19 @@ const CAPTURE_LIMIT: Duration = Duration::from_secs(5);
 
 /// How long `capture` waits for the pipes to end once the program has exited.
 const PIPE_GRACE: Duration = Duration::from_millis(500);
+
+/// The longest URL the building will hand to the browser.
+pub const URL_MAX: usize = 2000;
+
+/// The program run that opens `url` in the browser, if it is a page of `site`
+/// (a prefix such as `https://github.com/`) with no whitespace or control character.
+#[must_use]
+pub fn browser_call(url: &str, site: &str) -> Option<Call> {
+    let ok = url.starts_with(site)
+        && url.chars().count() <= URL_MAX
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control());
+    ok.then(|| Call::new("/usr/bin/open", ["-u", url]))
+}
 
 /// One program run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,9 +59,15 @@ pub struct Captured {
 }
 
 pub trait Runner: Send + Sync {
-    /// Run to the end and keep what it printed. For programs that finish on their own.
+    /// Run to the end and keep what it printed, giving it `limit`. A program still running
+    /// at the limit is killed and the result has `code: None` and nothing printed.
     /// Err: it could not be started.
-    fn capture(&self, call: &Call) -> Result<Captured, String>;
+    fn capture_within(&self, call: &Call, limit: Duration) -> Result<Captured, String>;
+
+    /// `capture_within` with the default limit of 5 seconds.
+    fn capture(&self, call: &Call) -> Result<Captured, String> {
+        self.capture_within(call, CAPTURE_LIMIT)
+    }
 
     /// Start a program that may leave an app running, with no pipes attached, and wait up
     /// to `within` for it to exit. `Ok(Some(code))`: it exited. `Ok(None)`: still running,
@@ -68,6 +88,42 @@ fn reap_later(mut child: Child) {
         // Only reaping: the exit status of a program left running is of no interest.
         let _ = child.wait();
     });
+}
+
+/// The absolute paths the login shell reports for `names`, one `command -v` each. The script
+/// is built from the constant command names only, never from data.
+pub fn login_paths<'a>(
+    runner: &dyn Runner,
+    shell: &str,
+    names: impl IntoIterator<Item = &'a str>,
+) -> Vec<PathBuf> {
+    let script = names
+        .into_iter()
+        .map(|name| format!("command -v {name}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let probe = Call::new(shell, ["-l".to_string(), "-c".to_string(), script]);
+    // A probe that cannot start finds nothing. Its exit code says nothing: `command -v`
+    // fails for the last name whenever that one is missing, whatever was found before it.
+    let stdout = runner.capture(&probe).map(|c| c.stdout).unwrap_or_default();
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with('/'))
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Kill `child` and everything in its process group (`ssh` under `git`, say).
+fn kill_group(child: &mut Child) {
+    // A negative pid names the group. If the group cannot be signalled, the child still dies.
+    let _ = Command::new("/bin/kill")
+        .args(["-KILL", "--", &format!("-{}", child.id())])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.kill();
 }
 
 /// A command for `call` that does not pass on the launcher's identity (agent tokens, tmux).
@@ -101,15 +157,17 @@ fn drained(rx: &mpsc::Receiver<String>) -> String {
 }
 
 impl Runner for SystemRunner {
-    fn capture(&self, call: &Call) -> Result<Captured, String> {
+    fn capture_within(&self, call: &Call, limit: Duration) -> Result<Captured, String> {
+        // Its own process group, so the deadline can end what the program started too.
         let mut child = command(call)
+            .process_group(0)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| not_started(call, &e))?;
         let stdout = drain(child.stdout.take());
         let stderr = drain(child.stderr.take());
-        let deadline = Instant::now() + CAPTURE_LIMIT;
+        let deadline = Instant::now() + limit;
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
@@ -123,7 +181,7 @@ impl Runner for SystemRunner {
                 // Out of time, or not watchable: stop it and keep nothing. A background job
                 // it started may hold the pipes open, so the readers are left to end alone.
                 Ok(None) | Err(_) => {
-                    let _ = child.kill();
+                    kill_group(&mut child);
                     let _ = child.wait();
                     return Ok(Captured::default());
                 }
@@ -171,6 +229,7 @@ type Reply = Box<dyn Fn(&Call) -> Result<Captured, String> + Send + Sync>;
 #[cfg(test)]
 pub struct FakeRunner {
     calls: std::sync::Mutex<Vec<Call>>,
+    limits: std::sync::Mutex<Vec<Duration>>,
     reply: Reply,
 }
 
@@ -179,6 +238,7 @@ impl FakeRunner {
     pub fn new(reply: impl Fn(&Call) -> Result<Captured, String> + Send + Sync + 'static) -> Self {
         Self {
             calls: std::sync::Mutex::new(Vec::new()),
+            limits: std::sync::Mutex::new(Vec::new()),
             reply: Box::new(reply),
         }
     }
@@ -186,6 +246,11 @@ impl FakeRunner {
     /// Every call so far, in order.
     pub fn calls(&self) -> Vec<Call> {
         crate::sync::lock(&self.calls).clone()
+    }
+
+    /// The limit given to each `capture_within`, in order.
+    pub fn limits(&self) -> Vec<Duration> {
+        crate::sync::lock(&self.limits).clone()
     }
 
     fn record(&self, call: &Call) -> Result<Captured, String> {
@@ -196,7 +261,8 @@ impl FakeRunner {
 
 #[cfg(test)]
 impl Runner for FakeRunner {
-    fn capture(&self, call: &Call) -> Result<Captured, String> {
+    fn capture_within(&self, call: &Call, limit: Duration) -> Result<Captured, String> {
+        crate::sync::lock(&self.limits).push(limit);
         self.record(call)
     }
 
@@ -212,6 +278,26 @@ mod tests {
     use std::path::Path;
 
     const MISSING: &str = "/nonexistent-ob-test/no-such-program";
+
+    #[test]
+    fn browser_call_opens_a_page_of_the_site_only() {
+        let site = "https://github.com/";
+        let url = "https://github.com/example-org/widgets/pull/12#pullrequestreview-90210";
+        assert_eq!(
+            browser_call(url, site),
+            Some(Call::new("/usr/bin/open", ["-u", url]))
+        );
+        let too_long = format!("https://github.com/{}", "x".repeat(URL_MAX));
+        for bad in [
+            "https://gitlab.com/example-org/widgets",
+            "https://github.com.evil.example/x",
+            "https://github.com/example-org/wid gets",
+            "https://github.com/example-org/widgets\n",
+            too_long.as_str(),
+        ] {
+            assert_eq!(browser_call(bad, site), None, "{bad}");
+        }
+    }
 
     #[test]
     fn capture_keeps_an_argument_with_spaces_and_a_quote_whole() {
@@ -247,6 +333,56 @@ mod tests {
             .expect("sh");
         assert_eq!(got.code, None);
         assert!(start.elapsed() < Duration::from_secs(15));
+    }
+
+    #[test]
+    fn capture_within_kills_a_program_that_outlives_its_limit() {
+        let start = Instant::now();
+        let got = SystemRunner
+            .capture_within(
+                &Call::new("/bin/sh", ["-c", "exec sleep 30"]),
+                Duration::from_millis(200),
+            )
+            .expect("sh");
+        assert_eq!(got.code, None);
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn capture_within_kills_what_the_program_started() {
+        let pid_file =
+            std::env::temp_dir().join(format!("ob-process-group-{}", std::process::id()));
+        let script = format!("sleep 30 & echo $! > {}; wait", pid_file.display());
+        let got = SystemRunner
+            .capture_within(
+                &Call::new("/bin/sh", ["-c", script.as_str()]),
+                Duration::from_millis(500),
+            )
+            .expect("sh");
+        assert_eq!(got.code, None);
+        let pid = std::fs::read_to_string(&pid_file)
+            .expect("pid")
+            .trim()
+            .to_string();
+        let _ = std::fs::remove_file(&pid_file);
+        std::thread::sleep(Duration::from_millis(200));
+        let alive = Command::new("/bin/kill")
+            .args(["-0", &pid])
+            .output()
+            .expect("kill")
+            .status
+            .success();
+        assert!(!alive, "the background sleep {pid} is still running");
+    }
+
+    #[test]
+    fn fake_runner_records_a_capture_within_call_and_its_limit() {
+        let fake = FakeRunner::new(|_| Ok(Captured::default()));
+        let call = Call::new("/a", ["x"]);
+        let limit = Duration::from_secs(30);
+        assert_eq!(fake.capture_within(&call, limit), Ok(Captured::default()));
+        assert_eq!(fake.calls(), vec![call]);
+        assert_eq!(fake.limits(), vec![limit]);
     }
 
     #[test]

@@ -6,12 +6,13 @@ pub mod hub;
 pub mod linear;
 
 use crate::model::{ConnectorKind, Link, Party, TodoSource};
-use crate::process::Call;
+#[cfg(test)]
+use crate::process::URL_MAX;
+use crate::process::{Call, browser_call};
 use std::time::Duration;
 
 const TEAM_FIELD_MAX: usize = 100;
 const PROJECT_NAME_MAX: usize = 200;
-const URL_MAX: usize = 2000;
 
 /// A standing floor with at least one link.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,14 +165,7 @@ pub fn link_call(kind: ConnectorKind, url: &str) -> Result<Call, String> {
     let prefix = match kind {
         ConnectorKind::Linear => "https://linear.app/",
     };
-    let ok = url.starts_with(prefix)
-        && url.chars().count() <= URL_MAX
-        && !url.chars().any(|c| c.is_whitespace() || c.is_control());
-    if ok {
-        Ok(Call::new("/usr/bin/open", ["-u", url]))
-    } else {
-        Err(format!("that link does not go to {}", kind.label()))
-    }
+    browser_call(url, prefix).ok_or_else(|| format!("that link does not go to {}", kind.label()))
 }
 
 #[cfg(test)]

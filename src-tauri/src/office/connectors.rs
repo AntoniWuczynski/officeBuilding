@@ -122,7 +122,7 @@ impl Office {
     }
 
     /// The key a floor's records are stored under: its absolute repo root.
-    fn root_key(inner: &Inner, project_id: &str) -> Result<String, String> {
+    pub(super) fn root_key(inner: &Inner, project_id: &str) -> Result<String, String> {
         inner
             .found
             .roots
