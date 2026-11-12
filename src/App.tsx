@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import type { DiscoveryApi, HireRequest, QuestionAnswer } from "./api/DiscoveryApi";
-import type { Session } from "./types";
+import type { Session, SettingsPatch } from "./types";
 import { TOOL_LABEL, sessionById } from "./state/selectors";
 import { useNow } from "./state/useNow";
 import { useOffice } from "./state/useOffice";
@@ -12,6 +12,7 @@ import { FloorView } from "./components/floor/FloorView";
 import type { Section } from "./components/floor/sections";
 import { TerminalApiContext } from "./components/floor/TerminalPanel";
 import { ConversationApiContext } from "./components/floor/Conversation";
+import { SettingsPanel } from "./components/settings/SettingsPanel";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
 import { message } from "./lib/errors";
@@ -32,6 +33,7 @@ export function App({ api }: Props): React.ReactElement {
   const [view, setView] = useState<View>({ kind: "building" });
   const [origin, setOrigin] = useState<ScreenOrigin>({ x: 0, y: 0 });
   const [section, setSection] = useState<Section | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
   const toastSeq = useRef(0);
@@ -80,10 +82,16 @@ export function App({ api }: Props): React.ReactElement {
     setView({ kind: "building" });
   }, []);
 
+  // The docked terminal and the Settings plate never overlap, so showing one shuts the other.
+  const showTerminal = useCallback((id: string) => {
+    setSettingsOpen(false);
+    setOpenSessionId(id);
+  }, []);
+
   const openSession = useCallback(
     (session: Session) => {
       if (session.control !== "raise-window") {
-        setOpenSessionId(session.id);
+        showTerminal(session.id);
         return;
       }
       api
@@ -91,7 +99,7 @@ export function App({ api }: Props): React.ReactElement {
         .then(() => toast("ok", `Brought the ${TOOL_LABEL[session.tool]} window for “${session.title}” to the front.`))
         .catch((err: unknown) => toast("error", `Could not raise the window for “${session.title}”: ${message(err)}.`));
     },
-    [api, toast],
+    [api, toast, showTerminal],
   );
 
   const hire = useCallback(
@@ -102,7 +110,7 @@ export function App({ api }: Props): React.ReactElement {
     [api, toast],
   );
 
-  const newShell = useCallback((projectId: string) => api.openShell(projectId).then((s) => setOpenSessionId(s.id)), [api]);
+  const newShell = useCallback((projectId: string) => api.openShell(projectId).then((s) => showTerminal(s.id)), [api, showTerminal]);
 
   // Cmd+N on a floor opens a new shell there, as it opens a window in Terminal.app.
   // Captured first so a focused terminal cannot swallow it.
@@ -118,6 +126,41 @@ export function App({ api }: Props): React.ReactElement {
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [floorId, newShell, toast]);
+
+  const openSettings = useCallback(() => {
+    // Plates never overlap: the Hire, Add floor and Demolish dialogs must be closed first.
+    if (document.querySelector(".dialog:not(.settings-dialog)") !== null) return;
+    setSection(null);
+    setOpenSessionId(null);
+    setSettingsOpen(true);
+  }, []);
+  const chooseSection = useCallback((next: Section | null) => {
+    if (next !== null) setSettingsOpen(false);
+    setSection(next);
+  }, []);
+
+  // Cmd+, toggles Settings from the building and from any floor. Captured first so a focused terminal cannot swallow it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key !== ",") return;
+      e.preventDefault();
+      if (e.repeat) return;
+      if (settingsOpen) setSettingsOpen(false);
+      else openSettings();
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [settingsOpen, openSettings]);
+
+  // Tell the backend which desk is open so it does not alert for it. A failed report only means an extra alert.
+  useEffect(() => {
+    api.setOpenDesk(openSessionId).catch(() => {});
+  }, [api, openSessionId]);
+
+  const loadSettings = useCallback(() => api.getSettings(), [api]);
+  const saveSettings = useCallback((patch: SettingsPatch) => api.updateSettings(patch), [api]);
+  const testAlert = useCallback(() => api.testAlert(), [api]);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
   const loadHireOptions = useCallback(() => api.hireOptions(), [api]);
   const loadUsage = useCallback((refresh: boolean) => api.toolUsage(refresh), [api]);
@@ -213,6 +256,7 @@ export function App({ api }: Props): React.ReactElement {
               onAddFloor={addFloor}
               onDemolishFloor={demolishFloor}
               loadUsage={loadUsage}
+              onOpenPlate={closeSettings}
             />
           </motion.div>
         ) : (
@@ -230,7 +274,9 @@ export function App({ api }: Props): React.ReactElement {
               now={now}
               section={section}
               openSessionId={openSessionId}
-              onSection={setSection}
+              onSection={chooseSection}
+              onOpenSettings={openSettings}
+              onOpenPlate={closeSettings}
               onOpenSession={openSession}
               onCloseTerminal={() => setOpenSessionId(null)}
               onBack={leave}
@@ -239,7 +285,7 @@ export function App({ api }: Props): React.ReactElement {
               onAnswer={answer}
               onTick={tick}
               onResume={resume}
-              onOpenShell={setOpenSessionId}
+              onOpenShell={showTerminal}
               onNewShell={() => newShell(project.id)}
               onEndShell={(id) => api.endShell(id)}
               setup={setup}
@@ -256,6 +302,7 @@ export function App({ api }: Props): React.ReactElement {
       <ConversationApiContext value={api}>
         <div className="app">
           {body}
+          {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
       </ConversationApiContext>

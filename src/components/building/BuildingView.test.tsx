@@ -17,6 +17,7 @@ function view(snapshot: OfficeSnapshot, onDemolishFloor: Demolish = () => Promis
       onAddFloor={(path) => Promise.resolve({ id: "p-new", name: path, path, sessionIds: [] })}
       onDemolishFloor={onDemolishFloor}
       loadUsage={() => Promise.resolve([])}
+      onOpenPlate={() => {}}
     />
   );
 }

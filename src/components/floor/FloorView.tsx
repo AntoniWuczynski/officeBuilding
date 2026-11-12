@@ -34,6 +34,9 @@ interface Props {
   readonly section: Section | null;
   readonly openSessionId: string | null;
   readonly onSection: (section: Section | null) => void;
+  readonly onOpenSettings: () => void;
+  /** The Hire plate is opening, so no other plate may stay open over it. */
+  readonly onOpenPlate: () => void;
   readonly onOpenSession: (session: Session) => void;
   readonly onCloseTerminal: () => void;
   readonly onBack: () => void;
@@ -52,7 +55,7 @@ interface Props {
 
 /** The sketch's project screen: the open-plan floor, its search and tally, the rail and panels. */
 export function FloorView(props: Props): React.ReactElement {
-  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, loadHireOptions, onHire, onAnswer, onTick, onResume, onOpenShell, onNewShell, onEndShell, setup } = props;
+  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, onOpenSettings, onOpenPlate, loadHireOptions, onHire, onAnswer, onTick, onResume, onOpenShell, onNewShell, onEndShell, setup } = props;
   const setupFloor = snapshot.setupProjectId === project.id;
   // Only the setup floor has a Setup panel, even if one was left open on it.
   const section = props.section === "setup" && !setupFloor ? null : props.section;
@@ -142,7 +145,11 @@ export function FloorView(props: Props): React.ReactElement {
               hiring={hireOpen}
               onOpenSession={onOpenSession}
               onOpenSection={(s) => onSection(s)}
-              onHire={() => setHireOpen(true)}
+              onOpenSettings={onOpenSettings}
+              onHire={() => {
+                onOpenPlate();
+                setHireOpen(true);
+              }}
             />
           </Stage>
 

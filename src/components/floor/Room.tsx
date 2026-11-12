@@ -12,7 +12,7 @@ import { Billboard, CameraContext, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
 import { materialsFor } from "../../scene/materials";
-import { Duct, Tank, toolboxTop } from "../../scene/PlantFittings";
+import { Duct, Tank, fuseBoxTop, toolboxTop } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
 import type { Handed } from "../../scene/Person";
 import { BackWall, LeftWall, ManagerOffice, SignOutStand } from "./RoomObjects";
@@ -47,6 +47,7 @@ interface RoomProps {
   readonly hiring: boolean;
   readonly onOpenSession: (session: Session) => void;
   readonly onOpenSection: (section: Section) => void;
+  readonly onOpenSettings: () => void;
   readonly onHire: () => void;
 }
 
@@ -89,7 +90,7 @@ const ACTION_WORDS: Record<Session["control"], string> = {
 };
 
 /** The open-plan floor: one desk per session, the hire desk, and the manager's objects. */
-export function Room({ sessions, depth, query, now, messages, objects, hiring, onOpenSession, onOpenSection, onHire }: RoomProps): React.ReactElement {
+export function Room({ sessions, depth, query, now, messages, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire }: RoomProps): React.ReactElement {
   const reduced = useReducedMotion() ?? false;
   const seenMessages = useRef<Set<string>>(new Set(messages.map((m) => m.id)));
   const seenWorkers = useRef<Set<string>>(new Set(workerIds(sessions)));
@@ -151,6 +152,7 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
   const receiving = new Map(walks.flatMap((w) => (w.toId === null ? [] : [[w.toId, CARRIES[w.kind] ?? "note"] as const])));
   const hireSlot = roomDeskSlot(sessions.length);
   const toolbox = toolboxTop(TANK.x, depth - TANK.back, TANK.size);
+  const fuse = fuseBoxTop(TANK.x, depth - TANK.back, TANK.size);
 
   return (
     <>
@@ -164,6 +166,11 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
           <Billboard x={toolbox.x} y={toolbox.y} z={ROOM.slab + toolbox.h + 6}>
             <button type="button" className="memo-tag" data-testid="object-setup" aria-label="Toolbox: the building's setup. Open Setup." onClick={() => onOpenSection("setup")}>
               Toolbox
+            </button>
+          </Billboard>
+          <Billboard x={fuse.x} y={fuse.y} z={ROOM.slab + fuse.h + 6}>
+            <button type="button" className="memo-tag" data-testid="object-settings" aria-label="Fuse box: the app's settings. Open Settings." onClick={onOpenSettings}>
+              Fuse box
             </button>
           </Billboard>
         </>

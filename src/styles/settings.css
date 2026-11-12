@@ -1,0 +1,43 @@
+/* ---- the settings plate ---- */
+.settings-dialog {
+  top: 74px;
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100% - 90px);
+}
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.settings-group h3 {
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+  font: 700 16px/1 var(--font-sign);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.field .settings-cooldown {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 13px var(--font-ui);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.settings-cooldown input {
+  width: 5em;
+}
+.settings-test {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}

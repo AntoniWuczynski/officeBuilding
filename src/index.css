@@ -5,6 +5,7 @@
 @import "./scene/cast/puppet.css";
 @import "./styles/chrome.css";
 @import "./styles/setup.css";
+@import "./styles/settings.css";
 @import "./styles/conversation.css";
 
 html,
