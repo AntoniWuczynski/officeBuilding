@@ -10,6 +10,7 @@ import {
   managerLamp,
   managerLine,
   openCount,
+  queuedFor,
   questionsForProject,
   searchSessions,
   sessionCounts,
@@ -187,7 +188,14 @@ export function FloorView(props: Props): React.ReactElement {
 
           <AnimatePresence>
             {openSession !== undefined ? (
-              <TerminalPanel key={openSession.id} session={openSession} manager={manager} onClose={onCloseTerminal} />
+              <TerminalPanel
+                key={openSession.id}
+                session={openSession}
+                manager={manager}
+                chat={snapshot.chatDesks.includes(openSession.id)}
+                queued={queuedFor(snapshot, openSession.id)}
+                onClose={onCloseTerminal}
+              />
             ) : openShell !== undefined ? (
               <TerminalPanel key={openShell.id} shell={openShell} path={project.path} onClose={onCloseTerminal} />
             ) : null}

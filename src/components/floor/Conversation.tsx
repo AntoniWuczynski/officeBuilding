@@ -1,11 +1,14 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { DiscoveryApi } from "../../api/DiscoveryApi";
-import type { Approval, ApprovalField, ConversationEntry, ConversationUpdate, SessionState } from "../../types";
+import type { Approval, ChatCapabilities, ConversationBacklog, ConversationEntry, ConversationUpdate, QueuedNote, SessionState } from "../../types";
 import { message } from "../../lib/errors";
+import { ApprovalCard } from "../chat/ApprovalCard";
+import { Composer } from "../chat/Composer";
+import { EntryLine } from "../chat/EntryLine";
 
 export type ConversationApi = Pick<
   DiscoveryApi,
-  "structuredBacklog" | "subscribeStructured" | "structuredPrompt" | "structuredAnswer" | "structuredCancel" | "structuredStop"
+  "structuredBacklog" | "subscribeStructured" | "structuredPrompt" | "structuredAnswer" | "structuredCancel" | "structuredStop" | "withdrawMessage"
 >;
 
 /** The structured-desk operations, provided by App beside the terminal ones. */
@@ -16,7 +19,12 @@ interface View {
   readonly state: SessionState;
   readonly approval: Approval | null;
   readonly ended: string | null;
+  readonly capabilities: ChatCapabilities;
+  readonly earlier: boolean;
 }
+
+/** The most entries the panel holds; older ones are dropped as new ones arrive. */
+export const PANEL_MAX = 400;
 
 /** Add an entry, or replace the one with the same id (streamed text grows, a tool call finishes). */
 function upsert(list: readonly ConversationEntry[], entry: ConversationEntry): readonly ConversationEntry[] {
@@ -25,26 +33,41 @@ function upsert(list: readonly ConversationEntry[], entry: ConversationEntry): r
 }
 
 function apply(view: View, u: ConversationUpdate): View {
+  const base = u.reset ? [] : view.transcript;
+  const grown = u.entry === null ? base : upsert(base, u.entry);
+  const over = grown.length > PANEL_MAX;
   return {
-    transcript: u.entry === null ? view.transcript : upsert(view.transcript, u.entry),
+    transcript: over ? grown.slice(grown.length - PANEL_MAX) : grown,
     state: u.state,
     approval: u.approval,
     ended: u.ended,
+    capabilities: view.capabilities,
+    earlier: view.earlier || over,
   };
 }
 
-const TOOL_WORDS = { pending: "Waiting", running: "Running", done: "Done", failed: "Failed" } as const;
+function open(b: ConversationBacklog): View {
+  const { transcript, state, approval, ended, capabilities, earlier } = b;
+  return { transcript, state, approval, ended, capabilities, earlier };
+}
 
 /**
- * A structured desk's conversation, in the docked panel: the transcript, an open
- * approval with its choices, and a box for the next message. The agent keeps
- * running when the panel closes.
+ * A chat desk's conversation, in the docked panel: the transcript, an open
+ * approval, and what the desk's capabilities allow below it. It knows no provider:
+ * the backlog says what to offer. The agent keeps running when the panel closes.
  */
-export function Conversation({ sessionId }: { readonly sessionId: string }): React.ReactElement {
+export function Conversation({
+  sessionId,
+  queued = [],
+  onFlip,
+}: {
+  readonly sessionId: string;
+  readonly queued?: readonly QueuedNote[] | undefined;
+  readonly onFlip?: (() => void) | undefined;
+}): React.ReactElement {
   const api = useContext(ConversationApiContext);
   if (api === null) throw new Error("Conversation needs a ConversationApiContext provider");
   const [view, setView] = useState<View | null>(null);
-  const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
 
@@ -59,7 +82,7 @@ export function Conversation({ sessionId }: { readonly sessionId: string }): Rea
     api.structuredBacklog(sessionId).then(
       (b) => {
         loaded = true;
-        setView(early.reduce(apply, b));
+        setView(early.reduce(apply, open(b)));
       },
       (e: unknown) => setError(message(e)),
     );
@@ -70,34 +93,45 @@ export function Conversation({ sessionId }: { readonly sessionId: string }): Rea
     end.current?.scrollIntoView?.({ block: "end" });
   }, [view?.transcript.length, view?.approval]);
 
-  const run = (call: Promise<void>): void => {
+  // Shows a refusal and passes it on, so a caller that must keep something on refusal can.
+  const attempt = (call: Promise<void>): Promise<void> => {
     setError(null);
-    call.catch((e: unknown) => setError(message(e)));
+    return call.catch((e: unknown) => {
+      setError(message(e));
+      throw e;
+    });
   };
-  const send = (): void => {
-    const text = draft.trim();
-    if (text === "") return;
-    setDraft("");
-    run(api.structuredPrompt(sessionId, text));
+  const run = (call: Promise<void>): void => {
+    attempt(call).catch(() => undefined);
   };
 
   if (view === null) {
     return <p className="terminal-note">{error === null ? "Opening the conversation…" : `The conversation could not be opened: ${error}.`}</p>;
   }
   const busy = view.state === "thinking" || view.state === "running";
+  // A tool waiting on an approval is not stopped: only a desk at rest has stopped its tools.
+  const atRest = view.state === "idle" || view.state === "done" || view.state === "error";
+  const { capabilities } = view;
   return (
     <div className="conversation" data-testid="conversation">
       <ol className="conversation-log">
+        {view.earlier ? <li className="chat-earlier">Earlier messages are not shown here.</li> : null}
         {view.transcript.map((e) => (
-          <Line key={e.id} entry={e} />
+          <EntryLine key={e.id} entry={e} busy={!atRest} />
         ))}
-        {view.transcript.length === 0 && view.ended === null ? <li className="conversation-hint">The agent is starting. Write its first task below.</li> : null}
+        {view.transcript.length === 0 && view.ended === null ? <li className="conversation-hint">Nothing has been said yet.</li> : null}
       </ol>
       {view.approval === null ? null : (
-        <ApprovalCard key={view.approval.id} approval={view.approval} onAnswer={(choiceId, values) => {
-          const approval = view.approval;
-          if (approval !== null) run(api.structuredAnswer(sessionId, approval.id, choiceId, values));
-        }} />
+        <ApprovalCard
+          key={view.approval.id}
+          approval={view.approval}
+          mode={capabilities.approvals}
+          onFlip={onFlip}
+          onAnswer={(choiceId, values) => {
+            const approval = view.approval;
+            if (approval !== null) run(api.structuredAnswer(sessionId, approval.id, choiceId, values));
+          }}
+        />
       )}
       <div ref={end} />
       {error === null ? null : (
@@ -109,152 +143,19 @@ export function Conversation({ sessionId }: { readonly sessionId: string }): Rea
         <p className="terminal-note terminal-status" role="status">
           {view.ended} The conversation stays above.
         </p>
+      ) : !capabilities.compose ? (
+        <p className="terminal-note chat-readonly">This conversation is read-only here.</p>
       ) : (
-        <form
-          className="conversation-input"
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-        >
-          <textarea
-            value={draft}
-            aria-label="Message to the agent"
-            placeholder={busy ? "The agent is working. You can stop the turn." : "Message the agent (Enter sends, Shift+Enter adds a line)"}
-            rows={2}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          <div className="conversation-actions">
-            <button type="submit" className="btn btn-primary" disabled={draft.trim() === ""}>
-              Send
-            </button>
-            {busy ? (
-              <button type="button" className="btn" onClick={() => run(api.structuredCancel(sessionId))}>
-                Stop turn
-              </button>
-            ) : null}
-            <button type="button" className="btn btn-danger" onClick={() => run(api.structuredStop(sessionId))}>
-              End agent
-            </button>
-          </div>
-        </form>
+        <Composer
+          capabilities={capabilities}
+          busy={busy}
+          queued={queued}
+          onSend={(text) => attempt(api.structuredPrompt(sessionId, text))}
+          onWithdraw={(id) => run(api.withdrawMessage(id))}
+          onStop={() => run(api.structuredCancel(sessionId))}
+          onEnd={() => run(api.structuredStop(sessionId))}
+        />
       )}
     </div>
   );
 }
-
-function Line({ entry }: { readonly entry: ConversationEntry }): React.ReactElement {
-  switch (entry.kind) {
-    case "user":
-      return <li className="conversation-user">{entry.text}</li>;
-    case "agent":
-      return <li className="conversation-agent">{entry.text}</li>;
-    case "thought":
-      return <li className="conversation-thought">{entry.text}</li>;
-    case "notice":
-      return <li className="conversation-notice">{entry.text}</li>;
-    case "tool":
-      return (
-        <li className={`conversation-tool is-${entry.status}`}>
-          <details>
-            <summary>
-              <span className="conversation-tool-status">{TOOL_WORDS[entry.status]}</span> {entry.title}
-            </summary>
-            {entry.detail === "" ? null : <pre>{entry.detail}</pre>}
-          </details>
-        </li>
-      );
-  }
-}
-
-/** The agent's request, its fields to fill in, and one button per answer. */
-function ApprovalCard({
-  approval,
-  onAnswer,
-}: {
-  readonly approval: Approval;
-  readonly onAnswer: (choiceId: string, values: Readonly<Record<string, string>>) => void;
-}): React.ReactElement {
-  const [values, setValues] = useState<Readonly<Record<string, string>>>({});
-  const set = (id: string, value: string): void => setValues((v) => ({ ...v, [id]: value }));
-  const missing = approval.fields.some((f) => f.required && (values[f.id] ?? "").trim() === "");
-  return (
-    <section className="conversation-approval" role="group" aria-label={`The agent asks: ${approval.title}`} data-testid="conversation-approval">
-      <b>{approval.title}</b>
-      {approval.detail === "" ? null : <pre>{approval.detail}</pre>}
-      {approval.fields.map((f) => (
-        <FieldInput key={f.id} field={f} value={values[f.id] ?? ""} onChange={(v) => set(f.id, v)} />
-      ))}
-      <div className="conversation-choices">
-        {approval.choices.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            className={c.allow ? "btn btn-primary" : "btn"}
-            disabled={c.allow && missing}
-            title={c.allow && missing ? "Fill in every field marked as needed first" : undefined}
-            onClick={() => onAnswer(c.id, values)}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/** One field: text (hidden for a secret), a number, yes or no, or a pick-list with an optional "other". */
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  readonly field: ApprovalField;
-  readonly value: string;
-  readonly onChange: (value: string) => void;
-}): React.ReactElement {
-  const label = `${field.label}${field.required ? " (needed)" : ""}`;
-  const { kind } = field;
-  if (kind.kind === "boolean") {
-    return (
-      <label className="conversation-field is-check">
-        <input type="checkbox" checked={value === "true"} onChange={(e) => onChange(e.target.checked ? "true" : "false")} />
-        {label}
-      </label>
-    );
-  }
-  if (kind.kind === "pick") {
-    const picked = kind.options.includes(value);
-    const otherOn = kind.other && value !== "" && !picked;
-    return (
-      <label className="conversation-field">
-        <span>{label}</span>
-        <select value={otherOn ? OTHER : value} onChange={(e) => onChange(e.target.value === OTHER ? " " : e.target.value)}>
-          <option value="">Choose…</option>
-          {kind.options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-          {kind.other ? <option value={OTHER}>Something else…</option> : null}
-        </select>
-        {otherOn ? <input aria-label={`${field.label}: your own answer`} value={value.trimStart()} onChange={(e) => onChange(e.target.value === "" ? " " : e.target.value)} /> : null}
-      </label>
-    );
-  }
-  return (
-    <label className="conversation-field">
-      <span>{label}</span>
-      <input type={kind.kind === "secret" ? "password" : kind.kind === "number" ? "number" : "text"} value={value} onChange={(e) => onChange(e.target.value)} />
-    </label>
-  );
-}
-
-/** The pick-list entry that opens a text box for an answer of the human's own. */
-const OTHER = "\u0000other";
