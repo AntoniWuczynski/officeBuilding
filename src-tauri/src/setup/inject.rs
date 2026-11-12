@@ -49,6 +49,18 @@ pub struct Opt {
 pub struct Launch {
     pub env: Vec<(&'static str, String)>,
     pub opts: Vec<Opt>,
+    /// Options that take no value, after `opts`.
+    pub flags: Vec<&'static str>,
+}
+
+/// What an agent with a fixed job is launched with, on top of its tool's own options.
+pub struct RoleSetup<'a> {
+    /// Names its generated folder, `<build>/roles/<name>`: ASCII letters, digits, `-` and `_`.
+    pub name: &'a str,
+    /// Appended to the tool's system prompt.
+    pub instructions: &'a str,
+    /// Hooks of its own, beside the status feed's.
+    pub hooks: Vec<Hook>,
 }
 
 impl Launch {
@@ -76,6 +88,10 @@ impl Launch {
             for part in [" ", o.flag, " ", &quote(&o.value)] {
                 out.push_str(part);
             }
+        }
+        for flag in &self.flags {
+            out.push(' ');
+            out.push_str(flag);
         }
         out
     }
@@ -258,6 +274,20 @@ impl<'a> From<&'a McpServer> for OpencodeMcp<'a> {
     }
 }
 
+/// The status feed's hooks for `tool`, when there is a `feed`.
+fn feed_hooks(tool: ToolKind, feed: Option<&Feed>) -> Vec<Hook> {
+    feed.into_iter()
+        .flat_map(|f| {
+            feed::events(tool).iter().map(|&event| Hook {
+                event,
+                matcher: None,
+                command: f.command(event),
+                targets: Targets::All,
+            })
+        })
+        .collect()
+}
+
 fn json<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_string_pretty(value)
         .map_err(|e| format!("the building's setup could not be written: {e}"))
@@ -299,14 +329,7 @@ impl Library {
                     can(ItemKind::Hook) && h.targets.includes(tool) && h.event.exists_in(tool)
                 })
                 .cloned()
-                .chain(feed.into_iter().flat_map(|f| {
-                    feed::events(tool).iter().map(|&event| Hook {
-                        event,
-                        matcher: None,
-                        command: f.command(event),
-                        targets: Targets::All,
-                    })
-                }))
+                .chain(feed_hooks(tool, feed))
                 .collect(),
         };
         if wanted.is_empty() {
@@ -314,7 +337,7 @@ impl Library {
         }
         let mut launch = Launch::default();
         match tool {
-            ToolKind::ClaudeCode => self.claude(&wanted, &mut launch)?,
+            ToolKind::ClaudeCode => self.claude(&self.build, &wanted, &mut launch)?,
             ToolKind::Antigravity => {
                 let dir = self.build.join("antigravity");
                 self.link_skills(&dir.join(".agents/skills"), &wanted.skills)?;
@@ -354,9 +377,46 @@ impl Library {
         Ok(launch)
     }
 
-    /// The plugin folder Claude Code is pointed at, and its instructions file.
-    fn claude(&self, wanted: &Wanted<'_>, launch: &mut Launch) -> Result<(), String> {
-        let dir = self.build.join("claude-code");
+    /// What `tool` is launched with for a fixed job. It takes nothing from the library:
+    /// only the role's instructions and hooks, and the status feed's hooks when there is a `feed`.
+    pub fn role_launch(
+        &self,
+        tool: ToolKind,
+        role: &RoleSetup<'_>,
+        feed: Option<&Feed>,
+    ) -> Result<Launch, String> {
+        let folder_name = !role.name.is_empty()
+            && role
+                .name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !folder_name {
+            return Err("that role name cannot name a folder".to_string());
+        }
+        if tool != ToolKind::ClaudeCode {
+            return Err("only Claude Code can take a fixed job so far".to_string());
+        }
+        let wanted = Wanted {
+            skills: Vec::new(),
+            instructions: vec![(role.name, role.instructions)],
+            servers: BTreeMap::new(),
+            hooks: feed_hooks(tool, feed)
+                .into_iter()
+                .chain(role.hooks.iter().cloned())
+                .collect(),
+        };
+        let mut launch = Launch::default();
+        self.claude(
+            &self.build.join("roles").join(role.name),
+            &wanted,
+            &mut launch,
+        )?;
+        Ok(launch)
+    }
+
+    /// The plugin folder Claude Code is pointed at, and its instructions file, under `base`.
+    fn claude(&self, base: &Path, wanted: &Wanted<'_>, launch: &mut Launch) -> Result<(), String> {
+        let dir = base.join("claude-code");
         if !(wanted.skills.is_empty() && wanted.servers.is_empty() && wanted.hooks.is_empty()) {
             write_file(&dir.join(".claude-plugin/plugin.json"), PLUGIN_MANIFEST)?;
             self.link_skills(&dir.join("skills"), &wanted.skills)?;
@@ -381,7 +441,7 @@ impl Library {
             launch.opt("--plugin-dir", &dir);
         }
         if let Some(text) = wanted.instructions_text() {
-            let file = self.build.join("claude-code-instructions.md");
+            let file = base.join("claude-code-instructions.md");
             write_file(&file, &text)?;
             launch.opt("--append-system-prompt-file", &file);
         }

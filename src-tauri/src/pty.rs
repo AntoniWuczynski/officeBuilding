@@ -321,6 +321,12 @@ impl Terminals {
             .collect()
     }
 
+    /// Forget a terminal: its scrollback goes now, and its file descriptors once its agent
+    /// has exited. Unknown ids are ignored.
+    pub fn release(&self, id: &str) {
+        lock(&self.all).remove(id);
+    }
+
     /// The pid of the process started in a terminal.
     pub fn pid(&self, id: &str) -> Result<i32, String> {
         Ok(self.get(id)?.pid)
@@ -750,6 +756,10 @@ mod tests {
         terminals.write(&id, "\u{4}").expect("eot");
         wait_for("exit", || terminals.backlog(&id).is_ok_and(|b| !b.running));
         assert_eq!(terminals.backlog(&id).expect("backlog").exit_code, Some(0));
+        terminals.release(&id);
+        assert!(terminals.pid(&id).is_err() && terminals.backlog(&id).is_err());
+        // An unknown id is ignored.
+        terminals.release("t-404");
     }
 
     #[test]

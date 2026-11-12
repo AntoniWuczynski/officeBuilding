@@ -63,6 +63,26 @@ pub(super) fn hireable(options: Vec<ToolOptions>, tool: ToolKind) -> Result<Tool
     }
 }
 
+/// The model of `tool` named `model` (None: its default), and the effort to run it at
+/// (None: the model's default), checked against what the tool offers.
+pub(super) fn chosen_model<'a>(
+    tool: &'a ToolOptions,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<(&'a ModelOption, String), String> {
+    let id = model.unwrap_or(&tool.default_model);
+    let found = tool
+        .models
+        .iter()
+        .find(|m| m.id == id)
+        .ok_or_else(|| format!("{id} is not a model the app can start"))?;
+    let effort = effort.unwrap_or(&found.default_effort);
+    if !found.efforts.iter().any(|e| e.id == effort) {
+        return Err(format!("{} does not support {effort} effort", found.label));
+    }
+    Ok((found, effort.to_string()))
+}
+
 /// Only Claude Code and Codex write session files discovery can read.
 pub(super) fn is_discovered(tool: ToolKind) -> bool {
     matches!(tool, ToolKind::ClaudeCode | ToolKind::Codex)
@@ -182,4 +202,59 @@ pub(super) fn launch_command(
         }
         ToolKind::Unknown => return Err("that tool cannot be hired".to_string()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::EffortOption;
+
+    fn options() -> ToolOptions {
+        let effort = |id: &str| EffortOption {
+            id: id.to_string(),
+            label: id.to_string(),
+            description: String::new(),
+        };
+        let model = |id: &str, label: &str, efforts: &[&str], default: &str| ModelOption {
+            id: id.to_string(),
+            label: label.to_string(),
+            efforts: efforts.iter().map(|e| effort(e)).collect(),
+            default_effort: default.to_string(),
+        };
+        ToolOptions {
+            tool: ToolKind::ClaudeCode,
+            available: true,
+            models: vec![
+                model("default", "Default", &["medium", "high"], "medium"),
+                model("opus", "Opus", &["low", "high", "max"], "high"),
+            ],
+            default_model: "default".to_string(),
+            ultracode: Some(false),
+            structured: false,
+        }
+    }
+
+    #[test]
+    fn with_nothing_chosen_the_default_model_runs_at_its_default_effort() {
+        let tool = options();
+        let (model, effort) = chosen_model(&tool, None, None).expect("default");
+        assert_eq!((model.id.as_str(), effort.as_str()), ("default", "medium"));
+        let (model, effort) = chosen_model(&tool, Some("opus"), None).expect("opus");
+        assert_eq!((model.id.as_str(), effort.as_str()), ("opus", "high"));
+        let (model, effort) = chosen_model(&tool, Some("opus"), Some("max")).expect("max");
+        assert_eq!((model.id.as_str(), effort.as_str()), ("opus", "max"));
+    }
+
+    #[test]
+    fn an_unknown_model_or_effort_is_refused_in_the_hire_dialogs_words() {
+        let tool = options();
+        assert_eq!(
+            chosen_model(&tool, Some("haiku"), None).map(|(m, _)| m.id.clone()),
+            Err("haiku is not a model the app can start".to_string())
+        );
+        assert_eq!(
+            chosen_model(&tool, Some("opus"), Some("medium")).map(|(m, _)| m.id.clone()),
+            Err("Opus does not support medium effort".to_string())
+        );
+    }
 }

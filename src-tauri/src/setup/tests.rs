@@ -1,7 +1,7 @@
 use super::*;
 use std::fs;
 
-fn library(tag: &str) -> (Library, PathBuf) {
+pub(super) fn library(tag: &str) -> (Library, PathBuf) {
     let dir = std::env::temp_dir().join(format!("ob-setup-{}-{tag}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     let lib = Library::new(dir.join("Setup"), dir.join("build"));
@@ -9,13 +9,13 @@ fn library(tag: &str) -> (Library, PathBuf) {
     (lib, dir)
 }
 
-fn skill(lib: &Library, name: &str, front: &str) {
+pub(super) fn skill(lib: &Library, name: &str, front: &str) {
     let dir = lib.dir().join("skills").join(name);
     fs::create_dir_all(&dir).expect("mkdir");
     fs::write(dir.join("SKILL.md"), format!("---\n{front}\n---\nBody\n")).expect("write");
 }
 
-fn manifest(lib: &Library, json: &str) {
+pub(super) fn manifest(lib: &Library, json: &str) {
     fs::write(lib.dir().join("setup.json"), json).expect("write");
 }
 
@@ -495,7 +495,7 @@ fn each_tool_gets_an_http_server_in_its_own_form() {
     );
 }
 
-fn instructions(lib: &Library, name: &str, text: &str) {
+pub(super) fn instructions(lib: &Library, name: &str, text: &str) {
     fs::write(
         lib.dir().join("instructions").join(format!("{name}.md")),
         text,
