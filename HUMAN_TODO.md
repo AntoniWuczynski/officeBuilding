@@ -112,6 +112,57 @@ here.
           team's issues leave the boards at once. Disconnect, and the Linear
           items and the status line go, while the floor stays pinned.
 
+- [ ] OB-123 — Check the QA desk (TODO OB-122) in the installed app
+      (`pnpm app:install`), started from Finder or the Dock and not from a
+      terminal. No agent may post to GitHub, start a real reviewer or drive
+      the Tauri window, so nothing here has run against the real things.
+      Quality assurance (QA) posts real reviews from your own GitHub account,
+      so use a pull request of yours in a repo where a test review does no
+      harm. You need `gh` signed in (`gh auth status`).
+      1. Before switching anything on, open a floor. There is no QA desk, no
+         stamp and no reviewer, and its Info panel has a "Quality assurance"
+         row with the switch off. In Settings, the Quality assurance group
+         lists Claude Code's models.
+      2. Switch the floor on. A line in the row asks first, and Cancel
+         changes nothing. After "Turn on" the floor is pinned, a desk with a
+         magnifying glass stands in the front-left corner clear of the other
+         desks, and its tag reads "QA". Look at it on a floor with one row
+         of desks and on one with three. Within a minute the row names the
+         repo and says how many pull requests are open. If it says `gh` was
+         not found, the app did not find it from Finder (TODO OB-136).
+      3. Open a pull request there, or push to one, and wait about 10
+         minutes. A reviewer walks in and sits at the corner desk, and
+         `git worktree list` in your repo shows one more worktree, under the
+         app's data folder. Your own checkout and branch are unchanged.
+      4. Click the reviewer. Its terminal shows no "trust this folder"
+         prompt, provided you have used Claude Code in this repo before. Ask
+         it to run a command or edit a file. It should refuse both.
+      5. Wait for it to finish. If it is still there after 20 minutes and is
+         then ended with no review, its report hook did not fire
+         (TODO OB-135).
+      6. The review appears on the pull request from your account, as a
+         comment and not an approval, headed "Office Building Quality
+         Assurance", with inline comments on changed lines. GitHub may not
+         allow a comment review on your own pull request at all. If it
+         refuses, the Info panel lists the review as "Not reviewed" with
+         GitHub's reason after three tries (TODO OB-134). Check that the
+         review is there once and not twice (TODO OB-146).
+      7. Afterwards the reviewer has left, its desk is not on the sign-out
+         sheet, `git worktree list` no longer shows the worktree, and
+         `ps -ax` shows no leftover `claude` process for it.
+      8. The stamp is on the desk's tag and on the floor's nameplate in the
+         building view. It reads "QA passed" or "QA notes", is drawn and not
+         an emoji, and fits the nameplate.
+      9. In the Info panel the review is listed, and clicking it opens that
+         review on GitHub in your browser.
+      10. Push another commit. The stamp clears and one new review arrives.
+          Wait through two more checks and confirm the same commit is not
+          reviewed again.
+      11. Label a pull request `no-qa`, and open another as a draft. Push to
+          both. Neither is reviewed.
+      12. Switch the floor off while a reviewer is working. The reviewer is
+          ended, the worktree goes, and nothing is posted.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`

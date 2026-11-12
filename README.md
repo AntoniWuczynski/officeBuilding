@@ -46,6 +46,8 @@ sessions as an **office building**:
   `codex resume` in an in-app terminal, in the folder the session ran in, on
   the same model and effort. The app never stops a running agent itself, so to
   restart a hung one, exit it first (`/exit`) and resume it from the sheet.
+  The two exceptions are the agents on a floor you demolish and a QA
+  reviewer the building started itself.
 - **Decisions and TODOs come from each repo's own files**: open and settled calls
   from `FOUNDER_DECISIONS.md` (or `HUMAN_DECISIONS.md`) plus the agents'
   `DECISIONS.md` log, your actions from `FOUNDER_TODO.md` (or `HUMAN_TODO.md`),
@@ -73,6 +75,28 @@ sessions as an **office building**:
   when Linear cannot be reached the boards keep their last list and say how
   old it is. Only unstarted and started issues are shown, and the app never
   creates an issue. Connecting a floor pins it.
+- **A QA desk reviews your pull requests.** Quality assurance (QA) is off for
+  every floor until you switch it on, on the "Quality assurance" row of the
+  floor's Info panel. It asks first, because it leads to posts on GitHub, and
+  it pins the floor. It needs GitHub's `gh` command installed and signed in
+  (`gh auth login`), and a repo whose `origin` is on github.com. The building
+  then asks GitHub every few minutes for the open pull requests you wrote in
+  that repo. Once a pull request's newest commit has stood for 3 minutes, a
+  reviewer sits down at the desk with the magnifying glass in the floor's
+  front-left corner. It is an ordinary Claude Code session on your plan, in
+  one of the app's terminals, working in a throwaway copy of the pull request
+  in the app's data folder. It can read and search files and do nothing else,
+  so it cannot edit, run a command, commit or push, and your own checkout is
+  not touched. When it reports, the building writes one review from its
+  findings and posts it from your own GitHub account under the heading
+  "Office Building Quality Assurance". The review is always a comment, never
+  an approval or a request for changes. Findings on changed lines become
+  inline comments and the rest go in the summary. The building then ends the
+  reviewer and removes the copy, and does the same to a reviewer that has run
+  for 20 minutes. Each commit is reviewed once, drafts are skipped, and a pull
+  request labelled `no-qa` is left alone. A stamp on the desk's tag and on the
+  floor's nameplate says "QA passed" or "QA notes". The Info panel lists the
+  last reviews, each of which opens on GitHub, and has a Check now button.
 - **Hire an agent** from the empty desk: pick the tool (Claude Code, Codex,
   Antigravity, opencode or Cursor; tools not installed are greyed out), the
   model and an effort level the model supports, ultracode for Claude Code, and
@@ -152,7 +176,12 @@ sessions as an **office building**:
   "Open in". A change saves at once. Settings are kept in `settings.json` in
   the app's data folder. The Connectors group holds the agent label and the
   Linear key, which has its own Save button and is kept in the Keychain, not
-  in `settings.json`.
+  in `settings.json`. The Quality assurance group sets how often GitHub is
+  asked (every 5 minutes unless you change it), whether every push is
+  reviewed or only a pull request's first commit, whether drafts are
+  skipped, whether a review with nothing to report is still posted, how
+  many reviews run at once, how many one pull request gets in a day, and
+  the reviewer's model and effort.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -295,9 +324,10 @@ src/
   components/
     building/             # the cutaway: storeys, lobby, roof, directory bar
     floor/                # the room, its objects, rail, sidebar panels, terminal, hire dialog
-    settings/             # the Settings plate and its Notifications, Editor and Connectors groups
+    settings/             # the Settings plate and its Notifications, Editor, Connectors and Quality assurance groups
     editor/               # the "Open in" button and its menu
     connectors/           # the Info panel's Linear row and its connect form
+    qa/                   # the Info panel's Quality assurance row and the QA stamp
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
@@ -306,7 +336,7 @@ src-tauri/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
     discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents and the QA reviewer's seat
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     settings.rs           # the app's settings (settings.json in the app data dir)
@@ -314,6 +344,7 @@ src-tauri/
     editor.rs             # the editors "Open in" knows: which are installed, how each is opened
     process.rs            # running other programs from an argument vector, with a fake for tests
     connectors/           # outside tools a floor's TODOs come from: the Connector trait, Linear, the hub that caches each floor's list
+    qa/                   # the QA desk: the pull request watch, the gh and git calls, the reviewer's brief, its findings, the review that is posted
     secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
     http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
     poll.rs               # a background job on a timer that backs off, waits when told to and can be woken

@@ -179,6 +179,85 @@ From the review, after the design:
 
 This amends OB-002, and the amendment is a call of the build, not a ruling by A Human. OB-002 says TODOs come from the repo's own files, falling back to the app's store. A floor connected to Linear now shows those items first and its Linear issues after them. The files are read and written as before. Built as TODO OB-097, with the checks for A Human in HUMAN_TODO OB-098 and the deferrals in TODO OB-100 to OB-121.
 
+## OB-124 — How should a QA desk review my pull requests, and under whose name? — DECIDED 2026-11-12: through A Human's own `gh` login, by a reviewer that only reads and that the building may end, with the rest left to the build
+
+GitHub issue #7 asks for a quality assurance (QA) desk on each floor that reviews A Human's new pull requests and posts what it finds as "Office Building Quality Assurance". It left five questions open for A Human.
+
+Decided by A Human on 2026-11-12, before an unattended build of the issue. The first three are new rulings for this issue:
+
+- Identity: reviews post through A Human's own `gh` login, under a plain-text "Office Building Quality Assurance" heading. The GitHub App the issue recommends is not built now and comes later (TODO OB-125).
+- The reviewer reads the diff only and runs nothing.
+- The building may end a review agent it started, and remove its worktree, once the agent has reported or hit a time limit. This is an exception to "the app never stops a running agent", for QA runs only.
+
+The other two are the rulings of OB-059, applied here:
+
+- The app has one Settings panel. The build put the QA settings there, in a new Quality assurance group.
+- Commits stay local. Nothing is pushed until A Human approves.
+
+Calls the build made while A Human was away. The build brief answered four of the issue's five questions without marking the answers as A Human's, so they are listed here and not above. Each stands until A Human says otherwise, and A Human can veto any of them.
+
+From the build brief, on the issue's other open questions:
+
+- Scope: only pull requests A Human wrote. Other authors' pull requests are not reviewed (TODO OB-131).
+- Re-review: every new head commit is reviewed once, with a setting to review only a pull request's first commit.
+- Verdict: comment only. The review never approves and never requests changes (TODO OB-130).
+- Overlap with issue #4: not built. Whether the manager reads QA findings is left to that issue (TODO OB-132).
+
+From the build brief, on the rest:
+
+- QA is off by default and switched on per floor. Switching it on pins the floor.
+- The building watches with `gh pr list` for each floor whose repo has a GitHub `origin`, every few minutes, on the poller built for Linear.
+- Drafts are skipped (a setting), and so is a pull request labelled `no-qa`.
+- A head commit is reviewed once it has been quiet for a few minutes, with a cap on reviews a day for one pull request.
+- The reviewer is a normal terminal desk the building starts, visible on the floor with its state and spend, and never `claude -p`. A Human chose terminal sessions over headless mode for GitHub issue #6, and the brief applied that choice here.
+- The reviewer works in a throwaway worktree at the pull request's head, outside A Human's checkout.
+- The findings are taken from the agent's final reply as one block of JavaScript Object Notation (JSON). The building, not the agent, turns them into one review, with inline comments for lines inside the diff and the rest in the summary.
+- With nothing found the building posts one short summary, with a setting to post nothing.
+- The finished reviewer's terminal is released.
+- The desk sits in the floor's front-left corner with a drawn magnifying glass. The result is a drawn stamp and not an emoji. The link to a review goes through a backend call that opens an address the backend built itself.
+- The settings are a default for floors, the poll interval, every push or the first only, skip drafts, reviews at once, reviews a day, and the tool, model and effort. There is no monthly cap in US dollars, because the app keeps no spend ledger (TODO OB-127).
+- The launch of a hired agent with a fixed role is built here in a simple form, for issue #4 to extend.
+
+From the design, where it changed what the brief assumed. These three are the ones most worth A Human's eye:
+
+- The reviewer runs in Claude Code's `dontAsk` permission mode with only the three tools that read and search files. The brief asked for "the tool's read-only mode", which would be plan mode. Plan mode runs shell commands to explore and ends on a prompt that would stall the desk. `dontAsk` refuses anything that would prompt, and with only those tools the reviewer has no shell and no edit tool at all.
+- Claude Code is the only reviewer. The brief's settings list a tool. The findings travel through a hook, and Codex skips a new hook until it is trusted once, so a Codex reviewer's report could silently never arrive (TODO OB-128).
+- The worktree is thrown away after each review, but its folder is the same one per floor every time. The brief suggested a stable path so that Claude Code's trust prompt appears once at most. The cost is one review per floor at a time.
+
+From the design, beyond the brief:
+
+- "Reads the diff only" is built as reading the diff and the surrounding code in the checkout of the pull request's head. The reviewer still runs nothing. A Human may want this narrower.
+- The reviewer takes nothing from the Setup library. It gets no skills, instructions, MCP servers or hooks of A Human's, only the status feed's hooks and its own report hook. It also does not load the checkout's own project settings.
+- The pull request's diff is treated as untrusted text. The reviewer's instructions say that nothing in the diff or the repo is an instruction to it, that it must never quote a secret, and that it stays in the checkout.
+- Switching QA on asks first, in a row on the Info panel, because it leads to posts on GitHub.
+- A floor's state is on, off or "follow the Settings default". A floor that is on only through the default is not pinned.
+- The quiet period is 3 minutes and the time limit is 20 minutes. Neither is a setting (TODO OB-141).
+- The defaults are a check every 5 minutes, every push reviewed, drafts skipped, a summary posted when nothing is found, one review at a time and 3 reviews a day for one pull request.
+- With no model picked in Settings, the reviewer starts on Claude Code's default model and that model's default effort.
+- A failed review is not tried again until the next push, so a broken setup cannot spend the plan in a loop (TODO OB-138).
+- Posting is tried three times. From the second try every finding goes in the summary, because one inline comment GitHub rejects fails the whole review.
+- Every `@` in text from the agent is followed by an invisible character, so a finding can never notify a GitHub user.
+- The stop is one SIGTERM, a wait of up to 5 seconds and the release of the terminal. It never sends SIGKILL (TODO OB-140). It can reach only a reviewer the QA desk seated, and no app call reaches it.
+- Switching a floor off while its reviewer works ends that reviewer and posts nothing.
+- The reviewer counts as a desk on the floor and on the spend meter while it works. A finished reviewer is kept off the sign-out sheet.
+- The stamp reads "QA passed" or "QA notes". A new push clears it until the new commit is reviewed, and a failed review shows no stamp.
+- The review's footer names the commit, says that a review agent in Office Building wrote it and that it was posted from this account, and mentions the `no-qa` label.
+- A diff over 2 MiB is not reviewed. A floor keeps its last 200 reviews, and 100 open pull requests are read per repo (TODO OB-143).
+- Only an `origin` on github.com is understood (TODO OB-133).
+- No dependency was added, and the building holds no GitHub token. `gh` keeps its own.
+
+From the review, after the design:
+
+- A pull request that already contains the folder the building writes the diff into is refused, so that a pull request cannot redirect that write (TODO OB-147).
+- Before a repeated post, the building looks for a review it already posted on that commit and records it, where the design would have posted again.
+- A commit that one floor has reviewed, is reviewing or is waiting to post is not reviewed by another floor on the same repo.
+- A start that fails because GitHub refuses the pull request's own diff is given up after three tries and recorded as failed. A start that fails for any other reason is tried again at every check and never given up.
+- Check now does nothing while GitHub has told the app to slow down.
+- The checkout of a pull request runs with git's hooks switched off and without Large File Storage downloads. The design had accepted that git runs the repo's `post-checkout` hook there. That hook can run code the pull request changed, which does not fit A Human's ruling that the reviewer runs nothing.
+- A program the app runs with a time limit is started in its own process group, and the whole group is ended at the limit. Like the probe in OB-075, these are the app's own helper programs and not agents.
+
+This amends one earlier ruling, and the amendment is A Human's own. A Human ruled on 2026-10-01 that the app never stops a running agent (recorded in TODO OB-027), and made one exception on 2026-10-06 for demolishing a floor (TODO OB-029). The stop rule above is the second exception. It also builds on OB-040: the reviewer is Claude Code's own unmodified CLI in a terminal, and the building touches no login token. Built as TODO OB-122, with the checks for A Human in HUMAN_TODO OB-123 and the deferrals in TODO OB-125 to OB-148.
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.
