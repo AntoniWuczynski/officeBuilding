@@ -4,6 +4,7 @@
 
 use crate::alerts::Alerts;
 use crate::office::Office;
+use crate::structured;
 use notify::{RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,6 +18,9 @@ pub const SETUP_EVENT: &str = "office://setup-changed";
 /// Tools rewrite their config in bursts (Claude Code saves `~/.claude.json` often).
 const SETUP_DEBOUNCE: Duration = Duration::from_secs(1);
 const DEBOUNCE: Duration = Duration::from_millis(400);
+/// The longest a burst of file events may hold a rescan back, so a floor of busy agents
+/// cannot delay an open chat's updates for ever.
+const MAX_DEBOUNCE: Duration = Duration::from_secs(2);
 const TICK: Duration = Duration::from_secs(5);
 /// Never rescan faster than this just to mature a timer.
 const MIN_WAKE: Duration = Duration::from_millis(200);
@@ -48,7 +52,12 @@ pub fn start(
             let mut wait = TICK;
             loop {
                 match events.recv_timeout(wait) {
-                    Ok(_) => while events.recv_timeout(DEBOUNCE).is_ok() {},
+                    Ok(_) => {
+                        let started = std::time::Instant::now();
+                        while started.elapsed() < MAX_DEBOUNCE
+                            && events.recv_timeout(DEBOUNCE).is_ok()
+                        {}
+                    }
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                     Err(mpsc::RecvTimeoutError::Disconnected) => return,
                 }
@@ -57,6 +66,9 @@ pub fn start(
                 if changed || moved {
                     // A closed webview just means nobody is listening right now.
                     let _ = app.emit(SNAPSHOT_EVENT, office.snapshot());
+                }
+                for update in office.chat_updates() {
+                    let _ = app.emit(structured::EVENT, update);
                 }
                 // On every pass: a held state has to mature on a scan that found no change.
                 wait = next_wait(alerts.check(&app, &office));

@@ -88,6 +88,36 @@ fn manager_host(
     (Some(server), host)
 }
 
+/// The structured desks, telling the webview of every update. A desk whose state changed
+/// redraws the floor, may alert, and may take a message that waits for it.
+fn structured_desks(app: &tauri::App) -> Arc<structured::desks::Desks> {
+    let handle = app.handle().clone();
+    structured::desks::Desks::new(Arc::new(move |update| {
+        // A closed webview just means nobody is watching; the desk keeps its transcript.
+        let redraw = update.desk_changed;
+        let _ = handle.emit(structured::EVENT, update);
+        if redraw && let Some(office) = handle.try_state::<Arc<Office>>() {
+            let _ = handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
+            // The watch thread's next pass flushes anything this queues, at most a tick late.
+            if let Some(alerts) = handle.try_state::<Arc<Alerts>>() {
+                let _ = alerts.check(&handle, &office);
+            }
+            // On its own thread: a hand-over prompts a driver, and this callback can run
+            // inside a driver's own call, which holds the drivers' lock (`Desks::on_event`).
+            let office = Arc::clone(&office);
+            let handle = handle.clone();
+            // A thread that cannot start leaves the message for the watch loop's next pass.
+            let _ = std::thread::Builder::new()
+                .name("deliver-structured".to_string())
+                .spawn(move || {
+                    if office.deliver_due() {
+                        let _ = handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
+                    }
+                });
+        }
+    }))
+}
+
 /// Open the stores, start discovery and the watchers, and hand Tauri the shared state.
 fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("the home folder could not be found")?;
@@ -138,19 +168,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let feed = feed::Feed::new(data.join("feed"));
     std::fs::create_dir_all(feed.dir())?;
     let feed_dir = feed.dir().to_path_buf();
-    let structured_handle = app.handle().clone();
-    let structured = structured::desks::Desks::new(Arc::new(move |update| {
-        // A closed webview just means nobody is watching; the desk keeps its transcript.
-        let redraw = update.desk_changed;
-        let _ = structured_handle.emit(structured::EVENT, update);
-        if redraw && let Some(office) = structured_handle.try_state::<Arc<Office>>() {
-            let _ = structured_handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
-            // The watch thread's next pass flushes anything this queues, at most a tick late.
-            if let Some(alerts) = structured_handle.try_state::<Arc<Alerts>>() {
-                let _ = alerts.check(&structured_handle, &office);
-            }
-        }
-    }));
+    let structured = structured_desks(app);
     let qa_watch = qa_watch(app, &settings, data.clone());
     let (server, host) = manager_host(app, &data);
     let registry = host.as_ref().ok().map(|h| Arc::clone(&h.registry));
@@ -252,6 +270,7 @@ pub fn run() -> tauri::Result<()> {
             commands::set_manager_paused,
             commands::set_manager_hiring,
             commands::withdraw_manager_note,
+            commands::withdraw_message,
         ])
         .run(tauri::generate_context!())
 }

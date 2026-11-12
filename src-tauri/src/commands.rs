@@ -104,18 +104,36 @@ pub async fn set_setup_targets(
         .map_err(|e| format!("the setup did not save: {e}"))?
 }
 
+/// A chat desk's conversation so far. On a blocking thread: the first read of a long
+/// Claude Code transcript takes a moment.
 #[tauri::command]
-pub fn structured_backlog(office: OfficeState<'_>, session_id: String) -> Result<Backlog, String> {
-    office.structured_backlog(&session_id)
+pub async fn structured_backlog(
+    office: OfficeState<'_>,
+    session_id: String,
+) -> Result<Backlog, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.chat_backlog(&session_id))
+        .await
+        .map_err(|e| format!("the conversation could not be read: {e}"))?
 }
 
+/// Queue A Human's message for a chat desk and hand it over when the desk can take it. On a
+/// blocking thread: a hand-over pauses between the text and Enter.
 #[tauri::command]
-pub fn structured_prompt(
+pub async fn structured_prompt(
+    app: AppHandle,
     office: OfficeState<'_>,
     session_id: String,
     text: String,
 ) -> Result<(), String> {
-    office.structured_prompt(&session_id, &text)
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || {
+        office.chat_send(&session_id, &text)?;
+        push_snapshot(&app, &office);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("the message did not send: {e}"))?
 }
 
 #[tauri::command]
@@ -131,7 +149,19 @@ pub fn structured_answer(
 
 #[tauri::command]
 pub fn structured_cancel(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
-    office.structured_cancel(&session_id)
+    office.chat_interrupt(&session_id)
+}
+
+/// Withdraw one of A Human's own messages that is still waiting for its desk.
+#[tauri::command]
+pub fn withdraw_message(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    message_id: String,
+) -> Result<(), String> {
+    office.withdraw_message(&message_id)?;
+    push_snapshot(&app, &office);
+    Ok(())
 }
 
 #[tauri::command]
@@ -305,10 +335,21 @@ pub fn update_settings(
     Ok(updated)
 }
 
-/// The desk whose panel is open (None: none), so it does not alert while the window is focused.
+/// The desk whose panel is open (None: none), so it does not alert while the window is focused
+/// and only its conversation is followed. On a blocking thread: a transcript read holds the
+/// followers' lock.
 #[tauri::command]
-pub fn set_open_desk(alerts: State<'_, Arc<Alerts>>, session_id: Option<String>) {
-    alerts.set_open_desk(session_id);
+pub async fn set_open_desk(
+    office: OfficeState<'_>,
+    alerts: State<'_, Arc<Alerts>>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    alerts.set_open_desk(session_id.clone());
+    let office = Arc::clone(&office);
+    let ticket = office.chat_ticket();
+    tauri::async_runtime::spawn_blocking(move || office.keep_chat(ticket, session_id.as_deref()))
+        .await
+        .map_err(|e| format!("the open desk could not be set: {e}"))
 }
 
 /// A test alert in three seconds, by the methods switched on.

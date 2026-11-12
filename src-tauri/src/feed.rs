@@ -6,6 +6,7 @@
 //! its desk's state when it is newer than what the session's own files say.
 //! It is what shows a permission prompt as a raised hand.
 
+use crate::delivery::text;
 use crate::model::{Session, SessionState, ToolKind};
 use crate::setup::HookEvent;
 use serde::Deserialize;
@@ -18,6 +19,8 @@ use std::time::{Duration, SystemTime};
 const WRITE_GRACE: Duration = Duration::from_secs(5);
 /// An event this old says nothing about the session now.
 const STALE: Duration = Duration::from_mins(30);
+/// The longest notification message kept for a permission card.
+const ASKED_MAX: usize = 300;
 
 /// The events each tool's feed hooks report. Codex has no `Notification` hook;
 /// its `PermissionRequest` fires just before an approval prompt (docs, checked 2026-10-09).
@@ -49,6 +52,9 @@ struct Payload {
     /// Claude Code's kind of notification: `permission_prompt`, `idle_prompt`, ….
     #[serde(default)]
     notification_type: Option<String>,
+    /// A notification's text, such as "Claude needs your permission".
+    #[serde(default)]
+    message: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +69,9 @@ pub struct Feed {
     /// The newest event of every session ever seen, never pruned by age: a desk idle
     /// for an hour must still be known to be idle.
     last: BTreeMap<String, Seen>,
+    /// For a session whose newest event is a notification waiting on A Human, its
+    /// message, cleaned onto one line.
+    asked: BTreeMap<String, String>,
 }
 
 fn state_of(event: HookEvent, payload: &Payload) -> SessionState {
@@ -86,6 +95,7 @@ impl Feed {
             dir,
             latest: BTreeMap::new(),
             last: BTreeMap::new(),
+            asked: BTreeMap::new(),
         }
     }
 
@@ -123,10 +133,17 @@ impl Feed {
                         state: state_of(event, &payload),
                         at,
                     };
+                    let newest = self
+                        .last
+                        .get(&payload.session_id)
+                        .is_none_or(|old| old.at <= at);
                     for map in [&mut self.latest, &mut self.last] {
                         if map.get(&payload.session_id).is_none_or(|old| old.at <= at) {
                             map.insert(payload.session_id.clone(), seen);
                         }
+                    }
+                    if newest {
+                        self.note_asked(event, seen.state, payload);
                     }
                 }
                 (Some(_), None) if age < WRITE_GRACE => continue,
@@ -138,6 +155,25 @@ impl Feed {
         }
         self.latest
             .retain(|_, seen| now.duration_since(seen.at).unwrap_or_default() < STALE);
+    }
+
+    /// Keep the message of a session's newest event when it is a notification
+    /// waiting on A Human, and forget it at any other newest event.
+    fn note_asked(&mut self, event: HookEvent, state: SessionState, payload: Payload) {
+        let message = payload
+            .message
+            .filter(|_| event == HookEvent::Notification && state == SessionState::WaitingHuman)
+            .and_then(|m| text::line(&m, ASKED_MAX).ok());
+        match message {
+            Some(m) => self.asked.insert(payload.session_id, m),
+            None => self.asked.remove(&payload.session_id),
+        };
+    }
+
+    /// What the session's open notification says it waits on A Human for, if anything.
+    #[must_use]
+    pub fn asked(&self, session_id: &str) -> Option<&str> {
+        self.asked.get(session_id).map(String::as_str)
     }
 
     /// The feed holds an event for this session: its state is reported as it happens.
@@ -331,6 +367,35 @@ mod tests {
         feed.collect(at + STALE + Duration::from_secs(1));
         assert!(!feed.reports("s1"), "stale for the state");
         assert_eq!(feed.seen("s1"), Some((SessionState::Idle, at)));
+    }
+
+    #[test]
+    fn a_permission_prompts_message_is_kept_cleaned_until_the_next_event() {
+        let mut feed = feed("asked");
+        fire(
+            &feed,
+            HookEvent::Notification,
+            r#"{"session_id":"s1","notification_type":"permission_prompt","message":"Run\u001b[31m this\ncommand?"}"#,
+        );
+        feed.collect(SystemTime::now());
+        assert_eq!(feed.asked("s1"), Some("Run this command?"));
+        assert_eq!(feed.asked("s2"), None);
+        std::thread::sleep(Duration::from_millis(15));
+        fire(&feed, HookEvent::PostToolUse, r#"{"session_id":"s1"}"#);
+        feed.collect(SystemTime::now());
+        assert_eq!(feed.asked("s1"), None, "forgotten at the next event");
+    }
+
+    #[test]
+    fn an_idle_prompt_keeps_no_message() {
+        let mut feed = feed("idle-asked");
+        fire(
+            &feed,
+            HookEvent::Notification,
+            r#"{"session_id":"s1","notification_type":"idle_prompt","message":"Claude is waiting for your input"}"#,
+        );
+        feed.collect(SystemTime::now());
+        assert_eq!(feed.asked("s1"), None);
     }
 
     #[test]
