@@ -21,6 +21,9 @@ agents' DECISIONS.md log), human TODOs from FOUNDER_TODO.md or HUMAN_TODO.md,
 agent TODOs from TODO.md, each falling back to the app's own store when a repo
 has no such file.
 
+Amended on 2026-11-12 by a call of the build, not by A Human (OB-099). A floor
+connected to Linear shows its Linear issues after these items.
+
 ## OB-040 — Should the building become a hub for agent harnesses? — DECIDED 2026-10-08: yes, a hub that launches each official CLI
 
 Decided by A Human on 2026-10-08:
@@ -117,6 +120,64 @@ From the review, after the design:
 - The detection probe gets 5 seconds, after which the app ends it and falls back to looking for the apps. The probe is the app's own login shell, not an agent, so the ruling in TODO OB-027 that the app never stops a running agent is untouched.
 
 This amends no earlier ruling. It builds on OB-032 and OB-055 in TODO.md (an agent in a worktree stays on its repo's floor, and a `cd` does not move it). Built as TODO OB-073, with the checks for A Human in HUMAN_TODO OB-074 and the deferrals in TODO OB-076 to OB-096.
+
+## OB-099 — How should a floor's TODOs come from Linear? — DECIDED 2026-11-12: the Linear key lives in the app's Settings, with the rest left to the build
+
+GitHub issue #2 asks for connectors, so that a floor's TODO lists can come from outside tools as well as the repo's own files, with Linear first. It left five questions open for A Human.
+
+Decided by A Human on 2026-11-12, before an unattended build of the issue. Both are the rulings of OB-059, applied here:
+
+- The app has one Settings panel. The build put the Linear key and the agent label there, in a new Connectors group.
+- Commits stay local. Nothing is pushed until A Human approves.
+
+Calls the build made while A Human was away. The build brief answered the issue's five questions without marking the answers as A Human's, so they are listed here and not above. Each stands until A Human says otherwise, and A Human can veto any of them.
+
+From the build brief, on the issue's five open questions:
+
+- Merge or replace: merge. A floor with both `TODO.md` and Linear shows both, file items first, each with a source badge and a link out. This is the amendment to OB-002 described at the end.
+- Granularity: a floor maps to one Linear team, which is required, plus an optional project and an optional label, all combined.
+- Human or agent: Human TODO gets the issues assigned to the key's own user. TODO gets the issues that carry the agent label (default `agent`) or are assigned to nobody. Issues assigned to other people are not shown. Only unstarted and started issues are shown.
+- Two-way sync: no. This version reads and ticks only.
+- Which connector next: none was built. TODO OB-102 asks A Human to pick one.
+
+From the build brief, on the rest:
+
+- A tick asks first ("Mark ENG-123 as Done in Linear?"), moves the issue to the team's completed status with the lowest position, and rolls back with an error message if Linear refuses.
+- One Linear key for the whole building, kept in the macOS Keychain and entered in Settings. The link between a floor and Linear is a "Linear" row on the floor's Info panel.
+- Linear is asked every 60 seconds, away from the 5-second refresh. The app obeys Linear's rate-limit replies, backs off on errors, shows a stale or offline state and offers a Re-check button.
+- The poller, the Keychain access and the client for Hypertext Transfer Protocol Secure (HTTPS) are separate modules behind traits with fakes, so that GitHub issue #7 can reuse them.
+- Tests use fixtures with invented data. Nobody called Linear during the build.
+- The app is ad-hoc signed, so the Keychain may ask again after each reinstall. That is left as a check for A Human and not worked around.
+- Not built: creating Linear issues from the app, decisions sourced from Linear, other connectors, and handing Linear's own server for agents to hired agents (TODO OB-100 to OB-103).
+- Per-floor state is edited on the floor and keyed by the repo root, like pinned floors. Defaults for the whole building live in Settings.
+
+From the design, beyond the brief. The first five are the ones most worth A Human's eye:
+
+- An issue that carries the agent label goes to TODO even when it is assigned to somebody else. The brief says issues assigned to other people are not shown, and the design read that as "unless they carry the agent label", because the label is the explicit mark that an issue is for agents.
+- The agent label is one setting for the whole building (Settings, Connectors group), not part of a floor's link.
+- The confirmation before a tick is a row inside the list, not a dialog. DESIGN.md forbids a panel over a panel.
+- A Linear badge opens the issue through a backend call. The webview sends the item's id, and the backend takes the address from its own cache, checks that it starts with `https://linear.app/` and hands it to macOS's `open`. No opener plugin was added.
+- A demolished floor keeps its link. It is not asked about while it is down, and Linear is still connected if the floor is rebuilt.
+- An item's id holds Linear's own permanent id for the issue, not `ENG-123`, which changes when an issue moves to another team.
+- The links live in `store.json`, not in a file of their own, and connecting a floor pins it.
+- The backend shows a tick, not the webview. It marks the item done before it calls Linear and takes the mark off again if Linear refuses.
+- Two crates were added: `ureq` 3.5.1 on macOS's own secure transport, and `security-framework` 3.7.0 called directly, where the issue suggested `keyring`. The two share one dependency tree.
+- The Keychain is read at most once per launch, and not until a floor is linked or the key's status is asked for. A refusal is not retried on a timer, because every retry can raise a system prompt.
+- A key Linear refuses stops every Linear call until the key is replaced or Re-check is pressed.
+- Having no usable key empties a floor's Linear items. Every other failure keeps the last good list and says how old it is.
+- Saving a key checks it with Linear first. A key that is refused, or that cannot be checked because Linear is out of reach, is not saved.
+- Only "out of reach" slows the poll and only "rate limited" makes it wait. A floor whose team was deleted is asked again every minute.
+- Badges are text only: the file's name on a file item, `Linear · ENG-123` on a Linear item, nothing on the app's own. No logo.
+- The limits are 200 issues per floor, 50 teams and 50 open projects per team in the connect form, and 10 labels read per issue (TODO OB-107 to OB-109).
+- `tick_todo` now runs off the main thread and pushes a snapshot, so a file tick shows at once.
+
+From the review, after the design:
+
+- Changing a floor's link drops the old link's items at once. Before this, an issue from the old team could stay on the board and still be ticked.
+- Re-check runs off the main thread, so the window stays usable while a Keychain prompt is open.
+- When a floor's link is changed and its Linear project has since closed, the project is kept and shown as "(closed)". Before this it was dropped without a word and the floor widened to the whole team.
+
+This amends OB-002, and the amendment is a call of the build, not a ruling by A Human. OB-002 says TODOs come from the repo's own files, falling back to the app's store. A floor connected to Linear now shows those items first and its Linear issues after them. The files are read and written as before. Built as TODO OB-097, with the checks for A Human in HUMAN_TODO OB-098 and the deferrals in TODO OB-100 to OB-121.
 
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 

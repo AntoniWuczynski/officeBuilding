@@ -57,6 +57,22 @@ sessions as an **office building**:
   `FOUNDER-DECISIONS.md` and `FOUNDER-TODO.md` work too. Answering a call or ticking an item in the app writes
   back into the file (a checklist call gets ticked and a `**Ruled <date>:**` line).
   Repos without these files fall back to the app's own records.
+- **Connectors: a floor's TODOs can also come from Linear.** Paste one Linear
+  key (a personal application programming interface key, or API key) in
+  Settings, under Connectors. It is checked with Linear, then kept in the
+  macOS Keychain and nowhere else. On a floor's Info panel, the Linear
+  row connects the floor to a team, and optionally to one project and one
+  label. Issues assigned to you then go on the cork board. Unassigned issues,
+  and issues carrying the agent label (`agent` unless you change it in
+  Settings), go on the whiteboard. They follow the repo's own items, and
+  every item carries a badge saying where it comes from. A `Linear · ENG-123`
+  badge opens the issue in your browser. Ticking a Linear item asks first,
+  then moves the issue to the team's completed status, and the tick comes
+  back off with the reason if Linear refuses. Linear is asked once a minute.
+  Each board says when it was last checked and has a Re-check button, and
+  when Linear cannot be reached the boards keep their last list and say how
+  old it is. Only unstarted and started issues are shown, and the app never
+  creates an issue. Connecting a floor pins it.
 - **Hire an agent** from the empty desk: pick the tool (Claude Code, Codex,
   Antigravity, opencode or Cursor; tools not installed are greyed out), the
   model and an effort level the model supports, ultracode for Claude Code, and
@@ -134,7 +150,9 @@ sessions as an **office building**:
   has its own switch, the cooldown runs from 0 to 600 seconds, and "Test in 3
   seconds" sends a test alert. The Editor group picks the default editor for
   "Open in". A change saves at once. Settings are kept in `settings.json` in
-  the app's data folder.
+  the app's data folder. The Connectors group holds the agent label and the
+  Linear key, which has its own Save button and is kept in the Keychain, not
+  in `settings.json`.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -277,8 +295,9 @@ src/
   components/
     building/             # the cutaway: storeys, lobby, roof, directory bar
     floor/                # the room, its objects, rail, sidebar panels, terminal, hire dialog
-    settings/             # the Settings plate and its Notifications and Editor groups
+    settings/             # the Settings plate and its Notifications, Editor and Connectors groups
     editor/               # the "Open in" button and its menu
+    connectors/           # the Info panel's Linear row and its connect form
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
@@ -287,13 +306,17 @@ src-tauri/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
     discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     settings.rs           # the app's settings (settings.json in the app data dir)
     alerts.rs, alerts/    # alerts when an agent stops: state tracker, text, native delivery
     editor.rs             # the editors "Open in" knows: which are installed, how each is opened
     process.rs            # running other programs from an argument vector, with a fake for tests
+    connectors/           # outside tools a floor's TODOs come from: the Connector trait, Linear, the hub that caches each floor's list
+    secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
+    http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
+    poll.rs               # a background job on a timer that backs off, waits when told to and can be woken
     options.rs, options/  # hireable tools, models and per-model efforts, tools' own model lists
     setup/                # the Setup floor's library, each tool's inventory, import, injection
     structured/           # desks without a terminal: Codex app-server and ACP clients

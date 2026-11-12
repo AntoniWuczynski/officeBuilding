@@ -73,6 +73,45 @@ here.
           command (TODO OB-082). Check that each opens a folder, and note
           Devin Desktop's app name in `/Applications` (TODO OB-083).
 
+- [ ] OB-098 — Check the Linear connector (TODO OB-097) in the installed app
+      (`pnpm app:install`). No agent may call Linear, touch the Keychain or
+      drive the Tauri window, so nothing here has run against the real
+      things. You need a Linear workspace you can make a key in.
+      1. Before anything else, open a floor that has a `TODO.md`. Its items
+         are all still there, each with a small `TODO.md` badge, and ticking
+         one shows at once.
+      2. In Settings, Connectors, paste a key you know is wrong and save it.
+         The message should say Linear did not accept the key, and nothing is
+         saved. If it starts "Linear said" instead, note the wording (TODO
+         OB-118).
+      3. Make a Linear key with write access (Linear's Settings, Account,
+         Security & Access) and save it. The status line names your account.
+         Note whether macOS asks anything about the Keychain.
+      4. On a floor's Info panel, use the Linear row to connect a team. Within
+         a minute, issues assigned to you are on the cork board, and
+         unassigned issues and issues labelled `agent` are on the whiteboard,
+         after the file items. Each has a `Linear · ENG-123` badge that fits
+         its row, and each board has a status line with a Re-check button.
+      5. Click a badge. The issue opens in your browser.
+      6. Tick a Linear item. The question appears in the row itself, and
+         Cancel changes nothing. "Mark as Done" ticks it in the app and moves
+         it to Done in Linear, and it leaves the board about a minute later.
+      7. Save a read-only key and tick an item. The tick comes back off and a
+         message gives Linear's reason.
+      8. Turn Wi-Fi off for two minutes. The boards keep their Linear items
+         and say how old they are. Turn it back on and press Re-check.
+      9. Reinstall the app (`pnpm app:install`) and open a connected floor.
+         Note whether macOS asks to allow access to the Keychain item, and
+         whether "Always Allow" lasts through the next reinstall. The app is
+         ad-hoc signed, so it may not (TODO OB-117). While the prompt is
+         open, press Re-check. The window should stay usable.
+      10. Confirm the key is nowhere but the Keychain. It is not in
+          `settings.json` or `store.json` in the app's data folder, and the
+          first few characters of the key do not appear in `ps -axww`.
+      11. On the Info panel, change the floor to another team. The first
+          team's issues leave the boards at once. Disconnect, and the Linear
+          items and the status line go, while the floor stays pinned.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`
