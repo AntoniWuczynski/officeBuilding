@@ -83,6 +83,8 @@ pub struct Session {
     pub pets: Vec<Pet>,
     /// It works in a linked git worktree of its floor's repo.
     pub worktree: bool,
+    /// The branch of the worktree it works in. None outside a worktree or on a detached HEAD.
+    pub branch: Option<String>,
 }
 
 /// A session whose agent has left: listed on its floor's sign-out sheet to resume.
@@ -107,6 +109,29 @@ pub struct Helper {
     pub state: SessionState,
     /// It works in a linked git worktree (an isolated sub-agent's own checkout).
     pub worktree: bool,
+    /// The branch of the worktree it works in. None outside a worktree or on a detached HEAD.
+    pub branch: Option<String>,
+}
+
+/// Something in the building that has a folder. The webview names it and the backend finds
+/// the folder: a path never crosses the boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum Place {
+    /// A desk, or a line on the sign-out sheet.
+    Session { session_id: String },
+    /// A sub-agent's tiny desk.
+    Helper {
+        session_id: String,
+        helper_id: String,
+    },
+    /// A floor: its main checkout.
+    Floor { project_id: String },
 }
 
 /// A program a session left running (see `discovery::pets`).

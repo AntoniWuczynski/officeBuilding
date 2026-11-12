@@ -19,7 +19,7 @@ use super::rules::{LastBlock, Signals};
 use crate::model::{Helper, SessionState, Spend};
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
@@ -496,6 +496,24 @@ pub struct Found {
     pub transcript: Transcript,
     pub live: Option<LiveEntry>,
     pub helpers: Vec<Helper>,
+    /// Where each listed helper works now, by helper id.
+    pub helper_places: BTreeMap<String, super::Location>,
+}
+
+/// A working sub-agent, and where its latest folder sits.
+fn helper_at(id: &str, t: &Transcript) -> (Helper, Option<super::Location>) {
+    let place = t
+        .latest_cwd
+        .as_deref()
+        .map(|cwd| super::locate(Path::new(cwd)));
+    let in_tree = place.as_ref().filter(|p| p.worktree);
+    let helper = Helper {
+        id: id.to_string(),
+        state: helper_state(t),
+        worktree: in_tree.is_some(),
+        branch: in_tree.and_then(|p| super::branch_of(&p.checkout)),
+    };
+    (helper, place)
 }
 
 /// A sub-agent silent this long was killed or lost, not left working: tool
@@ -711,6 +729,7 @@ impl ClaudeSource {
                     let mut paths = Vec::new();
                     collect_jsonl(&dir.join(&session_id).join("subagents"), &mut paths);
                     let mut helpers = Vec::new();
+                    let mut helper_places = BTreeMap::new();
                     // Only `agent-*.jsonl` is a sub-agent: a workflow keeps its `journal.jsonl` beside them.
                     for path in paths.into_iter().filter(|p| {
                         p.file_name()
@@ -725,14 +744,11 @@ impl ClaudeSource {
                             && written_within(&path, now, HELPER_SILENCE)
                             && let Some(id) = path.file_stem().and_then(|s| s.to_str())
                         {
-                            helpers.push(Helper {
-                                id: id.to_string(),
-                                state: helper_state(&t),
-                                worktree: t
-                                    .latest_cwd
-                                    .as_deref()
-                                    .is_some_and(|cwd| super::locate(Path::new(cwd)).worktree),
-                            });
+                            let (helper, place) = helper_at(id, &t);
+                            helpers.push(helper);
+                            if let Some(place) = place {
+                                helper_places.insert(id.to_string(), place);
+                            }
                         }
                     }
                     // Stable desk order, whatever order the directory lists in.
@@ -742,6 +758,7 @@ impl ClaudeSource {
                         transcript,
                         live: entry,
                         helpers,
+                        helper_places,
                     });
                 }
             }
@@ -766,6 +783,7 @@ impl ClaudeSource {
                 session_id,
                 transcript,
                 helpers: Vec::new(),
+                helper_places: BTreeMap::new(),
             });
         }
         found

@@ -98,6 +98,7 @@ fn running_sub_agents_are_the_sessions_helpers() {
     fs::create_dir_all(&git_dir).expect("dirs");
     fs::create_dir_all(&tree).expect("dirs");
     fs::write(git_dir.join("commondir"), "../..\n").expect("write");
+    fs::write(git_dir.join("HEAD"), "ref: refs/heads/agent-b\n").expect("write");
     fs::write(
         tree.join(".git"),
         format!("gitdir: {}\n", git_dir.display()),
@@ -143,14 +144,21 @@ fn running_sub_agents_are_the_sessions_helpers() {
                 id: "agent-a".into(),
                 state: SessionState::Thinking,
                 worktree: false,
+                branch: None,
             },
             Helper {
                 id: "agent-b".into(),
                 state: SessionState::Running,
                 worktree: true,
+                branch: Some("agent-b".into()),
             },
         ]
     );
+    assert_eq!(
+        found[0].helper_places.keys().collect::<Vec<_>>(),
+        vec!["agent-a", "agent-b"]
+    );
+    assert_eq!(found[0].helper_places["agent-b"].checkout, tree);
     // Busy agents write while a scan runs, so their files can be newer than its
     // `now`: they are still working, not gone.
     assert_eq!(

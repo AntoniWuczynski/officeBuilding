@@ -81,6 +81,7 @@ fn session(id: &str, control: ControlMode) -> Session {
         helpers: Vec::new(),
         pets: Vec::new(),
         worktree: false,
+        branch: None,
     }
 }
 

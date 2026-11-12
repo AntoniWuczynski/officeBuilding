@@ -358,6 +358,9 @@ impl Office {
             if let Some(p) = found.projects.iter_mut().find(|p| p.id == desk.project_id) {
                 p.session_ids.push(session.id.clone());
             }
+            found
+                .checkouts
+                .insert(session.id.clone(), desk.root.clone());
             found.sessions.push(session);
         }
         let discovery = &inner.discovery;
@@ -533,6 +536,7 @@ impl Office {
             helpers: Vec::new(),
             pets: Vec::new(),
             worktree: false,
+            branch: None,
         })
     }
 
@@ -957,6 +961,7 @@ fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
 }
 
 mod desk_states;
+mod folders;
 mod launch;
 mod setup;
 mod shells;

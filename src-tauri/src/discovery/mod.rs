@@ -29,6 +29,10 @@ pub struct Discovered {
     pub ended: Vec<EndedSession>,
     /// The folder each ended session ran in, to resume it there.
     pub resume_dirs: BTreeMap<String, PathBuf>,
+    /// The top of the checkout each live or signed-out session works in now, by session id,
+    /// and each helper's by [`helper_key`]: a worktree's own folder, or its repo's root.
+    /// Kept here for the backend only. Never sent to the webview.
+    pub checkouts: BTreeMap<String, PathBuf>,
 }
 
 /// FNV-1a, 32-bit: the same stable hash the frontend uses for looks.
@@ -48,6 +52,8 @@ pub fn fnv1a(s: &str) -> u32 {
 pub struct Location {
     pub root: PathBuf,
     pub worktree: bool,
+    /// The top of the checkout the directory is in: the worktree's own folder, else `root`.
+    pub checkout: PathBuf,
 }
 
 /// The floor a working directory belongs to: its git root, or itself. A linked
@@ -63,12 +69,14 @@ pub fn locate(cwd: &Path) -> Location {
             return Location {
                 root,
                 worktree: true,
+                checkout: d.to_path_buf(),
             };
         }
         if git.exists() {
             return Location {
                 root: d.to_path_buf(),
                 worktree: false,
+                checkout: d.to_path_buf(),
             };
         }
         dir = d.parent();
@@ -76,7 +84,35 @@ pub fn locate(cwd: &Path) -> Location {
     Location {
         root: cwd.to_path_buf(),
         worktree: false,
+        checkout: cwd.to_path_buf(),
     }
+}
+
+/// The key of a helper's entry in `Discovered::checkouts`. Session ids hold no `/`.
+#[must_use]
+pub fn helper_key(session_id: &str, helper_id: &str) -> String {
+    format!("{session_id}/{helper_id}")
+}
+
+/// The branch checked out at the top of a checkout, read from its HEAD file. None when
+/// HEAD is detached, unreadable, or the reftable placeholder.
+#[must_use]
+pub fn branch_of(checkout: &Path) -> Option<String> {
+    let git = checkout.join(".git");
+    let git_dir = if git.is_file() {
+        linked_git_dir(checkout, &git)?
+    } else {
+        git
+    };
+    let head = fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let branch = head.trim().strip_prefix("ref: refs/heads/")?;
+    (!branch.is_empty() && branch != ".invalid").then(|| branch.to_string())
+}
+
+/// The git dir a worktree's `.git` file points at.
+fn linked_git_dir(dir: &Path, git: &Path) -> Option<PathBuf> {
+    let pointer = fs::read_to_string(git).ok()?;
+    Some(dir.join(pointer.strip_prefix("gitdir:")?.trim()))
 }
 
 #[must_use]
@@ -89,8 +125,7 @@ pub fn project_root(cwd: &Path) -> PathBuf {
 /// `commondir`, so a submodule (also a `.git` file) stays its own floor, as does
 /// a worktree of a bare repo, which has no main checkout.
 fn main_checkout(dir: &Path, git: &Path) -> Option<PathBuf> {
-    let pointer = fs::read_to_string(git).ok()?;
-    let git_dir = dir.join(pointer.strip_prefix("gitdir:")?.trim());
+    let git_dir = linked_git_dir(dir, git)?;
     let common = fs::read_to_string(git_dir.join("commondir")).ok()?;
     let common = normalise(&git_dir.join(common.trim()));
     if common.file_name()? != ".git" {
@@ -137,6 +172,8 @@ pub struct Discovery {
     codex: codex::CodexSource,
     /// The OS's process listing, for each session's pets; tests swap in none.
     read_processes: fn() -> Vec<pets::ProcessRow>,
+    /// The checkouts of the previous scan, to remember a worktree that was then removed.
+    checkouts: BTreeMap<String, PathBuf>,
 }
 
 impl Discovery {
@@ -146,6 +183,7 @@ impl Discovery {
             claude: claude_code::ClaudeSource::new(home.clone()),
             codex: codex::CodexSource::new(home.clone()),
             read_processes: pets::read_table,
+            checkouts: BTreeMap::new(),
             home,
         }
     }
@@ -165,7 +203,9 @@ impl Discovery {
             )
             .filter(still_there)
             .collect();
-        assemble(&self.home, inputs, locate)
+        let found = assemble(&self.home, inputs, locate, &self.checkouts);
+        self.checkouts.clone_from(&found.checkouts);
+        found
     }
 
     /// Leave out the `codex` processes really running, which no test's home owns.
@@ -213,6 +253,8 @@ struct SessionInput {
     /// Otherwise a waiting state falls back to the plain-prose scorer.
     formal_question: Option<FormalQuestionInput>,
     helpers: Vec<Helper>,
+    /// Where each helper works now, by helper id.
+    helper_places: BTreeMap<String, Location>,
     pets: Vec<Pet>,
     /// A person started it, so once it ends it can be offered to resume.
     resumable: bool,
@@ -271,6 +313,7 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
             .map(|l| pets::pets_of(l.pid, table, &f.transcript.monitors))
             .unwrap_or_default(),
         helpers: f.helpers,
+        helper_places: f.helper_places,
         resumable: !f.transcript.scripted,
     })
 }
@@ -295,6 +338,7 @@ fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInpu
         // waiting Codex session always falls back to the plain-prose scorer.
         formal_question: None,
         helpers: Vec::new(),
+        helper_places: BTreeMap::new(),
         pets: f
             .live_pid
             .map(|pid| pets::pets_of(pid, table, &[]))
@@ -373,27 +417,53 @@ fn assemble(
     home: &Path,
     inputs: Vec<SessionInput>,
     locate: impl Fn(&Path) -> Location,
+    before: &BTreeMap<String, PathBuf>,
 ) -> Discovered {
     let mut floors: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     let mut sessions = Vec::new();
     let mut questions = Vec::new();
     let mut ended = Vec::new();
     let mut resume_dirs = BTreeMap::new();
+    let mut checkouts = BTreeMap::new();
 
     for input in inputs {
-        let Location { root, .. } = locate(Path::new(&input.cwd));
+        let started = locate(Path::new(&input.cwd));
         let now_in = locate(Path::new(&input.latest_cwd));
-        let worktree = now_in.worktree && now_in.root == root;
+        let same_repo = now_in.root == started.root;
+        let worktree = now_in.worktree && same_repo;
+        let branch = if worktree {
+            branch_of(&now_in.checkout)
+        } else {
+            None
+        };
+        let checkout = lost_checkout(before.get(&input.session_id), &input.latest_cwd).unwrap_or(
+            if same_repo {
+                now_in.checkout
+            } else {
+                started.checkout
+            },
+        );
+        let root = started.root;
         // An ended session leaves the office; its floor stays while the session was recent.
         let ids = floors.entry(root.clone()).or_default();
         if !input.live {
             if input.resumable {
                 resume_dirs.insert(input.session_id.clone(), PathBuf::from(&input.cwd));
+                checkouts.insert(input.session_id.clone(), checkout);
                 ended.push(signed_out(input, &root));
             }
             continue;
         }
         ids.push(input.session_id.clone());
+        checkouts.insert(input.session_id.clone(), checkout);
+        for (helper_id, place) in &input.helper_places {
+            if place.root == root {
+                checkouts.insert(
+                    helper_key(&input.session_id, helper_id),
+                    place.checkout.clone(),
+                );
+            }
+        }
         let state = rules::derive_state(&input.signals);
 
         let mut pending = Vec::new();
@@ -419,6 +489,7 @@ fn assemble(
             helpers: input.helpers,
             pets: input.pets,
             worktree,
+            branch,
         });
     }
 
@@ -450,7 +521,17 @@ fn assemble(
         questions,
         ended,
         resume_dirs,
+        checkouts,
     }
+}
+
+/// The checkout a session was last seen in, when that folder has since been deleted and
+/// the session's latest folder is still inside it. Opening it then says it is gone, where
+/// a fresh look would quietly land on the main checkout.
+fn lost_checkout(before: Option<&PathBuf>, latest_cwd: &str) -> Option<PathBuf> {
+    before
+        .filter(|was| !was.is_dir() && Path::new(latest_cwd).starts_with(was))
+        .cloned()
 }
 
 /// Every `*.jsonl` under `dir`, at any depth.
@@ -467,6 +548,9 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
         }
     }
 }
+
+#[cfg(test)]
+mod checkout_tests;
 
 #[cfg(test)]
 mod tests {
@@ -487,6 +571,7 @@ mod tests {
                 name: None,
             }),
             helpers: Vec::new(),
+            helper_places: BTreeMap::new(),
         }
     }
 
@@ -495,6 +580,7 @@ mod tests {
         Location {
             root: cwd.to_path_buf(),
             worktree: false,
+            checkout: cwd.to_path_buf(),
         }
     }
 
@@ -546,6 +632,7 @@ mod tests {
                 found("s3", "/home/me/code/other", &[DONE], false),
             ]),
             own_floor,
+            &BTreeMap::new(),
         );
         assert_eq!(d.projects.len(), 2);
         let app = d
@@ -604,6 +691,7 @@ mod tests {
                     own_floor(cwd)
                 }
             },
+            &BTreeMap::new(),
         );
         let ended: Vec<&str> = d.ended.iter().map(|e| e.id.as_str()).collect();
         assert_eq!(ended, vec!["s4", "s3"], "scripted runs are not listed");
@@ -633,6 +721,7 @@ mod tests {
             Path::new("/home/me"),
             claude_inputs(vec![asking]),
             own_floor,
+            &BTreeMap::new(),
         );
         let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
         assert_eq!(s1.state, SessionState::WaitingHuman);
@@ -656,7 +745,12 @@ mod tests {
         };
         let input = from_codex(placeholder, &[]).expect("a codex session");
         assert!(!input.resumable);
-        let d = assemble(Path::new("/home/me"), vec![input], own_floor);
+        let d = assemble(
+            Path::new("/home/me"),
+            vec![input],
+            own_floor,
+            &BTreeMap::new(),
+        );
         assert_eq!(d.sessions[0].title, "New Codex session");
         assert_eq!(d.sessions[0].state, SessionState::Idle);
     }
@@ -679,7 +773,7 @@ mod tests {
         let home = Path::new("/home/me");
         let mut inputs = claude_inputs(vec![found("s1", "/home/me/code/app", &[idle], true)]);
         inputs.extend(from_codex(codex_found, &[]));
-        let d = assemble(home, inputs, own_floor);
+        let d = assemble(home, inputs, own_floor, &BTreeMap::new());
 
         assert_eq!(d.projects.len(), 1);
         let app = &d.projects[0];
@@ -742,6 +836,7 @@ mod tests {
                 found("s3", &in_main, &[&main_line, &tree_line], true),
             ]),
             locate,
+            &BTreeMap::new(),
         );
         assert_eq!(
             d.projects.len(),
@@ -768,7 +863,8 @@ mod tests {
             locate(&submodule),
             Location {
                 root: submodule.clone(),
-                worktree: false
+                worktree: false,
+                checkout: submodule.clone(),
             }
         );
         fs::remove_dir_all(&main).expect("cleanup");

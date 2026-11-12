@@ -97,6 +97,7 @@ pub(super) fn desk_session(terminal: &str, desk: &Desk, idle: Duration) -> Sessi
         helpers: Vec::new(),
         pets: Vec::new(),
         worktree: false,
+        branch: None,
     }
 }
 

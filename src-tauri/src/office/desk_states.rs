@@ -57,6 +57,7 @@ mod tests {
             helpers: Vec::new(),
             pets: Vec::new(),
             worktree: false,
+            branch: None,
         }
     }
 
@@ -110,6 +111,7 @@ mod tests {
             id: "helper".to_string(),
             state: SessionState::Running,
             worktree: false,
+            branch: None,
         });
         let out = states(&[], vec![parent], |_| false);
         assert_eq!(out.len(), 1);

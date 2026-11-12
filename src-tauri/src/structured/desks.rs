@@ -190,6 +190,7 @@ impl Desks {
                 helpers: Vec::new(),
                 pets: Vec::new(),
                 worktree: false,
+                branch: None,
             })
             .collect()
     }
@@ -275,6 +276,12 @@ impl Desks {
                 desks.on_event(&desk, event);
             }
         })
+    }
+
+    /// The folder a desk was hired in, running or ended.
+    #[must_use]
+    pub fn root_of(&self, id: &str) -> Option<PathBuf> {
+        lock(&self.live).get(id).map(|d| d.info.root.clone())
     }
 
     /// The folders running desks work in, so their floors stay up.
@@ -457,6 +464,8 @@ mod tests {
         desks.on_event("structured-1", Event::SessionId("thread-9".to_string()));
         assert_eq!(desks.tool_sessions(), vec!["thread-9".to_string()]);
         assert_eq!(desks.roots(), vec![PathBuf::from("/repo")]);
+        assert_eq!(desks.root_of("structured-1"), Some(PathBuf::from("/repo")));
+        assert_eq!(desks.root_of("structured-9"), None);
         desks.on_event(
             "structured-1",
             Event::Exited {
@@ -470,6 +479,11 @@ mod tests {
         assert_eq!(
             ended.as_deref(),
             Some("The agent stopped with exit code 2.")
+        );
+        assert_eq!(
+            desks.root_of("structured-1"),
+            Some(PathBuf::from("/repo")),
+            "an ended desk keeps its folder"
         );
         assert!(
             desks.prompt("structured-1", "hi").is_err(),

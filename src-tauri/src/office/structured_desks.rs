@@ -110,6 +110,7 @@ impl Office {
             helpers: Vec::new(),
             pets: Vec::new(),
             worktree: false,
+            branch: None,
         })
     }
 
