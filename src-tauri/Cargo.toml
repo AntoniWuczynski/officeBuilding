@@ -31,6 +31,8 @@ portable-pty = "0.9"
 toml = "=1.1.6"
 # System notifications when an agent stops. 2.5 and later need tauri ^2.12.
 tauri-plugin-notification = "~2.4"
+ureq = { version = "=3.5.1", default-features = false, features = ["native-tls-no-default"] }
+security-framework = "3.7.0"
 
 [features]
 # by default Tauri v2 apps enable no extra features here
