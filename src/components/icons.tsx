@@ -87,6 +87,14 @@ export function LiftIcon(): React.ReactElement {
   );
 }
 
+export function ChevronIcon(): React.ReactElement {
+  return (
+    <svg {...common} width={12} height={12}>
+      <path d="M5 8l6 6 6-6" />
+    </svg>
+  );
+}
+
 export function CloseIcon(): React.ReactElement {
   return (
     <svg {...common} width={16} height={16}>

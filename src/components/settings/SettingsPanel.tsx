@@ -1,17 +1,19 @@
 import { useEffect, useRef } from "react";
-import type { Settings, SettingsPatch } from "../../types";
+import type { EditorList, Settings, SettingsPatch } from "../../types";
 import { useSettings } from "../../state/useSettings";
+import { EditorGroup } from "./EditorGroup";
 import { NotificationsGroup } from "./NotificationsGroup";
 
 interface Props {
   readonly load: () => Promise<Settings>;
   readonly save: (patch: SettingsPatch) => Promise<Settings>;
+  readonly editors: EditorList | null;
   readonly onTestAlert: () => Promise<void>;
   readonly onClose: () => void;
 }
 
 /** The app's settings, as a plate over the room. Changes save at once. */
-export function SettingsPanel({ load, save, onTestAlert, onClose }: Props): React.ReactElement {
+export function SettingsPanel({ load, save, editors, onTestAlert, onClose }: Props): React.ReactElement {
   const { state, change, retry } = useSettings(load, save);
   const done = useRef<HTMLButtonElement>(null);
 
@@ -45,10 +47,16 @@ export function SettingsPanel({ load, save, onTestAlert, onClose }: Props): Reac
           </div>
         ) : null}
         {state.status === "ready" ? (
-          <section className="settings-group">
-            <h3>Notifications</h3>
-            <NotificationsGroup value={state.settings.notifications} onChange={(notifications) => change({ notifications })} onTest={onTestAlert} />
-          </section>
+          <>
+            <section className="settings-group">
+              <h3>Notifications</h3>
+              <NotificationsGroup value={state.settings.notifications} onChange={(notifications) => change({ notifications })} onTest={onTestAlert} />
+            </section>
+            <section className="settings-group">
+              <h3>Editor</h3>
+              <EditorGroup value={state.settings.editor} editors={editors} onChange={(editor) => change({ editor })} />
+            </section>
+          </>
         ) : null}
       </div>
       {state.status === "ready" && state.saveError !== null ? (

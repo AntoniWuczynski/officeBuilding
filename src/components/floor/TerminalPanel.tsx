@@ -5,12 +5,13 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DiscoveryApi } from "../../api/DiscoveryApi";
 import type { Session, Shell } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, modelLine } from "../../state/selectors";
+import { STATE_LABEL, TOOL_LABEL, checkoutLine, modelLine } from "../../state/selectors";
 import { CloseIcon } from "../icons";
 import { shellPaths } from "../../lib/shell";
 import { message } from "../../lib/errors";
 import { readPref, writePref } from "../../lib/prefs";
 import { Conversation } from "./Conversation";
+import { OpenInEditor } from "../editor/OpenInEditor";
 
 export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal" | "subscribeFileDrops">;
 
@@ -122,9 +123,14 @@ export function TerminalPanel(props: Props): React.ReactElement {
             <span key={d}>{d}</span>
           ))}
         </span>
-        <button type="button" className="icon-btn icon-btn-dark" aria-label="Close terminal" data-testid="terminal-close" onClick={onClose}>
-          <CloseIcon />
-        </button>
+        <span className="terminal-actions">
+          {session === null ? null : (
+            <OpenInEditor place={{ kind: "session", sessionId: session.id }} what={`“${session.title}”`} opens={checkoutLine(session)} dark shortcut />
+          )}
+          <button type="button" className="icon-btn icon-btn-dark" aria-label="Close terminal" data-testid="terminal-close" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </span>
       </header>
       {session?.control === "structured" ? (
         <Conversation sessionId={session.id} />

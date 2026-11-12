@@ -22,6 +22,7 @@ import { SetupPanel } from "./SetupPanel";
 import type { SetupProps } from "./SetupPanel";
 import { ShellsPanel } from "./ShellsPanel";
 import { SignOutSheet } from "./SignOutSheet";
+import { OpenInEditor } from "../editor/OpenInEditor";
 import { sectionLabel } from "./sections";
 import type { Section } from "./sections";
 
@@ -205,6 +206,10 @@ function InfoBody({ project, sessions, now }: { readonly project: Project; reado
         <dd>{project.name}</dd>
         <dt>Folder</dt>
         <dd className="mono">{project.path}</dd>
+        <dt>Code</dt>
+        <dd>
+          <OpenInEditor place={{ kind: "floor", projectId: project.id }} what={`the ${project.name} floor`} opens="this floor's folder" />
+        </dd>
         <dt>Agents</dt>
         <dd>
           {counts.active} of {counts.total} active

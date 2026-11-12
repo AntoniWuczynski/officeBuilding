@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import type { DiscoveryApi, HireRequest, QuestionAnswer } from "./api/DiscoveryApi";
-import type { Session, SettingsPatch } from "./types";
-import { TOOL_LABEL, sessionById } from "./state/selectors";
+import type { Editor, Place, Session, SettingsPatch } from "./types";
+import { TOOL_LABEL, editorLabel, sessionById } from "./state/selectors";
 import { useNow } from "./state/useNow";
 import { useOffice } from "./state/useOffice";
 import { BuildingView } from "./components/building/BuildingView";
@@ -12,6 +12,9 @@ import { FloorView } from "./components/floor/FloorView";
 import type { Section } from "./components/floor/sections";
 import { TerminalApiContext } from "./components/floor/TerminalPanel";
 import { ConversationApiContext } from "./components/floor/Conversation";
+import { useEditors } from "./state/useEditors";
+import { EditorContext } from "./components/editor/EditorContext";
+import type { EditorActions } from "./components/editor/EditorContext";
 import { SettingsPanel } from "./components/settings/SettingsPanel";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
@@ -127,13 +130,51 @@ export function App({ api }: Props): React.ReactElement {
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [floorId, newShell, toast]);
 
+  const loadEditors = useCallback(() => api.editors(), [api]);
+  const editors = useEditors(loadEditors);
+  const reloadEditors = editors.reload;
+
+  const editorList = editors.list;
+  const openInEditor = useCallback(
+    (place: Place, editor: Editor | null, what: string) => {
+      api
+        .openInEditor(place, editor)
+        .then((used) => toast("ok", `Opened ${what} in ${editorLabel(editorList, used) ?? "your editor"}.`))
+        .catch((err: unknown) => {
+          const label = editorLabel(editorList, editor ?? editorList?.defaultEditor ?? null) ?? "an editor";
+          toast("error", `Could not open ${what} in ${label}: ${message(err)}.`);
+          reloadEditors();
+        });
+    },
+    [api, editorList, toast, reloadEditors],
+  );
+  const editorActions = useMemo<EditorActions>(() => ({ list: editorList, open: openInEditor }), [editorList, openInEditor]);
+
+  // Cmd+Shift+O opens the desk whose panel is open, else the keyboard-focused worker. Captured first so a focused terminal cannot swallow it.
+  const sessions = snapshot?.sessions;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey || !e.shiftKey || e.altKey || e.ctrlKey || e.key.toLowerCase() !== "o") return;
+      const focused = document.activeElement?.closest('[data-testid="worker"]')?.getAttribute("data-session") ?? null;
+      const open = sessions?.find((s) => s.id === openSessionId);
+      const target = open ?? sessions?.find((s) => s.id === focused);
+      if (target === undefined) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      openInEditor({ kind: "session", sessionId: target.id }, editorList?.defaultEditor ?? null, `“${target.title}”`);
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [sessions, openSessionId, editorList, openInEditor]);
+
   const openSettings = useCallback(() => {
     // Plates never overlap: the Hire, Add floor and Demolish dialogs must be closed first.
     if (document.querySelector(".dialog:not(.settings-dialog)") !== null) return;
     setSection(null);
     setOpenSessionId(null);
     setSettingsOpen(true);
-  }, []);
+    reloadEditors();
+  }, [reloadEditors]);
   const chooseSection = useCallback((next: Section | null) => {
     if (next !== null) setSettingsOpen(false);
     setSection(next);
@@ -158,7 +199,14 @@ export function App({ api }: Props): React.ReactElement {
   }, [api, openSessionId]);
 
   const loadSettings = useCallback(() => api.getSettings(), [api]);
-  const saveSettings = useCallback((patch: SettingsPatch) => api.updateSettings(patch), [api]);
+  const saveSettings = useCallback(
+    (patch: SettingsPatch) =>
+      api.updateSettings(patch).then((saved) => {
+        if (patch.editor !== undefined) reloadEditors();
+        return saved;
+      }),
+    [api, reloadEditors],
+  );
   const testAlert = useCallback(() => api.testAlert(), [api]);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
@@ -300,11 +348,13 @@ export function App({ api }: Props): React.ReactElement {
     <MotionConfig reducedMotion="user">
       <TerminalApiContext value={api}>
       <ConversationApiContext value={api}>
+      <EditorContext value={editorActions}>
         <div className="app">
           {body}
-          {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} onTestAlert={testAlert} onClose={closeSettings} /> : null}
+          {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </EditorContext>
       </ConversationApiContext>
       </TerminalApiContext>
     </MotionConfig>

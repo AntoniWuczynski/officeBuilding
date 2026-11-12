@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { EndedSession } from "../../types";
 import { TOOL_LABEL } from "../../state/selectors";
 import { message } from "../../lib/errors";
+import { OpenInEditor } from "../editor/OpenInEditor";
 import { relativeTime } from "../../lib/time";
 
 interface Props {
@@ -54,9 +55,12 @@ function SignOutRow({ ended, now, onResume }: { readonly ended: EndedSession; re
         {TOOL_LABEL[ended.tool]}
         {model}, left {relativeTime(ended.endedAt, now)}
       </span>
-      <button type="button" className="btn signout-resume" aria-label={`Resume ${ended.title}`} disabled={resuming} onClick={resume}>
-        {resuming ? "Resuming" : "Resume"}
-      </button>
+      <span className="signout-resume signout-actions">
+        <OpenInEditor place={{ kind: "session", sessionId: ended.id }} what={`“${ended.title}”`} opens="the folder it worked in" />
+        <button type="button" className="btn" aria-label={`Resume ${ended.title}`} disabled={resuming} onClick={resume}>
+          {resuming ? "Resuming" : "Resume"}
+        </button>
+      </span>
       {error === null ? null : (
         <p className="form-error signout-error" role="alert">
           Could not resume: {error}.

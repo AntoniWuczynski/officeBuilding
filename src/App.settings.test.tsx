@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
@@ -61,6 +61,25 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("rail-info"));
     expect(screen.queryByTestId("settings-dialog")).not.toBeInTheDocument();
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
+  });
+
+  it("reloads the editor list when Settings opens and after the Editor group is saved", async () => {
+    const user = userEvent.setup();
+    const api = new MockApi();
+    const editors = vi.spyOn(api, "editors");
+    render(<App api={api} />);
+    await screen.findAllByTestId("storey");
+    await waitFor(() => expect(editors).toHaveBeenCalledTimes(1));
+    cmdComma();
+    await screen.findByTestId("settings-dialog");
+    await waitFor(() => expect(editors).toHaveBeenCalledTimes(2));
+    await user.click(await screen.findByRole("switch", { name: "Sound" }));
+    await waitFor(async () => expect((await api.getSettings()).notifications.sound).toBe(false));
+    expect(editors).toHaveBeenCalledTimes(2);
+    await user.selectOptions(await screen.findByTestId("settings-editor"), "VS Code");
+    await waitFor(() => expect(editors).toHaveBeenCalledTimes(3));
+    expect((await api.getSettings()).editor.preferred).toBe("vs-code");
+    expect(screen.getByTestId("settings-editor")).toHaveValue("vs-code");
   });
 
   it("opens from the fuse box on the Setup floor only", async () => {
