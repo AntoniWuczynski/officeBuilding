@@ -15,6 +15,8 @@ interface Props {
   readonly helpers: readonly Helper[];
   /** Helpers on their way in or out: their desks stand empty meanwhile. */
   readonly walking: ReadonlySet<string>;
+  /** Opens the editor menu for a helper in a worktree. Without it no helper is a button. */
+  readonly onHelperMenu?: ((helper: Helper, e: React.MouseEvent<HTMLElement>) => void) | undefined;
 }
 
 /**
@@ -22,7 +24,7 @@ interface Props {
  * shrink as the team grows, drop their people once too small to seat one, and
  * past POD.cap the rest show as a count.
  */
-export function Pod({ desk, z, helpers, walking }: Props): React.ReactElement | null {
+export function Pod({ desk, z, helpers, walking, onHelperMenu }: Props): React.ReactElement | null {
   if (helpers.length === 0) return null;
   const pod = podFor(desk, helpers.length);
   const w = pod.cell * POD.deskShare;
@@ -35,6 +37,7 @@ export function Pod({ desk, z, helpers, walking }: Props): React.ReactElement | 
         const helper = helpers[i];
         if (helper === undefined) return null;
         const seat = podSeatOf(pod, slot);
+        const figure = <Person look={lookFor(helper.id)} pose={poseForState(helper.state)} />;
         return (
           <div key={helper.id} className="group">
             <IsoBox
@@ -53,9 +56,22 @@ export function Pod({ desk, z, helpers, walking }: Props): React.ReactElement | 
             {seat !== null && helper.worktree ? <Plant x={slot.x + w * 0.12} y={slot.y + d * 0.1} z={z + h} scale={seat.scale} /> : null}
             {seat === null || walking.has(helper.id) ? null : (
               <Billboard x={seat.at.x} y={seat.at.y} z={z}>
-                <PodScale scale={seat.scale}>
-                  <Person look={lookFor(helper.id)} pose={poseForState(helper.state)} />
-                </PodScale>
+                {onHelperMenu !== undefined && helper.worktree ? (
+                  <button
+                    type="button"
+                    className="pod-worker"
+                    data-testid="pod-worker"
+                    data-helper={helper.id}
+                    aria-haspopup="menu"
+                    aria-label={`Helper in a worktree${helper.branch === null ? "" : ` on branch ${helper.branch}`}. Open its code in an editor.`}
+                    onClick={(e) => onHelperMenu(helper, e)}
+                    onContextMenu={(e) => onHelperMenu(helper, e)}
+                  >
+                    <PodScale scale={seat.scale}>{figure}</PodScale>
+                  </button>
+                ) : (
+                  <PodScale scale={seat.scale}>{figure}</PodScale>
+                )}
               </Billboard>
             )}
           </div>

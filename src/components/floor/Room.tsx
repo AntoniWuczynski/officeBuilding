@@ -1,7 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import type { AgentMessage, Session } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, helpersLine, sessionMatches } from "../../state/selectors";
+import type { AgentMessage, EditorList, Helper, Place, Session } from "../../types";
+import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, helpersLine, sessionMatches } from "../../state/selectors";
 import { poseForState } from "../../lib/animation";
 import { headsLeft } from "../../lib/iso";
 import type { PlanPoint } from "../../lib/iso";
@@ -19,6 +19,8 @@ import { BackWall, LeftWall, ManagerOffice, SignOutStand } from "./RoomObjects";
 import type { RoomObjectsModel } from "./RoomObjects";
 import type { Section } from "./sections";
 import { Pets } from "./Pets";
+import { EditorContext } from "../editor/EditorContext";
+import { EditorMenu } from "../editor/EditorMenu";
 import { Pod, PodScale } from "./Pod";
 import { WorkerCard } from "./WorkerCard";
 
@@ -49,6 +51,28 @@ interface RoomProps {
   readonly onOpenSection: (section: Section) => void;
   readonly onOpenSettings: () => void;
   readonly onHire: () => void;
+}
+
+interface MenuState {
+  readonly place: Place;
+  readonly what: string;
+  readonly caption: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Where a menu raised by `e` goes: the pointer, or the middle of the button when a keyboard raised it (0, 0). */
+function menuPoint(e: React.MouseEvent<HTMLElement>): { readonly x: number; readonly y: number } {
+  if (e.clientX !== 0 || e.clientY !== 0) return { x: e.clientX, y: e.clientY };
+  const r = e.currentTarget.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+/** The hover card's last line, or null when nothing can be opened. */
+function editorHint(list: EditorList | null): string | null {
+  if (list === null) return "Right-click to open in an editor";
+  const first = editorLabel(list, list.defaultEditor);
+  return first === undefined ? null : `Right-click to open in ${first}`;
 }
 
 /** Every agent's seat, and each helper's while its pod is big enough to seat one. */
@@ -104,6 +128,13 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
     setCard({ sessionId, x: r.left + r.width / 2, y: r.top });
   };
   const hideCard = (): void => setCard(null);
+  const editors = useContext(EditorContext);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const openMenu = (e: React.MouseEvent<HTMLElement>, place: Place, what: string, at: { readonly worktree: boolean; readonly branch: string | null }): void => {
+    e.preventDefault();
+    setCard(null);
+    setMenu({ place, what, caption: `Opens ${checkoutLine(at)}`, ...menuPoint(e) });
+  };
   const carded = card === null ? undefined : sessions.find((s) => s.id === card.sessionId);
 
   useEffect(() => {
@@ -186,7 +217,13 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
         return (
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
             <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} />
-            <Pod desk={desk} z={ROOM.slab} helpers={s.helpers} walking={walking} />
+            <Pod
+              desk={desk}
+              z={ROOM.slab}
+              helpers={s.helpers}
+              walking={walking}
+              onHelperMenu={editors === null ? undefined : (h: Helper, e) => openMenu(e, { kind: "helper", sessionId: s.id, helperId: h.id }, `a helper of \u201c${s.title}\u201d`, h)}
+            />
             <Pets desk={desk} z={ROOM.slab} pets={s.pets} />
             {walking.has(s.id) ? null : (
               <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
@@ -196,8 +233,10 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
                   data-testid="worker"
                   data-session={s.id}
                   data-state={s.state}
-                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), s.worktree ? "in a worktree" : null].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
+                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
+                  aria-keyshortcuts={editors === null ? undefined : "Meta+Shift+O"}
                   onClick={() => onOpenSession(s)}
+                  onContextMenu={editors === null ? undefined : (e) => openMenu(e, { kind: "session", sessionId: s.id }, `\u201c${s.title}\u201d`, s)}
                   onMouseEnter={(e) => showCard(s.id, e.currentTarget)}
                   onMouseLeave={hideCard}
                   onFocus={(e) => showCard(s.id, e.currentTarget)}
@@ -221,7 +260,20 @@ export function Room({ sessions, depth, query, now, messages, objects, hiring, o
         </button>
       </Billboard>
 
-      {carded === undefined || card === null ? null : <WorkerCard session={carded} x={card.x} y={card.y} now={now} />}
+      {carded === undefined || card === null ? null : <WorkerCard session={carded} x={card.x} y={card.y} now={now} editorHint={editors === null ? null : editorHint(editors.list)} />}
+
+      {menu === null || editors === null ? null : (
+        <EditorMenu
+          at={{ x: menu.x, y: menu.y }}
+          caption={menu.caption}
+          items={editorMenuItems(editors.list)}
+          onPick={(editor) => {
+            editors.open(menu.place, editor, menu.what);
+            setMenu(null);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
 
       {walks.map((w) => (
         <WalkView key={w.id} walk={w} depth={depth} onDone={(id) => setWalks((cur) => cur.filter((x) => x.id !== id))} />

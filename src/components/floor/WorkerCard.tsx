@@ -9,6 +9,8 @@ interface Props {
   readonly x: number;
   readonly y: number;
   readonly now: Date;
+  /** The last line: how to open its code, or null. */
+  readonly editorHint: string | null;
 }
 
 /**
@@ -16,7 +18,7 @@ interface Props {
  * inside the scene it is a plane at the worker's depth, and walls behind a
  * corner desk slice straight through it (WebKit sorts 3D planes strictly).
  */
-export function WorkerCard({ session, x, y, now }: Props): React.ReactElement {
+export function WorkerCard({ session, x, y, now, editorHint }: Props): React.ReactElement {
   const model = modelLine(session);
   const helpers = helpersLine(session);
   return createPortal(
@@ -28,6 +30,8 @@ export function WorkerCard({ session, x, y, now }: Props): React.ReactElement {
         {STATE_LABEL[session.state]}, active {relativeTime(session.lastActivityAt, now)}
       </span>
       {helpers === null ? null : <span>{helpers}</span>}
+      {session.worktree ? <span>{session.branch === null ? "Worktree" : `Worktree on ${session.branch}`}</span> : null}
+      {editorHint === null ? null : <span>{editorHint}</span>}
     </div>,
     document.body,
   );
