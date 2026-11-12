@@ -33,6 +33,14 @@ export function roomDeskSlot(index: number): Slot {
   return { x: ROOM.colX0 + col * ROOM.colGap, y: ROOM.rowY0 + row * ROOM.rowGap };
 }
 
+/** The manager's desk: its top-left corner, in the glass office. */
+export const MANAGER_DESK: Slot = { x: ROOM.managerX + 46, y: 40 };
+
+/** Where the manager stands behind its desk, and where a note it carries starts. */
+export function managerSeat(): Slot {
+  return { x: MANAGER_DESK.x + 25, y: 38 };
+}
+
 /** The QA desk: the floor's front-left corner, where the plant room keeps its tank. */
 export const QA_DESK = { x: 10, back: 44, extra: 26 } as const;
 

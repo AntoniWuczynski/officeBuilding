@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
-import type { Session } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, helpersLine, modelLine } from "../../state/selectors";
+import type { QueuedNote, Session } from "../../types";
+import { HOLD_WORDS, STATE_LABEL, TOOL_LABEL, helpersLine, modelLine, plural } from "../../state/selectors";
 import { relativeTime } from "../../lib/time";
 
 interface Props {
@@ -11,6 +11,10 @@ interface Props {
   readonly now: Date;
   /** The last line: how to open its code, or null. */
   readonly editorHint: string | null;
+  /** The floor's manager drives this desk. */
+  readonly managed: boolean;
+  /** Notes from the manager still waiting for this desk. */
+  readonly waiting: readonly QueuedNote[];
 }
 
 /**
@@ -18,7 +22,7 @@ interface Props {
  * inside the scene it is a plane at the worker's depth, and walls behind a
  * corner desk slice straight through it (WebKit sorts 3D planes strictly).
  */
-export function WorkerCard({ session, x, y, now, editorHint }: Props): React.ReactElement {
+export function WorkerCard({ session, x, y, now, editorHint, managed, waiting }: Props): React.ReactElement {
   const model = modelLine(session);
   const helpers = helpersLine(session);
   return createPortal(
@@ -31,6 +35,12 @@ export function WorkerCard({ session, x, y, now, editorHint }: Props): React.Rea
       </span>
       {helpers === null ? null : <span>{helpers}</span>}
       {session.worktree ? <span>{session.branch === null ? "Worktree" : `Worktree on ${session.branch}`}</span> : null}
+      {managed ? <span>Managed by the floor&apos;s manager</span> : null}
+      {waiting[0] === undefined ? null : (
+        <span>
+          {plural(waiting.length, "note", "notes")} from the manager waiting: {HOLD_WORDS[waiting[0].hold]}
+        </span>
+      )}
       {editorHint === null ? null : <span>{editorHint}</span>}
     </div>,
     document.body,

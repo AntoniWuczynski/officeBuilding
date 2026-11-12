@@ -19,6 +19,8 @@ import { ConnectorsContext } from "./components/connectors/ConnectorsContext";
 import type { ConnectorActions } from "./components/connectors/ConnectorsContext";
 import { QaContext } from "./components/qa/QaContext";
 import type { QaActions } from "./components/qa/QaContext";
+import { ManagerContext } from "./components/manager/ManagerContext";
+import type { ManagerActions } from "./components/manager/ManagerContext";
 import { SettingsPanel } from "./components/settings/SettingsPanel";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
@@ -295,6 +297,32 @@ export function App({ api }: Props): React.ReactElement {
     [api, toast, openSettings],
   );
 
+  const managerActions = useMemo<ManagerActions>(() => {
+    const change = (done: string, task: Promise<void>): Promise<void> =>
+      task.then(
+        () => toast("ok", done),
+        (err: unknown) => toast("error", `Could not change the manager: ${message(err)}.`),
+      );
+    return {
+      hire: (projectId) =>
+        api.hireManager(projectId).then(
+          () => toast("ok", "Hired a manager for this floor. The floor is pinned."),
+          (err: unknown) => {
+            toast("error", `Could not hire a manager: ${message(err)}.`);
+            throw err;
+          },
+        ),
+      setPaused: (projectId, paused) =>
+        change(paused ? "The manager is paused. Nothing is sent or hired until you resume it." : "The manager is back at work.", api.setManagerPaused(projectId, paused)),
+      setHiring: (projectId, allowed) =>
+        change(allowed ? "The manager may hire desks on this floor." : "The manager may no longer hire desks on this floor.", api.setManagerHiring(projectId, allowed)),
+      withdraw: (projectId, noteId) => {
+        api.withdrawManagerNote(projectId, noteId).catch((err: unknown) => toast("error", `Could not withdraw that note: ${message(err)}.`));
+      },
+      openSettings,
+    };
+  }, [api, toast, openSettings]);
+
   const tick = useCallback(
     (todoId: string) => {
       api.tickTodo(todoId).catch((err: unknown) => toast("error", `Could not tick that off: ${message(err)}.`));
@@ -388,11 +416,13 @@ export function App({ api }: Props): React.ReactElement {
       <EditorContext value={editorActions}>
       <ConnectorsContext value={connectorActions}>
       <QaContext value={qaActions}>
+      <ManagerContext value={managerActions}>
         <div className="app">
           {body}
           {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </ManagerContext>
       </QaContext>
       </ConnectorsContext>
       </EditorContext>

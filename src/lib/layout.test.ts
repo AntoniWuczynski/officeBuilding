@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DESK,
+  MANAGER_DESK,
   ROOM,
+  managerSeat,
   STOREY,
   doorOf,
   POD,
@@ -109,5 +111,17 @@ describe("QA corner desk", () => {
 
   it("makes a room with three rows deeper by the corner's extra", () => {
     expect(roomDepth(7, true)).toBe(roomDepth(7) + QA_DESK.extra);
+  });
+});
+
+describe("the manager's desk", () => {
+  it("stands inside the glass office, with the manager behind it", () => {
+    expect(MANAGER_DESK.x).toBeGreaterThanOrEqual(ROOM.managerX);
+    expect(MANAGER_DESK.x + DESK.w).toBeLessThanOrEqual(ROOM.width);
+    expect(MANAGER_DESK.y + DESK.d).toBeLessThanOrEqual(ROOM.managerDepth);
+    const seat = managerSeat();
+    expect(seat.x).toBeGreaterThan(MANAGER_DESK.x);
+    expect(seat.x).toBeLessThan(MANAGER_DESK.x + DESK.w);
+    expect(seat.y).toBeLessThanOrEqual(MANAGER_DESK.y);
   });
 });

@@ -4,8 +4,8 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DiscoveryApi } from "../../api/DiscoveryApi";
-import type { Session, Shell } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, checkoutLine, modelLine } from "../../state/selectors";
+import type { ManagerFloor, Session, Shell } from "../../types";
+import { STATE_LABEL, TOOL_LABEL, checkoutLine, modelLine, notesFor, plural } from "../../state/selectors";
 import { CloseIcon } from "../icons";
 import { shellPaths } from "../../lib/shell";
 import { message } from "../../lib/errors";
@@ -70,7 +70,7 @@ function usePanelHeight(panel: React.RefObject<HTMLElement | null>): {
 }
 
 /** An agent's session, or a plain shell the human opened (its floor's folder alongside). */
-type Props = { readonly onClose: () => void } & ({ readonly session: Session } | { readonly shell: Shell; readonly path: string });
+type Props = { readonly onClose: () => void; readonly manager?: ManagerFloor | undefined } & ({ readonly session: Session } | { readonly shell: Shell; readonly path: string });
 
 /**
  * A terminal docked under the floor. A plain shell is always live. A session's is:
@@ -80,7 +80,7 @@ type Props = { readonly onClose: () => void } & ({ readonly session: Session } |
  * raise-window sessions never open here: clicking them raises their own window.
  */
 export function TerminalPanel(props: Props): React.ReactElement {
-  const { onClose } = props;
+  const { onClose, manager } = props;
   const session = "session" in props ? props.session : null;
   // Opened on a live terminal, the panel stays on it: after `/clear` this id
   // turns read-only while the backend keeps it pointing at the same terminal.
@@ -93,6 +93,7 @@ export function TerminalPanel(props: Props): React.ReactElement {
     session === null
       ? ["path" in props ? props.path : "", "Your shell"]
       : [TOOL_LABEL[session.tool], modelLine(session), STATE_LABEL[session.state]].filter((d) => d !== null);
+  const waiting = session === null ? 0 : notesFor(manager, session.id).length;
   return (
     <motion.section
       ref={panel}
@@ -122,6 +123,12 @@ export function TerminalPanel(props: Props): React.ReactElement {
           {details.map((d) => (
             <span key={d}>{d}</span>
           ))}
+          {session !== null && manager?.managed.includes(session.id) ? (
+            <span className="managed-mark managed-mark-dark" data-testid="terminal-managed">
+              managed
+            </span>
+          ) : null}
+          {waiting === 0 ? null : <span data-testid="terminal-notes">{plural(waiting, "note", "notes")} from the manager waiting</span>}
         </span>
         <span className="terminal-actions">
           {session === null ? null : (

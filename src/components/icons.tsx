@@ -29,6 +29,13 @@ export function SectionIcon({ section }: { readonly section: Section }): React.R
           <path d="M6.5 9h9M6.5 12.5h6" />
         </svg>
       );
+    case "manager": // a desk with a figure behind it
+      return (
+        <svg {...common}>
+          <circle cx="11" cy="6" r="2.5" />
+          <path d="M6.5 13c0-3 2-4.5 4.5-4.5s4.5 1.5 4.5 4.5M3 13h16v3H3zM5 16v3M17 16v3" />
+        </svg>
+      );
     case "decisions": // memo pile
       return (
         <svg {...common}>

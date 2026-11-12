@@ -9,6 +9,7 @@
 @import "./styles/editor.css";
 @import "./styles/connectors.css";
 @import "./styles/qa.css";
+@import "./styles/manager.css";
 @import "./styles/conversation.css";
 
 html,

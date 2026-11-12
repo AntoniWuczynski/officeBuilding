@@ -1,13 +1,13 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import type { AgentMessage, EditorList, Helper, Place, QaFloor, Session } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, helpersLine, sessionMatches } from "../../state/selectors";
+import type { AgentMessage, EditorList, Helper, ManagerFloor, Place, QaFloor, Session } from "../../types";
+import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, helpersLine, notesFor, plural, sessionMatches } from "../../state/selectors";
 import { poseForState } from "../../lib/animation";
 import { headsLeft } from "../../lib/iso";
 import type { PlanPoint } from "../../lib/iso";
-import { DESK, ROOM, doorOf, floorSpotOf, podFor, podSeatOf, qaDeskSlot, roomDeskSlot, seatOf } from "../../lib/layout";
+import { DESK, ROOM, doorOf, floorSpotOf, managerSeat, podFor, podSeatOf, qaDeskSlot, roomDeskSlot, seatOf } from "../../lib/layout";
 import type { Seat, Slot } from "../../lib/layout";
-import { lookFor } from "../../lib/looks";
+import { MANAGER_LOOK, lookFor } from "../../lib/looks";
 import { Billboard, CameraContext, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
@@ -53,6 +53,8 @@ interface RoomProps {
   readonly qa: QaFloor | null;
   /** The QA reviewer, seated at the corner desk. */
   readonly reviewer: Session | undefined;
+  /** The floor's manager, if it has an entry. Its session is never among `sessions`. */
+  readonly manager: ManagerFloor | undefined;
   readonly depth: number;
   readonly query: string;
   readonly now: Date;
@@ -125,12 +127,13 @@ const ACTION_WORDS: Record<Session["control"], string> = {
 };
 
 /** The open-plan floor: one desk per session, the hire desk, and the manager's objects. */
-export function Room({ sessions, qa, reviewer, depth, query, now, messages, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire }: RoomProps): React.ReactElement {
+export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire }: RoomProps): React.ReactElement {
   const reduced = useReducedMotion() ?? false;
   const placements = useMemo<readonly Placement[]>(
     () => [...sessions.map((session, i) => ({ session, desk: roomDeskSlot(i) })), ...(reviewer === undefined ? [] : [{ session: reviewer, desk: qaDeskSlot(depth) }])],
     [sessions, reviewer, depth],
   );
+  const managerId = manager?.status.kind === "hired" ? manager.status.sessionId : null;
   const seenMessages = useRef<Set<string>>(new Set(messages.map((m) => m.id)));
   const seenWorkers = useRef<Set<string>>(new Set(workerIds(placements)));
   // Where each agent and helper sat last time, so one that finishes can walk out from there.
@@ -154,12 +157,14 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
 
   useEffect(() => {
     const seats = seatsFor(placements);
+    // The manager walks its notes from its own seat, but takes no part in arrivals and departures.
+    const noteSeats = managerId === null ? seats : new Map(seats).set(managerId, { at: managerSeat(), scale: 1 });
     const fresh: Walk[] = [];
     for (const m of messages) {
       if (seenMessages.current.has(m.id)) continue;
       seenMessages.current.add(m.id);
-      const from = seats.get(m.fromSessionId);
-      const to = seats.get(m.toSessionId);
+      const from = noteSeats.get(m.fromSessionId);
+      const to = noteSeats.get(m.toSessionId);
       if (!reduced && from !== undefined && to !== undefined) {
         fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from: from.at, via: null, to: to.at, scale: 1 });
       }
@@ -191,9 +196,10 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
       const busy = new Set(current.map((w) => w.walkerId));
       return [...current, ...fresh.filter((w) => !busy.has(w.walkerId))];
     });
-  }, [messages, placements, depth, reduced]);
+  }, [messages, placements, depth, reduced, managerId]);
 
   const walking = new Set(walks.map((w) => w.walkerId));
+  const managed = new Set(manager?.managed ?? []);
   const receiving = new Map(walks.flatMap((w) => (w.toId === null ? [] : [[w.toId, CARRIES[w.kind] ?? "note"] as const])));
   const hireSlot = roomDeskSlot(sessions.length);
   const toolbox = toolboxTop(TANK.x, depth - TANK.back, TANK.size);
@@ -221,7 +227,7 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
         </>
       ) : null}
       <LeftWall model={objects} depth={depth} onOpen={onOpenSection} />
-      <ManagerOffice model={objects} depth={depth} onOpen={onOpenSection} />
+      <ManagerOffice model={objects} depth={depth} onOpen={onOpenSection} away={managerId !== null && walking.has(managerId)} />
       <SignOutStand model={objects} depth={depth} onOpen={onOpenSection} />
 
       {qa === null ? null : <QaDesk qa={qa} depth={depth} occupied={reviewer !== undefined} now={now} onOpen={() => onOpenSection("info")} />}
@@ -229,6 +235,7 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
       {placements.map(({ session: s, desk }) => {
         const seat = s.state === "error" ? floorSpotOf(desk, depth - 4) : seatOf(desk);
         const dim = !sessionMatches(s, query);
+        const waiting = notesFor(manager, s.id);
         return (
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
             <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} />
@@ -240,6 +247,13 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
               onHelperMenu={editors === null ? undefined : (h: Helper, e) => openMenu(e, { kind: "helper", sessionId: s.id, helperId: h.id }, `a helper of \u201c${s.title}\u201d`, h)}
             />
             <Pets desk={desk} z={ROOM.slab} pets={s.pets} />
+            {waiting.length === 0 ? null : (
+              <Billboard x={desk.x + DESK.w - 6} y={desk.y + DESK.d} z={ROOM.slab + DESK.h + 2}>
+                <span className="desk-note" data-testid="desk-note">
+                  {waiting.length}
+                </span>
+              </Billboard>
+            )}
             {walking.has(s.id) ? null : (
               <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
                 <button
@@ -248,7 +262,7 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
                   data-testid="worker"
                   data-session={s.id}
                   data-state={s.state}
-                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
+                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null, managed.has(s.id) ? "managed by the floor's manager" : null, waiting.length === 0 ? null : `${plural(waiting.length, "note", "notes")} from the manager waiting`].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
                   aria-keyshortcuts={editors === null ? undefined : "Meta+Shift+O"}
                   onClick={() => onOpenSession(s)}
                   onContextMenu={editors === null ? undefined : (e) => openMenu(e, { kind: "session", sessionId: s.id }, `\u201c${s.title}\u201d`, s)}
@@ -261,6 +275,11 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
                   <span className={`name-tag state-${s.state}`} aria-hidden>
                     {s.title}
                   </span>
+                  {managed.has(s.id) ? (
+                    <span className="managed-mark" aria-hidden>
+                      managed
+                    </span>
+                  ) : null}
                 </button>
               </Billboard>
             )}
@@ -275,7 +294,17 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
         </button>
       </Billboard>
 
-      {carded === undefined || card === null ? null : <WorkerCard session={carded} x={card.x} y={card.y} now={now} editorHint={editors === null ? null : editorHint(editors.list)} />}
+      {carded === undefined || card === null ? null : (
+        <WorkerCard
+          session={carded}
+          x={card.x}
+          y={card.y}
+          now={now}
+          editorHint={editors === null ? null : editorHint(editors.list)}
+          managed={managed.has(carded.id)}
+          waiting={notesFor(manager, carded.id)}
+        />
+      )}
 
       {menu === null || editors === null ? null : (
         <EditorMenu
@@ -291,17 +320,17 @@ export function Room({ sessions, qa, reviewer, depth, query, now, messages, obje
       )}
 
       {walks.map((w) => (
-        <WalkView key={w.id} walk={w} depth={depth} onDone={(id) => setWalks((cur) => cur.filter((x) => x.id !== id))} />
+        <WalkView key={w.id} walk={w} depth={depth} managerId={managerId} onDone={(id) => setWalks((cur) => cur.filter((x) => x.id !== id))} />
       ))}
     </>
   );
 }
 
-function WalkView({ walk, depth, onDone }: { readonly walk: Walk; readonly depth: number; readonly onDone: (id: string) => void }): React.ReactElement {
+function WalkView({ walk, depth, managerId, onDone }: { readonly walk: Walk; readonly depth: number; readonly managerId: string | null; readonly onDone: (id: string) => void }): React.ReactElement {
   const cam = useContext(CameraContext);
   const first = walk.via ?? walk.to;
   const left = headsLeft(cam, ROOM.width, depth, walk.from, first);
-  const walker = <Walker look={lookFor(walk.walkerId)} carrying={CARRIES[walk.kind]} />;
+  const walker = <Walker look={walk.walkerId === managerId ? MANAGER_LOOK : lookFor(walk.walkerId)} carrying={CARRIES[walk.kind]} />;
   const style: StyleWithVars = {
     "--fx": `${walk.from.x}px`,
     "--fy": `${walk.from.y}px`,

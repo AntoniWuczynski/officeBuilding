@@ -10,15 +10,18 @@ import {
   endedForProject,
   formatTokens,
   formatUsd,
+  managerFor,
   questionsForProject,
   sessionCounts,
   sessionsForProject,
+  splitManager,
   todosForProject,
   totalSpend,
 } from "../../state/selectors";
 import { relativeTime } from "../../lib/time";
 import { CloseIcon } from "../icons";
 import { LinearRow } from "../connectors/LinearRow";
+import { ManagerPanel } from "../manager/ManagerPanel";
 import { QaRow } from "../qa/QaRow";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { TodoList } from "./TodoList";
@@ -36,6 +39,7 @@ interface Props {
   readonly snapshot: OfficeSnapshot;
   readonly now: Date;
   readonly onClose: () => void;
+  readonly onOpenSection: (section: Section) => void;
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
   readonly onTick: (todoId: string) => void;
   readonly onOpenSession: (session: Session) => void;
@@ -70,11 +74,27 @@ export function Sidebar({ onClose, ...body }: Props): React.ReactElement {
   );
 }
 
-function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpenSession, onResume, onOpenShell, onNewShell, onEndShell, setup }: Omit<Props, "onClose">): React.ReactElement {
+function SectionBody({ section, project, snapshot, now, onOpenSection, onAnswer, onTick, onOpenSession, onResume, onOpenShell, onNewShell, onEndShell, setup }: Omit<Props, "onClose">): React.ReactElement {
   const sessions = sessionsForProject(snapshot, project.id);
   switch (section) {
     case "setup":
       return <SetupPanel {...setup} />;
+    case "manager": {
+      const manager = managerFor(snapshot, project.id);
+      return (
+        <ManagerPanel
+          key={project.id}
+          project={project}
+          manager={manager}
+          session={splitManager(sessions, manager).managerSession}
+          sessions={sessions}
+          todos={todosForProject(snapshot, project.id, "ai")}
+          now={now}
+          onOpenSession={onOpenSession}
+          onOpenTodos={() => onOpenSection("todo")}
+        />
+      );
+    }
     case "decisions":
       return (
         <DecisionsPanel
