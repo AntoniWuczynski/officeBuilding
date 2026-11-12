@@ -109,6 +109,18 @@ sessions as an **office building**:
   Cmd+N is a new shell. They are not agents (no desk, no count) and are listed
   in the Shells panel, which reopens or ends any of them. Closing the panel
   keeps a shell running. End in the panel, or typing `exit`, ends it.
+- **Open a desk's code in your editor.** "Open in Cursor" (or VS Code, Zed or
+  Devin Desktop, whichever is found first or picked in Settings) sits in the
+  header of a desk's panel, on each row of the sign-out sheet and in the Info
+  panel, where it opens the floor's folder. Each desk opens the checkout its
+  agent is in, so an agent in a git worktree opens its worktree and not the
+  floor's main checkout. The arrow beside the button offers the other
+  installed editors. Right-click any worker for the same choice, which is the
+  way in for hand-started desks, and click a subagent that is working in a
+  worktree to open its worktree. Cmd+Shift+O opens the desk whose panel is
+  open. The editor's own command is used when your login shell finds it, and
+  otherwise the app in `/Applications` or `~/Applications`. If the worktree
+  has been removed, the app says so and opens nothing.
 - **The building tells you when an agent stops.** It alerts when an agent
   finishes its turn, needs you or is stuck on an error, by a soft system
   sound, a Dock bounce and a system notification. The Dock bounce and the
@@ -120,8 +132,9 @@ sessions as an **office building**:
 - **Settings open with Cmd+,** from the building or any floor, and from the
   fuse box beside the toolbox on the Setup floor. Each event and each method
   has its own switch, the cooldown runs from 0 to 600 seconds, and "Test in 3
-  seconds" sends a test alert. A change saves at once. Settings are kept in
-  `settings.json` in the app's data folder.
+  seconds" sends a test alert. The Editor group picks the default editor for
+  "Open in". A change saves at once. Settings are kept in `settings.json` in
+  the app's data folder.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -252,6 +265,7 @@ src/
     selectors.ts          # floor lights, search, per-floor queues/TODOs/spend, labels
     useOffice.ts          # load + subscribe hook with loading / error / retry
     useSettings.ts        # load and save the app's settings
+    useEditors.ts         # the editors "Open in" can use, and the default
   lib/
     iso.ts                # camera + projection maths for the CSS 3D rig
     layout.ts             # where desks, seats and the manager's office stand
@@ -263,7 +277,8 @@ src/
   components/
     building/             # the cutaway: storeys, lobby, roof, directory bar
     floor/                # the room, its objects, rail, sidebar panels, terminal, hire dialog
-    settings/             # the Settings plate and its Notifications group
+    settings/             # the Settings plate and its Notifications and Editor groups
+    editor/               # the "Open in" button and its menu
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
@@ -272,11 +287,13 @@ src-tauri/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
     discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     settings.rs           # the app's settings (settings.json in the app data dir)
     alerts.rs, alerts/    # alerts when an agent stops: state tracker, text, native delivery
+    editor.rs             # the editors "Open in" knows: which are installed, how each is opened
+    process.rs            # running other programs from an argument vector, with a fake for tests
     options.rs, options/  # hireable tools, models and per-model efforts, tools' own model lists
     setup/                # the Setup floor's library, each tool's inventory, import, injection
     structured/           # desks without a terminal: Codex app-server and ACP clients
