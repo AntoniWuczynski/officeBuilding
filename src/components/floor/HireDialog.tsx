@@ -3,6 +3,7 @@ import type { ModelOption, ToolKind, ToolOptions } from "../../types";
 import type { HireRequest } from "../../api/DiscoveryApi";
 import { TOOL_LABEL } from "../../state/selectors";
 import { message } from "../../lib/errors";
+import { Toggle, classes } from "../Toggle";
 
 type Load =
   | { readonly status: "loading" }
@@ -42,9 +43,6 @@ function effortFor(model: ModelOption, current: string): string {
     ? current
     : model.defaultEffort;
 }
-
-const classes = (...names: readonly (string | false)[]): string | undefined =>
-  names.filter(Boolean).join(" ") || undefined;
 
 /** Start a new agent session on this floor: tool, model, effort and task. */
 export function HireDialog({
@@ -254,26 +252,5 @@ export function HireDialog({
         </button>
       </div>
     </form>
-  );
-}
-
-function Toggle({
-  label,
-  title,
-  checked,
-  disabled,
-  onChange,
-}: {
-  readonly label: string;
-  readonly title?: string;
-  readonly checked: boolean;
-  readonly disabled: boolean;
-  readonly onChange: (on: boolean) => void;
-}): React.ReactElement {
-  return (
-    <label className={classes("choice-toggle", checked && "is-on")} title={title}>
-      <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      {label}
-    </label>
   );
 }
