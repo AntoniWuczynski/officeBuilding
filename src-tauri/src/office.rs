@@ -956,6 +956,7 @@ fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
     }
 }
 
+mod desk_states;
 mod launch;
 mod setup;
 mod shells;

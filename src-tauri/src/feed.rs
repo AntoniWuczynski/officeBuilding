@@ -138,6 +138,12 @@ impl Feed {
             .retain(|_, seen| now.duration_since(seen.at).unwrap_or_default() < STALE);
     }
 
+    /// The feed holds an event for this session: its state is reported as it happens.
+    #[must_use]
+    pub fn reports(&self, session_id: &str) -> bool {
+        self.latest.contains_key(session_id)
+    }
+
     /// Let each session's newest event set its state when it is newer than the
     /// session's own last activity.
     pub fn apply(&self, sessions: &mut [Session]) {
@@ -285,6 +291,16 @@ mod tests {
         sessions[0].tool = ToolKind::Codex;
         feed.apply(&mut sessions);
         assert_eq!(sessions[0].state, SessionState::WaitingHuman);
+    }
+
+    #[test]
+    fn reports_only_sessions_it_has_an_event_for() {
+        let mut feed = feed("reports");
+        assert!(!feed.reports("s1"));
+        fire(&feed, HookEvent::Stop, r#"{"session_id":"s1"}"#);
+        feed.collect(SystemTime::now());
+        assert!(feed.reports("s1"));
+        assert!(!feed.reports("s2"));
     }
 
     #[test]

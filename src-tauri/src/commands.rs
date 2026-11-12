@@ -5,11 +5,13 @@
     reason = "Tauri's command macro hands each command owned, deserialized arguments and `State` by value"
 )]
 
+use crate::alerts::Alerts;
 use crate::model::{
     HireRequest, OfficeSnapshot, Project, QuestionAnswer, Session, Shell, TerminalBacklog,
     ToolKind, ToolOptions, ToolUsage,
 };
 use crate::office::Office;
+use crate::settings::{Settings, SettingsPatch, SettingsStore};
 use crate::setup::{ItemKind, SetupView, Targets};
 use crate::structured::desks::Backlog;
 use crate::watch::SNAPSHOT_EVENT;
@@ -251,4 +253,30 @@ pub fn terminal_resize(
     rows: u16,
 ) -> Result<(), String> {
     office.terminal_resize(&session_id, cols, rows)
+}
+
+#[tauri::command]
+#[must_use]
+pub fn get_settings(settings: State<'_, Arc<SettingsStore>>) -> Settings {
+    settings.get()
+}
+
+#[tauri::command]
+pub fn update_settings(
+    settings: State<'_, Arc<SettingsStore>>,
+    patch: SettingsPatch,
+) -> Result<Settings, String> {
+    settings.update(patch)
+}
+
+/// The desk whose panel is open (None: none), so it does not alert while the window is focused.
+#[tauri::command]
+pub fn set_open_desk(alerts: State<'_, Arc<Alerts>>, session_id: Option<String>) {
+    alerts.set_open_desk(session_id);
+}
+
+/// A test alert in three seconds, by the methods switched on.
+#[tauri::command]
+pub fn test_alert(app: AppHandle, alerts: State<'_, Arc<Alerts>>) -> Result<(), String> {
+    alerts.test(app)
 }
