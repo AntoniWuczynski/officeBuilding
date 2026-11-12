@@ -39,8 +39,9 @@ sessions as an **office building**:
   right edge: brass plaque = Info, memo pile on the manager's desk = Decisions
   (questions ordered by priority → one question → A / B / Other), cork board =
   Human TODO, whiteboard = TODO, wall meter = Spend, sign-out sheet by the door =
-  Signed out, "Your terminal" over the manager's office = Shells. Everything is
-  scoped to the floor you are on.
+  Signed out, "Your terminal" over the manager's office = Shells, the manager
+  at the desk in that office = Manager. Everything is scoped to the floor you
+  are on.
 - **Resume an agent that has left.** Sessions that ended in the last 12 hours
   are listed on their floor's sign-out sheet. Resume runs `claude --resume` or
   `codex resume` in an in-app terminal, in the folder the session ran in, on
@@ -97,6 +98,36 @@ sessions as an **office building**:
   request labelled `no-qa` is left alone. A stamp on the desk's tag and on the
   floor's nameplate says "QA passed" or "QA notes". The Info panel lists the
   last reviews, each of which opens on GitHub, and has a Check now button.
+- **A manager on each floor hands work to its desks.** A floor has no manager
+  until you hire one. The "Hire a manager" sign on the desk in the manager's
+  office, and the Manager section on the rail, open the Manager panel, which
+  has the button. Hiring pins the floor. The manager is an ordinary Claude Code session on your plan, in one
+  of the app's terminals. It can read and search the floor's folder and use
+  seven tools the building gives it: list the desks, read a desk, read the
+  TODO lists, send a desk a note, wait for a desk, hire a desk and escalate a
+  question to you. It cannot run a command, edit a file, stop an agent or
+  answer an agent's permission prompt, and it cannot see or touch another
+  floor. A note reaches a desk only when that desk is idle. Until then it
+  waits, the desk carries a sticky note, and the Manager panel says why. A
+  desk without a terminal gets the note as its next turn. A Claude Code or
+  Codex desk in one of the app's terminals gets it typed in, starting "Note
+  from this floor's manager", but never while it waits on a prompt, never
+  within a minute of your last keystroke there and never on top of a line
+  you have left unsent. Notes to a desk you started by hand, and to opencode,
+  Cursor and Antigravity desks in a terminal, wait and are shown but are not
+  typed. A message you send a desk replaces the notes waiting for it. Every
+  delivered note is walked across the floor and listed in the panel's log,
+  and a desk the manager drives carries a "managed" mark. The manager may
+  hire desks only on a floor where you have switched "May hire desks" on, up
+  to 3 at once and until the desks it hired have spent 20 US dollars. Paused,
+  it can still read the floor, but nothing is sent, hired or escalated. A
+  question it escalates lands on the memo pile, and in the repo's
+  `HUMAN_DECISIONS.md` when there is one. Its desk light is green while it
+  works, yellow while a question of its own is open and off while it is
+  paused. To send it home, type `/exit` in its terminal. Its tools reach the
+  app through a helper that talks to an owner-only Unix socket in the app's
+  data folder, with a random token for each launch held in memory, and
+  nothing listens on a network port.
 - **Hire an agent** from the empty desk: pick the tool (Claude Code, Codex,
   Antigravity, opencode or Cursor; tools not installed are greyed out), the
   model and an effort level the model supports, ultracode for Claude Code, and
@@ -181,7 +212,10 @@ sessions as an **office building**:
   reviewed or only a pull request's first commit, whether drafts are
   skipped, whether a review with nothing to report is still posted, how
   many reviews run at once, how many one pull request gets in a day, and
-  the reviewer's model and effort.
+  the reviewer's model and effort. The Manager group sets a manager's model
+  and effort, which apply to the next one you hire, how many desks a manager
+  may hire at once (3 unless you change it) and the spend ceiling for the
+  desks it hired (20 US dollars unless you change it).
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -324,10 +358,11 @@ src/
   components/
     building/             # the cutaway: storeys, lobby, roof, directory bar
     floor/                # the room, its objects, rail, sidebar panels, terminal, hire dialog
-    settings/             # the Settings plate and its Notifications, Editor, Connectors and Quality assurance groups
+    settings/             # the Settings plate and its Notifications, Editor, Connectors, Quality assurance and Manager groups
     editor/               # the "Open in" button and its menu
     connectors/           # the Info panel's Linear row and its connect form
     qa/                   # the Info panel's Quality assurance row and the QA stamp
+    manager/              # the Manager panel: hire, pause, the plan, waiting notes and the log
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
@@ -336,7 +371,7 @@ src-tauri/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
     discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents and the QA reviewer's seat
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, and handing notes to desks
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     settings.rs           # the app's settings (settings.json in the app data dir)
@@ -345,6 +380,8 @@ src-tauri/
     process.rs            # running other programs from an argument vector, with a fake for tests
     connectors/           # outside tools a floor's TODOs come from: the Connector trait, Linear, the hub that caches each floor's list
     qa/                   # the QA desk: the pull request watch, the gh and git calls, the reviewer's brief, its findings, the review that is posted
+    manager/              # a floor's manager: its socket, tokens, the MCP server it talks to, the helper mode and the tool list
+    delivery/             # notes for desks: cleaning the text, deciding whether a desk can take one, the queue
     secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
     http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
     poll.rs               # a background job on a timer that backs off, waits when told to and can be woken
@@ -358,7 +395,7 @@ src-tauri/
     pty.rs                # in-app terminals for hired agents: PTY, output events, scrollback
     watch.rs              # file watch + tick → office://snapshot
     commands.rs           # #[tauri::command] fns backing DiscoveryApi
-    lib.rs / main.rs      # Tauri wiring
+    lib.rs / main.rs      # Tauri wiring, and the manager's helper mode, which starts no window
   examples/scan.rs        # print what discovery sees on this Mac
   capabilities/default.json
   tauri.conf.json

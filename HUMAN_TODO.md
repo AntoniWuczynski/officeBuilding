@@ -163,6 +163,69 @@ here.
       12. Switch the floor off while a reviewer is working. The reviewer is
           ended, the worktree goes, and nothing is posted.
 
+- [ ] OB-151 — Check the floor manager (TODO OB-150) in the installed app
+      (`pnpm app:install`). No agent may hire a real manager, open the app's
+      real socket or drive the Tauri window, so nothing here has run against
+      the real things. The manager is a Claude Code session on your plan, so
+      pick a cheap model for it in Settings, in the Manager group, first. Use
+      a repo where notes to its desks and one test entry in its
+      `HUMAN_DECISIONS.md` do no harm.
+      1. Before hiring, open a floor. The chair in the manager's office is
+         empty and the desk carries a "Hire a manager" sign that fits it. The
+         rail has a Manager section, and Settings has a Manager group that
+         lists Claude Code's models. The Setup floor has neither the sign nor
+         the section.
+      2. Press "Hire a manager". The manager appears in the office, the floor
+         is pinned, its first reply sums up the floor, and the panel says when
+         its tools last answered. No prompt asks you to approve a server. This
+         is the step most likely to fail. If the panel keeps saying it has not
+         used the building's tools, open its terminal and note what Claude
+         Code says about the `office` server (TODO OB-166). On a floor where
+         Claude Code has never run, the manager stops at the "trust this
+         folder" prompt until you accept it in its terminal.
+      3. In the app's data folder, `ls -la ipc` shows the folder as
+         `drwx------` and `m.sock` as `srw-------`. `ps -axww` shows no long
+         run of hex characters on the manager's command line. The token is not
+         in `settings.json`, in `store.json` or in the `mcp.json` under
+         `roles`. `ps eww` does show it in the manager's environment, which is
+         TODO OB-164.
+      4. Ask the manager to run a command and to edit a file. It has no tool
+         for either. From another Claude Code session, ask Claude to message
+         the manager. The message is refused.
+      5. With two idle Claude Code desks on the floor, ask the manager to
+         split `TODO.md` between them. Each desk gets one note, typed and
+         sent once, starting "Note from this floor's manager". The manager
+         walks each note out, and the panel's log lists them as delivered. Do
+         the same with a Codex desk whose hooks you have trusted. If a note is
+         typed and not sent, or sent twice, note which tool (TODO OB-166).
+      6. While a desk is busy, have the manager send it a note. The note
+         waits, the desk carries a sticky note with a 1 and a "managed" mark,
+         and the panel says why it waits. Type a message to that desk
+         yourself. The note is replaced and is not sent later.
+      7. Put a desk at a permission prompt and have the manager send it a
+         note. Nothing is typed until you have answered the prompt.
+      8. Type half a line in a desk's terminal and leave it. A note for that
+         desk waits, however long you leave it, until you press Enter or
+         Ctrl-C there (TODO OB-167).
+      9. Have a note sent to a desk you started by hand in a terminal. It
+         waits, and the panel says nothing is typed into a desk started
+         outside the building.
+      10. Switch Paused on. A send is refused and waiting notes stay. Switch
+          it off and they go out.
+      11. Ask the manager to hire a desk. It is refused until you switch "May
+          hire desks" on. Then ask for four. Three are hired and the fourth is
+          refused, and the line under the switch counts them.
+      12. Ask the manager to escalate a question with two options. It is on
+          the memo pile and at the end of the repo's `HUMAN_DECISIONS.md` as
+          an `MGR` section, and the manager's desk light is yellow until you
+          answer it.
+      13. Type `/exit` in the manager's terminal. The chair is empty, the sign
+          is back, and the panel keeps the log under "Earlier". The Paused
+          and "May hire desks" switches are as you left them when you hire
+          again.
+      14. If hiring says the app's data folder path is too long for a socket,
+          note the message. It can happen with a long user name.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`

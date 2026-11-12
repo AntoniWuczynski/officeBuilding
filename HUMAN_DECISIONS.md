@@ -258,9 +258,100 @@ From the review, after the design:
 
 This amends one earlier ruling, and the amendment is A Human's own. A Human ruled on 2026-10-01 that the app never stops a running agent (recorded in TODO OB-027), and made one exception on 2026-10-06 for demolishing a floor (TODO OB-029). The stop rule above is the second exception. It also builds on OB-040: the reviewer is Claude Code's own unmodified CLI in a terminal, and the building touches no login token. Built as TODO OB-122, with the checks for A Human in HUMAN_TODO OB-123 and the deferrals in TODO OB-125 to OB-148.
 
+## OB-152 — What may a floor's manager do, and how does it reach the building? — DECIDED 2026-11-12: it only orchestrates, with no shell and no file editing, and its tools reach the app over a Unix socket kept to managers, with the rest left to the build
+
+GitHub issue #4 asks for a project manager on each floor. It is an agent in the manager's office that sees what each desk is doing, sends the desks instructions, hires help and escalates real decisions to A Human. A Human asked for it on 2026-11-11.
+
+Decided by A Human on 2026-11-12, before an unattended build of the issue. The first two are new rulings for this issue:
+
+- The manager's tools may reach the running app through a small helper program that talks to the app over a Unix socket. This is a narrow follow-up to OB-011, which deferred any server for assistant agents. As the build brief records it, the socket is owner-only in the app's data folder, each manager gets a random token for its launch, passed in its environment and never on a command line, each connection is tied to one floor, and nothing listens on a network port. The wider server for assistant agents stays deferred.
+- The manager only orchestrates. It has read-only file tools and the building's tools, with no shell and no file editing.
+
+The other two are the rulings of OB-059, applied here:
+
+- The app has one Settings panel. The build put the manager's settings there, in a new Manager group.
+- Commits stay local. Nothing is pushed until A Human approves.
+
+What A Human wrote in the issue on 2026-11-11, and where this build departs from it. Each departure is a call of the build, listed again below, and A Human can veto any of them:
+
+- One manager per floor. Built as written.
+- The tool is picked in Settings. Built with one choice, Claude Code (TODO OB-154).
+- Act by default, and it may hire without asking. Built with hiring switched off on every floor until A Human switches it on there, and with no Propose mode (TODO OB-153).
+- Hand-started desks are read and messaged. Not built. A note to a hand-started desk waits and is shown, and the manager cannot read such a desk (TODO OB-155, OB-156 and OB-159).
+- It may drive T3 Code threads. Not built. The build brief records that A Human skipped GitHub issue #3 on 2026-11-12, and every T3 route with it (TODO OB-160).
+- Every thread the manager drives stays open to A Human, and A Human's message wins over a waiting note. Built as written.
+
+Calls the build made while A Human was away. The build brief set out most of the design without marking it as A Human's, so it is listed here and not above. Each stands until A Human says otherwise, and A Human can veto any of them.
+
+From the build brief:
+
+- One manager per floor, hired from the manager's office, with its tool, model and effort taken from Settings. The brief named Claude Code or Codex.
+- The manager's tools are `list_desks`, `read_desk`, `send_to_desk`, `wait_for_desk` with a capped wait, `hire_desk`, `list_todos`, `tick_todo`, `add_todo`, `log_decision` and `escalate`. A manager cannot touch another floor.
+- A structured desk gets a note as a prompt, queued while a turn runs. A terminal desk the app started gets the text typed in only when it is idle and never while it waits on a prompt. Otherwise the note is queued. No keystrokes go into a window the app does not own.
+- Hand-started Claude Code desks were to be reached through a Claude Code manager's own `SendMessage` tool, once that route was checked against Anthropic's pages. Every other hand-started desk shows the note as queued.
+- Every delivered note is stored as a message between agents, so it is walked across the floor.
+- The manager never stops an agent and never answers a permission prompt.
+- The caps are 3 desks hired by the manager at once and 20 US dollars on the summed spend of desks it hired, both adjustable. A desk with no price data counts toward the desk cap only, and the panel says so.
+- Two modes, Act by default and Propose. A Human can pause the manager on a floor in one click, and managed desks carry a "managed" mark.
+- The boss cut-out becomes the manager. With nobody hired the chair is empty and the desk carries a "Hire a manager" sign. A Manager panel shows its plan, its queue and the log of what it told whom.
+- `escalate` adds an open call to `HUMAN_DECISIONS.md`, or to the app's store when the repo has no such file, as OB-002 rules.
+- Manager hires are off until A Human switches them on for a floor. Settings for the whole building live in Settings, and a floor's own state is changed on that floor.
+
+From the design, where it changed what the brief or the issue assumed. These eight are the ones most worth A Human's eye:
+
+- Hiring by the manager is off on every floor. The brief says both "Act (default, may hire)" and that manager hires are off until A Human switches them on. The design took the careful reading. A floor has no manager until A Human hires one, and that manager cannot hire desks until "May hire desks" is switched on for the floor.
+- `SendMessage` is not used, although Anthropic documents it. A send of that kind leaves the building. It can reach any Claude Code session on the Mac, and the floor binding, the pause, the length cap and the stripping of control characters would all rest on a hook that maps a session's name back to a desk, which is not documented. The manager is launched without `SendMessage` and `ListAgents`. So the manager cannot message a hand-started Claude Code session, which the issue's acceptance list asks for (TODO OB-155).
+- Claude Code is the only manager. Codex reads files only through its shell, so A Human's ruling of no shell cannot be met with it (TODO OB-154).
+- Propose mode is not built, and neither are `tick_todo`, `add_todo` and `log_decision`. The issue did not fit the build, and these were cut from the end of the brief's order of priority (TODO OB-153 and OB-158). `escalate` and `wait_for_desk` were kept.
+- The Manager panel cannot send the manager home. The building never stops a running agent, and A Human's exception in OB-124 covers QA reviewers only. A Human ends the manager by typing `/exit` in its terminal (TODO OB-174).
+- Both fixed roles refuse messages from other Claude Code sessions. This changes the QA reviewer of OB-124 too, because any Claude Code session on the Mac could otherwise write to it.
+- The manager is a session like the QA reviewer. In the floor view it sits in the office. In the tally, the floor light, the building view and the alerts it counts as an ordinary session (TODO OB-170).
+- "Never stops an agent" and "never answers a permission prompt" are kept by taking tools away. They do not rest on the manager's instructions. It has no shell, and no path from one of its tools reaches a stop, an approval or a keystroke other than a gated note.
+
+From the design, beyond the brief:
+
+- The helper is the app's own program started in a helper mode, which never opens the window. It speaks the Model Context Protocol (MCP) to Claude Code and passes each message to the socket.
+- The token is 32 random bytes from macOS, kept in memory only and compared in constant time. A wrong token is refused after a short pause with no reason given. It is revoked when the manager's terminal exits.
+- The app serves at most 8 connections on the socket, and caps the length of every line.
+- `wait_for_desk` waits 50 seconds at most, so that a later Codex manager would fit Codex's 60-second limit.
+- The other limits are 4,000 characters a note, 2,000 a task, 5 waiting notes a desk and 20 a floor, 200 lines and 8,000 characters a read, and 6 options an escalation. Text over a limit is refused and not cut short.
+- A note is typed only when the hook feed says the desk is idle and the session's own files agree. So notes to opencode, Cursor and Antigravity desks in the app's terminals wait, because those tools do not report when they are idle (TODO OB-157).
+- Nothing is typed into a terminal within 60 seconds of A Human's last keystroke there.
+- A typed note always starts with a fixed introduction, "Note from this floor's manager", so its first character can never be one a tool reads as a command.
+- Text from the manager is stripped of escape sequences, control characters and invisible characters before it is typed, stored or shown. The interface shows it as plain text only.
+- One note goes to a desk at a time, oldest first, and the next waits until the desk has picked the last one up. Notes never expire. A Human can withdraw one in the panel. A note is lost when its desk or the manager leaves.
+- A note that A Human's message replaced is not sent again.
+- A paused manager can still read the floor. Its sends, hires and escalations are refused, and its waiting notes are held until A Human resumes it.
+- The spend that counts toward the ceiling leaves out the manager's own, and is kept in memory only (TODO OB-162). At the ceiling no desk is hired and no new note goes to a desk the manager hired. The building does not stop those desks.
+- The manager hires only Claude Code and Codex desks in the app's terminals, in the floor's own folder (TODO OB-163). A hired desk gets no token and no special permissions.
+- `read_desk` reads only desks the app started (TODO OB-159).
+- An escalation is a new `MGR` section at the end of the floor's human decisions file. The building opens that file for appending only, refuses a symbolic link and never creates the file. The title and options are cleaned so that the manager cannot write a heading, a status or an option of its own making.
+- Hiring a manager pins the floor. Its first task makes it call two of its tools, so the panel can say that its tools answer.
+- The Manager panel's Plan is the floor's open agent TODOs. The manager writes no plan of its own (TODO OB-161).
+- The manager's desk light is green while it works, yellow while a call it escalated is open and off while it is paused.
+- Model and effort apply to the next manager hired. The caps apply at once.
+- A source test fails the build when one of the manager's files names a call that stops an agent, answers for A Human or writes to a terminal (TODO OB-177).
+- No dependency was added.
+
+From the review, after the design:
+
+- Any key A Human presses in a terminal counts as typing, apart from the reports a terminal sends by itself. A line A Human has typed and not sent holds that desk however old it is, until Enter or Ctrl-C (TODO OB-167).
+- Managers are hired one at a time, so two hires at once cannot seat two managers on a floor or swap its token.
+- A manager whose record could not be saved keeps its seat, and the record is caught up at the next save. The first fix ended the manager's process, which the rule against stopping an agent forbids.
+- The manager may have at most 10 open escalations on a floor.
+- The app does not remove a socket that a running copy of the app still answers (TODO OB-173).
+- A manager that left while it was being seated is not recorded as hired.
+
+This amends one earlier ruling, and the amendment is A Human's own. OB-011 deferred every way for an agent to reach the building. A Human now allows one, the socket above, for managers the building itself starts. OB-011 otherwise stands, and the server for assistant agents (TODO OB-010) is still not built. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) is not amended, and the manager gets no exception. The build changed one thing in OB-124 by its own call, which is that the QA reviewer now refuses messages from other sessions. It also builds on OB-002, since an escalation goes into the repo's own decisions file or the app's store, and on OB-040, since the manager is Claude Code's own unmodified CLI in a terminal and the building touches no login token. Built as TODO OB-150, with the checks for A Human in HUMAN_TODO OB-151 and the deferrals in TODO OB-153 to OB-178.
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.
+
+Amended on 2026-11-12 by A Human (OB-152). A floor's manager, which the
+building itself starts, may reach the app over an owner-only Unix socket in
+the app's data folder. Nothing listens on a network port, and the server for
+assistant agents described below stays deferred.
 
 The MCP server (OB-010 in TODO.md) lets assistant agents list
 floors and desks, read the decisions queue, answer calls and hire agents. It
