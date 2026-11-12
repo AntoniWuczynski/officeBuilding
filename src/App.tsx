@@ -15,6 +15,8 @@ import { ConversationApiContext } from "./components/floor/Conversation";
 import { useEditors } from "./state/useEditors";
 import { EditorContext } from "./components/editor/EditorContext";
 import type { EditorActions } from "./components/editor/EditorContext";
+import { ConnectorsContext } from "./components/connectors/ConnectorsContext";
+import type { ConnectorActions } from "./components/connectors/ConnectorsContext";
 import { SettingsPanel } from "./components/settings/SettingsPanel";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
@@ -258,6 +260,24 @@ export function App({ api }: Props): React.ReactElement {
     [api, snapshot, toast],
   );
 
+  const connectorActions = useMemo<ConnectorActions>(
+    () => ({
+      keyStatus: () => api.linearKeyStatus(),
+      setKey: (key) => api.setLinearKey(key),
+      teams: () => api.linearTeams(),
+      connect: (projectId, link) => api.connectFloor(projectId, link).then(() => toast("ok", `Connected to Linear team ${link.teamKey}.`)),
+      disconnect: (projectId, connector) => api.disconnectFloor(projectId, connector).then(() => toast("ok", "Disconnected from Linear.")),
+      recheck: () => {
+        api.recheckConnectors().catch((err: unknown) => toast("error", `Could not re-check Linear: ${message(err)}.`));
+      },
+      openLink: (todoId) => {
+        api.openTodoLink(todoId).catch((err: unknown) => toast("error", `Could not open that issue: ${message(err)}.`));
+      },
+      openSettings,
+    }),
+    [api, toast, openSettings],
+  );
+
   const tick = useCallback(
     (todoId: string) => {
       api.tickTodo(todoId).catch((err: unknown) => toast("error", `Could not tick that off: ${message(err)}.`));
@@ -349,11 +369,13 @@ export function App({ api }: Props): React.ReactElement {
       <TerminalApiContext value={api}>
       <ConversationApiContext value={api}>
       <EditorContext value={editorActions}>
+      <ConnectorsContext value={connectorActions}>
         <div className="app">
           {body}
           {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </ConnectorsContext>
       </EditorContext>
       </ConversationApiContext>
       </TerminalApiContext>

@@ -1,13 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { ConversationBacklog, Editor, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConnectorKind, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
   folderSchema,
   hireFailureSchema,
   hireOptionsSchema,
+  linearKeyStatusSchema,
+  linearTeamsSchema,
   parseWire,
   projectSchema,
   conversationBacklogSchema,
@@ -161,6 +163,34 @@ export class TauriApi implements DiscoveryApi {
 
   async tickTodo(todoId: string): Promise<void> {
     await call("tick_todo", { todoId });
+  }
+
+  async linearKeyStatus(): Promise<LinearKeyStatus> {
+    return parseWire(linearKeyStatusSchema, "Linear key status", await call("linear_key_status"));
+  }
+
+  async setLinearKey(key: string | null): Promise<LinearKeyStatus> {
+    return parseWire(linearKeyStatusSchema, "Linear key status", await call("set_linear_key", { key }));
+  }
+
+  async linearTeams(): Promise<readonly LinearTeam[]> {
+    return parseWire(linearTeamsSchema, "list of Linear teams", await call("linear_teams"));
+  }
+
+  async connectFloor(projectId: string, link: FloorLink): Promise<void> {
+    await call("connect_floor", { projectId, link });
+  }
+
+  async disconnectFloor(projectId: string, connector: ConnectorKind): Promise<void> {
+    await call("disconnect_floor", { projectId, connector });
+  }
+
+  async recheckConnectors(): Promise<void> {
+    await call("recheck_connectors");
+  }
+
+  async openTodoLink(todoId: string): Promise<void> {
+    await call("open_todo_link", { todoId });
   }
 
   async sendAgentMessage(fromSessionId: string, toSessionId: string, text: string): Promise<void> {

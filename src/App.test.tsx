@@ -694,7 +694,7 @@ describe("manager's office", () => {
       text: `item ${i}`,
       done: i >= 203,
       assignee: "ai" as const,
-      sourceFile: "TODO.md",
+      source: { kind: "file" as const, file: "TODO.md" },
     }));
     renderApp(new MockApi({ ...seed, todos: [...seed.todos, ...many] }));
     await enter("p-arcade");
@@ -710,7 +710,7 @@ describe("manager's office", () => {
   it("TODOs read from a repo file say so", async () => {
     const user = userEvent.setup();
     const seed = makeSeedSnapshot();
-    renderApp(new MockApi({ ...seed, todos: seed.todos.map((t) => (t.assignee === "ai" ? { ...t, sourceFile: "TODO.md" } : t)) }));
+    renderApp(new MockApi({ ...seed, todos: seed.todos.map((t) => (t.assignee === "ai" ? { ...t, source: { kind: "file" as const, file: "TODO.md" } } : t)) }));
     await enter("p-office");
     await user.click(screen.getByTestId("rail-todo"));
     expect(screen.getByText("From TODO.md. Ticking an item writes [x] into the file.")).toBeInTheDocument();

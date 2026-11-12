@@ -1,4 +1,4 @@
-import type { ConversationBacklog, Editor, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConnectorKind, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -201,4 +201,28 @@ export interface DiscoveryApi {
 
   /** Hear about files dropped onto the window. Returns an unsubscribe. */
   subscribeFileDrops(listener: (drop: FileDrop) => void): () => void;
+
+  /** What the building knows about the Linear key. May read the Keychain. Never returns the key. */
+  linearKeyStatus(): Promise<LinearKeyStatus>;
+
+  /**
+   * Save a Linear API key (checked with Linear first) or, with null, remove the saved one.
+   * Rejects, saving nothing, when Linear refuses the key or cannot be reached.
+   */
+  setLinearKey(key: string | null): Promise<LinearKeyStatus>;
+
+  /** The Linear teams the key can see, each with its open projects. Rejects without a usable key. */
+  linearTeams(): Promise<readonly LinearTeam[]>;
+
+  /** Feed a floor from a connector, replacing its link of the same kind. The floor becomes pinned. */
+  connectFloor(projectId: string, link: FloorLink): Promise<void>;
+
+  /** Stop feeding a floor from a connector. Its items leave the boards. */
+  disconnectFloor(projectId: string, connector: ConnectorKind): Promise<void>;
+
+  /** Ask every connector again now, without waiting for the next minute. */
+  recheckConnectors(): Promise<void>;
+
+  /** Open a connector item (a Linear issue) in the browser. Rejects for an item with no link. */
+  openTodoLink(todoId: string): Promise<void>;
 }

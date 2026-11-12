@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { motion } from "framer-motion";
-import type { OfficeSnapshot, Project, Session, TodoItem } from "../../types";
+import type { Connection, OfficeSnapshot, Project, Session } from "../../types";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
 import {
   STATE_LABEL,
   TOOL_LABEL,
+  connectionFor,
   decisionsForProject,
   endedForProject,
   formatTokens,
@@ -17,7 +17,9 @@ import {
 } from "../../state/selectors";
 import { relativeTime } from "../../lib/time";
 import { CloseIcon } from "../icons";
+import { LinearRow } from "../connectors/LinearRow";
 import { DecisionsPanel } from "./DecisionsPanel";
+import { TodoList } from "./TodoList";
 import { SetupPanel } from "./SetupPanel";
 import type { SetupProps } from "./SetupPanel";
 import { ShellsPanel } from "./ShellsPanel";
@@ -89,6 +91,8 @@ function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpen
           items={todosForProject(snapshot, project.id, "human")}
           empty="Nothing for you to do on this floor."
           hint="Tick an item off when you have done it."
+          connection={connectionFor(snapshot, project.id)}
+          now={now}
           onTick={onTick}
         />
       );
@@ -98,64 +102,20 @@ function SectionBody({ section, project, snapshot, now, onAnswer, onTick, onOpen
           items={todosForProject(snapshot, project.id, "ai")}
           empty="The agents have nothing queued."
           hint="Agents tick these off as they finish. You can tick one off yourself."
+          connection={connectionFor(snapshot, project.id)}
+          now={now}
           onTick={onTick}
         />
       );
     case "spend":
       return <SpendBody sessions={sessions} allSessions={snapshot.sessions} onOpenSession={onOpenSession} />;
     case "info":
-      return <InfoBody project={project} sessions={sessions} now={now} />;
+      return <InfoBody project={project} sessions={sessions} now={now} connection={connectionFor(snapshot, project.id)} />;
     case "signed-out":
       return <SignOutSheet ended={endedForProject(snapshot, project.id)} now={now} onResume={onResume} />;
     case "shells":
       return <ShellsPanel shells={snapshot.shells.filter((s) => s.projectId === project.id)} now={now} onOpenShell={onOpenShell} onNewShell={onNewShell} onEndShell={onEndShell} />;
   }
-}
-
-/** Open items shown before "Show all" (real TODO.md files can pass 2,000 items). */
-const OPEN_LIMIT = 200;
-
-function TodoList({ items, empty, hint, onTick }: { readonly items: readonly TodoItem[]; readonly empty: string; readonly hint: string; readonly onTick: (id: string) => void }): React.ReactElement {
-  const [showDone, setShowDone] = useState(false);
-  const [showAllOpen, setShowAllOpen] = useState(false);
-  const open = items.filter((t) => !t.done);
-  const done = items.filter((t) => t.done);
-  const visibleOpen = showAllOpen ? open : open.slice(0, OPEN_LIMIT);
-  const shown = showDone ? [...visibleOpen, ...done] : visibleOpen;
-  return (
-    <div className="panel-body">
-      {items.length === 0 ? (
-        <p className="panel-empty">{empty}</p>
-      ) : (
-        <>
-          <p className="panel-hint">
-            {items[0]?.sourceFile == null ? hint : `From ${items[0].sourceFile}. Ticking an item writes [x] into the file.`}
-          </p>
-          {open.length === 0 ? <p className="panel-empty">Nothing open.</p> : null}
-          <ul className="todo-list">
-            {shown.map((t) => (
-              <li key={t.id} className={t.done ? "is-done" : undefined}>
-                <label>
-                  <input type="checkbox" data-testid="todo-check" data-todo={t.id} checked={t.done} disabled={t.done} onChange={() => onTick(t.id)} />
-                  <span>{t.text}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-          {open.length > visibleOpen.length ? (
-            <button type="button" className="link" onClick={() => setShowAllOpen(true)}>
-              Show all {open.length} open items
-            </button>
-          ) : null}
-          {done.length > 0 ? (
-            <button type="button" className="link" data-testid="toggle-done" onClick={() => setShowDone((v) => !v)}>
-              {showDone ? `Hide ${done.length} done` : `Show ${done.length} done`}
-            </button>
-          ) : null}
-        </>
-      )}
-    </div>
-  );
 }
 
 function SpendBody({ sessions, allSessions, onOpenSession }: { readonly sessions: readonly Session[]; readonly allSessions: readonly Session[]; readonly onOpenSession: (s: Session) => void }): React.ReactElement {
@@ -191,7 +151,7 @@ function SpendBody({ sessions, allSessions, onOpenSession }: { readonly sessions
   );
 }
 
-function InfoBody({ project, sessions, now }: { readonly project: Project; readonly sessions: readonly Session[]; readonly now: Date }): React.ReactElement {
+function InfoBody({ project, sessions, now, connection }: { readonly project: Project; readonly sessions: readonly Session[]; readonly now: Date; readonly connection: Connection | undefined }): React.ReactElement {
   const counts = sessionCounts(sessions);
   const latest = [...sessions].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0];
   const tools = [...new Set(sessions.map((s) => TOOL_LABEL[s.tool]))];
@@ -210,6 +170,7 @@ function InfoBody({ project, sessions, now }: { readonly project: Project; reado
         <dd>
           <OpenInEditor place={{ kind: "floor", projectId: project.id }} what={`the ${project.name} floor`} opens="this floor's folder" />
         </dd>
+        <LinearRow project={project} connection={connection} />
         <dt>Agents</dt>
         <dd>
           {counts.active} of {counts.total} active

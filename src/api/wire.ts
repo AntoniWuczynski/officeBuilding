@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConversationBacklog, Editor, EditorList, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
 
 // Runtime schemas for everything the Rust backend sends. The `satisfies`
@@ -37,6 +37,42 @@ export const projectSchema = z.object({
 
 export const shellSchema = z.object({ id: z.string(), projectId: z.string(), number: z.number(), startedAt: z.string() }) satisfies z.ZodType<Shell>;
 
+const todoSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("app") }),
+  z.object({ kind: z.literal("file"), file: z.string() }),
+  z.object({ kind: z.literal("linear"), identifier: z.string(), url: z.string() }),
+]);
+const linearProjectSchema = z.object({ id: z.string(), name: z.string() });
+const linkSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("linear"),
+    teamId: z.string(),
+    teamKey: z.string(),
+    teamName: z.string(),
+    project: linearProjectSchema.nullable(),
+    label: z.string().nullable(),
+  }),
+]);
+const connectionSchema = z.object({
+  projectId: z.string(),
+  link: linkSchema,
+  fetchedAt: z.string().nullable(),
+  error: z.string().nullable(),
+  needsKey: z.boolean(),
+  truncated: z.boolean(),
+});
+
+export const linearKeyStatusSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("missing") }),
+  z.object({ kind: z.literal("saved"), account: z.string().nullable() }),
+  z.object({ kind: z.literal("rejected") }),
+  z.object({ kind: z.literal("unavailable"), reason: z.string() }),
+]) satisfies z.ZodType<LinearKeyStatus>;
+
+export const linearTeamsSchema = z.array(
+  z.object({ id: z.string(), key: z.string(), name: z.string(), projects: z.array(linearProjectSchema) }),
+) satisfies z.ZodType<LinearTeam[]>;
+
 export const snapshotSchema = z.object({
   projects: z.array(projectSchema),
   sessions: z.array(sessionSchema),
@@ -70,13 +106,14 @@ export const snapshotSchema = z.object({
     z.object({ id: z.string(), projectId: z.string(), title: z.string(), detail: z.string(), decidedAt: z.string(), by: party }),
   ),
   todos: z.array(
-    z.object({ id: z.string(), projectId: z.string(), text: z.string(), done: z.boolean(), assignee: party, sourceFile: z.string().nullable() }),
+    z.object({ id: z.string(), projectId: z.string(), text: z.string(), done: z.boolean(), assignee: party, source: todoSourceSchema }),
   ),
   messages: z.array(
     z.object({ id: z.string(), fromSessionId: z.string(), toSessionId: z.string(), text: z.string(), sentAt: z.string() }),
   ),
   setupProjectId: z.string(),
   shells: z.array(shellSchema),
+  connections: z.array(connectionSchema),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [
@@ -210,6 +247,7 @@ export const editorListSchema = z.object({
 export const settingsSchema = z.object({
   notifications: notificationSettingsSchema,
   editor: z.object({ preferred: editorSchema.nullable() }),
+  connectors: z.object({ linearAgentLabel: z.string() }),
 }) satisfies z.ZodType<Settings>;
 
 /** Parse a backend payload, turning a shape mismatch into a readable error. */

@@ -1,9 +1,11 @@
 import type {
+  Connection,
   Decision,
   Editor,
   EditorList,
   EndedSession,
   FloorLight,
+  FloorLink,
   OfficeSnapshot,
   Project,
   Question,
@@ -11,8 +13,10 @@ import type {
   SessionState,
   Spend,
   TodoItem,
+  TodoSource,
   ToolKind,
 } from "../types";
+import { relativeTime } from "../lib/time";
 
 /** Worst→best ordering; higher number = more urgent. */
 export const SESSION_STATE_SEVERITY: Record<SessionState, number> = {
@@ -252,4 +256,47 @@ export function editorMenuItems(list: EditorList | null): readonly EditorMenuIte
   const first = installed.find((o) => o.editor === list.defaultEditor);
   const ordered = first === undefined ? installed : [first, ...installed.filter((o) => o !== first)];
   return ordered.map((o) => ({ editor: o.editor, label: `Open in ${o.label}`, name: o.label }));
+}
+
+/** The floor's connection, if it has one (one connector exists today). */
+export function connectionFor(snapshot: OfficeSnapshot, projectId: string): Connection | undefined {
+  return snapshot.connections.find((c) => c.projectId === projectId);
+}
+
+/** The words on an item's badge: a file's name, "Linear · ENG-123", or null for the app's own. */
+export function sourceBadge(source: TodoSource): string | null {
+  switch (source.kind) {
+    case "app":
+      return null;
+    case "file":
+      return source.file;
+    case "linear":
+      return `Linear · ${source.identifier}`;
+  }
+}
+
+/** The repo files the items come from, each once, in order. */
+export function fileSources(items: readonly TodoItem[]): string[] {
+  const files: string[] = [];
+  for (const { source } of items) {
+    if (source.kind === "file" && !files.includes(source.file)) files.push(source.file);
+  }
+  return files;
+}
+
+/** A link in words: "ENG · Engineering", then ", project Checkout" and ", label bug" when set. */
+export function linkSummary(link: FloorLink): string {
+  const project = link.project === null ? "" : `, project ${link.project.name}`;
+  const label = link.label === null ? "" : `, label ${link.label}`;
+  return `${link.teamKey} · ${link.teamName}${project}${label}`;
+}
+
+/** How a connection stands, as one sentence for a board. */
+export function connectionLine(connection: Connection, now: Date): string {
+  const { fetchedAt, error } = connection;
+  if (connection.needsKey) return "Linear needs an API key before it can show this floor's issues.";
+  if (fetchedAt === null) return error === null ? "Checking Linear…" : `Linear could not be checked: ${error}.`;
+  const ago = relativeTime(fetchedAt, now);
+  if (error !== null) return `Linear, as of ${ago}. The last check failed: ${error}.`;
+  return `Linear, checked ${ago}.${connection.truncated ? " Only the first 200 issues are shown." : ""}`;
 }

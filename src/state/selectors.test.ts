@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { Connection, FloorLink, TodoItem } from "../types";
 import {
   STATE_LABEL,
+  connectionFor,
+  connectionLine,
+  fileSources,
+  linkSummary,
+  sourceBadge,
   checkoutLine,
   editorMenuItems,
   SESSION_STATE_SEVERITY,
@@ -222,5 +228,46 @@ describe("editor lines", () => {
       { editor: "vs-code", label: "Open in VS Code", name: "VS Code" },
       { editor: "devin-desktop", label: "Open in Devin Desktop", name: "Devin Desktop" },
     ]);
+  });
+});
+
+const LINK: FloorLink = { kind: "linear", teamId: "t", teamKey: "ENG", teamName: "Engineering", project: null, label: null };
+const NOW = new Date("2026-11-12T10:20:00Z");
+const connection = (patch: Partial<Connection>): Connection => ({ projectId: "p-1", link: LINK, fetchedAt: null, error: null, needsKey: false, truncated: false, ...patch });
+const todo = (source: TodoItem["source"]): TodoItem => ({ id: "x", projectId: "p-1", text: "x", done: false, assignee: "ai", source });
+
+describe("connector selectors", () => {
+  it("finds a floor's connection", () => {
+    const snapshot = { ...makeSeedSnapshot(), connections: [connection({})] };
+    expect(connectionFor(snapshot, "p-1")?.link).toEqual(LINK);
+    expect(connectionFor(snapshot, "p-2")).toBeUndefined();
+  });
+
+  it("words a badge for each kind of source", () => {
+    expect(sourceBadge({ kind: "app" })).toBeNull();
+    expect(sourceBadge({ kind: "file", file: "TODO.md" })).toBe("TODO.md");
+    expect(sourceBadge({ kind: "linear", identifier: "ENG-123", url: "https://linear.app/x" })).toBe("Linear \u00b7 ENG-123");
+  });
+
+  it("lists the files once each, in order", () => {
+    const items = [todo({ kind: "file", file: "TODO.md" }), todo({ kind: "app" }), todo({ kind: "file", file: "HUMAN_TODO.md" }), todo({ kind: "file", file: "TODO.md" })];
+    expect(fileSources(items)).toEqual(["TODO.md", "HUMAN_TODO.md"]);
+  });
+
+  it("describes a link in words", () => {
+    expect(linkSummary(LINK)).toBe("ENG \u00b7 Engineering");
+    expect(linkSummary({ ...LINK, project: { id: "p", name: "Checkout" } })).toBe("ENG \u00b7 Engineering, project Checkout");
+    expect(linkSummary({ ...LINK, label: "bug" })).toBe("ENG \u00b7 Engineering, label bug");
+    expect(linkSummary({ ...LINK, project: { id: "p", name: "Checkout" }, label: "bug" })).toBe("ENG \u00b7 Engineering, project Checkout, label bug");
+  });
+
+  it("says how a connection stands", () => {
+    const at = "2026-11-12T10:15:00Z";
+    expect(connectionLine(connection({ needsKey: true, fetchedAt: at }), NOW)).toBe("Linear needs an API key before it can show this floor's issues.");
+    expect(connectionLine(connection({}), NOW)).toBe("Checking Linear\u2026");
+    expect(connectionLine(connection({ fetchedAt: at }), NOW)).toBe("Linear, checked 5 min ago.");
+    expect(connectionLine(connection({ fetchedAt: at, truncated: true }), NOW)).toBe("Linear, checked 5 min ago. Only the first 200 issues are shown.");
+    expect(connectionLine(connection({ fetchedAt: at, error: "Linear is unreachable" }), NOW)).toBe("Linear, as of 5 min ago. The last check failed: Linear is unreachable.");
+    expect(connectionLine(connection({ error: "the team was deleted" }), NOW)).toBe("Linear could not be checked: the team was deleted.");
   });
 });

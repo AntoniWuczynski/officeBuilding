@@ -13,5 +13,6 @@ export function makeSettings(): Settings {
       cooldownSecs: 10,
     },
     editor: { preferred: null },
+    connectors: { linearAgentLabel: "agent" },
   };
 }

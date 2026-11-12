@@ -3,8 +3,12 @@ import type {
   ConversationBacklog,
   ConversationUpdate,
   Decision,
+  ConnectorKind,
   Editor,
   EditorList,
+  FloorLink,
+  LinearKeyStatus,
+  LinearTeam,
   OfficeSnapshot,
   Place,
   Project,
@@ -16,6 +20,7 @@ import type {
   SetupView,
   Shell,
   Targets,
+  TodoItem,
   ToolKind,
   ToolOptions,
   ToolUsage,
@@ -24,6 +29,8 @@ import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, 
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions } from "./mockHireOptions";
 import { COOLDOWN_MAX_SECS } from "../lib/cooldown";
+import { AGENT_LABEL_MAX } from "../lib/agentLabel";
+import { MOCK_TEAMS, mockLinearTodos } from "./mockConnectors";
 import { MOCK_EDITORS } from "./mockEditors";
 import { joinNames } from "../state/selectors";
 import { makeSettings } from "./mockSettings";
@@ -78,6 +85,9 @@ export class MockApi implements DiscoveryApi {
   private readonly openLog: { readonly place: Place; readonly editor: Editor }[] = [];
   private openDeskId: string | null = null;
   private testAlertCount = 0;
+  private linearKey: LinearKeyStatus;
+  private linearTickFailure: string | null = null;
+  private readonly linkLog: string[] = [];
   /** A structured desk's state follows its conversation; one that ends leaves its floor. */
   private readonly conversations = new MockConversations((sessionId, state) => {
     if (state === null) {
@@ -95,6 +105,7 @@ export class MockApi implements DiscoveryApi {
   constructor(seed: OfficeSnapshot = makeSeedSnapshot(), now: () => Date = () => new Date()) {
     this.snapshot = seed;
     this.now = now;
+    this.linearKey = seed.connections.length > 0 ? { kind: "saved", account: null } : { kind: "missing" };
   }
 
   /** The desk whose panel was last reported open, for tests. */
@@ -115,6 +126,10 @@ export class MockApi implements DiscoveryApi {
     const cooldown = patch.notifications?.cooldownSecs;
     if (cooldown !== undefined && !(Number.isInteger(cooldown) && cooldown >= 0 && cooldown <= COOLDOWN_MAX_SECS)) {
       return Promise.reject(new Error(`the cooldown must be between 0 and ${COOLDOWN_MAX_SECS} seconds`));
+    }
+    const label = patch.connectors?.linearAgentLabel.trim();
+    if (label !== undefined && (label.length === 0 || [...label].length > AGENT_LABEL_MAX)) {
+      return Promise.reject(new Error(`the agent label must be 1 to ${AGENT_LABEL_MAX} characters`));
     }
     this.settings = { ...this.settings, ...patch };
     return Promise.resolve(this.settings);
@@ -432,9 +447,14 @@ export class MockApi implements DiscoveryApi {
   }
 
   tickTodo(todoId: string): Promise<void> {
-    const exists = this.snapshot.todos.some((t) => t.id === todoId);
-    if (!exists) {
+    const item = this.snapshot.todos.find((t) => t.id === todoId);
+    if (item === undefined) {
       return Promise.reject(new Error(`unknown todo: ${todoId}`));
+    }
+    if (item.source.kind === "linear" && this.linearTickFailure !== null) {
+      const message = this.linearTickFailure;
+      this.linearTickFailure = null;
+      return Promise.reject(new Error(message));
     }
     const todos = this.snapshot.todos.map((t) =>
       t.id === todoId ? { ...t, done: true } : t,
@@ -533,8 +553,105 @@ export class MockApi implements DiscoveryApi {
       sessions: this.snapshot.sessions.filter((s) => !leaving.has(s.id)),
       ended: this.snapshot.ended.filter((e) => e.projectId !== projectId),
       questions: this.snapshot.questions.filter((q) => q.projectId !== projectId),
+      connections: this.snapshot.connections.filter((c) => c.projectId !== projectId),
     });
     return Promise.resolve();
+  }
+
+  /** Make the next tick of a Linear item fail with `message`, for tests. */
+  failNextLinearTick(message: string): void {
+    this.linearTickFailure = message;
+  }
+
+  /** Make a floor's last check fail with `error`, keeping its items, for tests. */
+  setConnectionError(projectId: string, error: string): void {
+    this.commit({ ...this.snapshot, connections: this.snapshot.connections.map((c) => (c.projectId === projectId ? { ...c, error } : c)) });
+  }
+
+  /** Every todo id whose link was opened, for tests. */
+  get openedLinks(): readonly string[] {
+    return this.linkLog;
+  }
+
+  linearKeyStatus(): Promise<LinearKeyStatus> {
+    return Promise.resolve(this.linearKey);
+  }
+
+  setLinearKey(key: string | null): Promise<LinearKeyStatus> {
+    if (key === null) {
+      this.linearKey = { kind: "missing" };
+      this.commit({
+        ...this.snapshot,
+        todos: this.snapshot.todos.filter((t) => t.source.kind !== "linear"),
+        connections: this.snapshot.connections.map((c) => ({ ...c, needsKey: true, fetchedAt: null, error: "no Linear API key is saved" })),
+      });
+      return Promise.resolve(this.linearKey);
+    }
+    if (key.trim() === "") return Promise.reject(new Error("that does not look like a Linear API key"));
+    if (key.includes("bad")) return Promise.reject(new Error("Linear did not accept that key"));
+    this.linearKey = { kind: "saved", account: "Demo User" };
+    this.refreshConnections();
+    return Promise.resolve(this.linearKey);
+  }
+
+  linearTeams(): Promise<readonly LinearTeam[]> {
+    return this.linearKey.kind === "saved" ? Promise.resolve(MOCK_TEAMS) : Promise.reject(new Error("no Linear API key is saved"));
+  }
+
+  connectFloor(projectId: string, link: FloorLink): Promise<void> {
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) {
+      return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    }
+    const keyed = this.linearKey.kind === "saved";
+    const others = this.snapshot.connections.filter((c) => c.projectId !== projectId || c.link.kind !== link.kind);
+    const connection = { projectId, link, fetchedAt: keyed ? this.now().toISOString() : null, error: null, needsKey: !keyed, truncated: false };
+    this.commit({
+      ...this.snapshot,
+      connections: [...others, connection],
+      todos: [...this.todosWithout(projectId, link.kind), ...(keyed ? mockLinearTodos(projectId, link) : [])],
+    });
+    return Promise.resolve();
+  }
+
+  disconnectFloor(projectId: string, connector: ConnectorKind): Promise<void> {
+    this.commit({
+      ...this.snapshot,
+      connections: this.snapshot.connections.filter((c) => c.projectId !== projectId || c.link.kind !== connector),
+      todos: this.todosWithout(projectId, connector),
+    });
+    return Promise.resolve();
+  }
+
+  recheckConnectors(): Promise<void> {
+    if (this.linearKey.kind === "saved") {
+      const fetchedAt = this.now().toISOString();
+      this.commit({ ...this.snapshot, connections: this.snapshot.connections.map((c) => ({ ...c, fetchedAt, error: null })) });
+    }
+    return Promise.resolve();
+  }
+
+  openTodoLink(todoId: string): Promise<void> {
+    if (this.snapshot.todos.find((t) => t.id === todoId)?.source.kind !== "linear") {
+      return Promise.reject(new Error("that item has no page to open"));
+    }
+    this.linkLog.push(todoId);
+    return Promise.resolve();
+  }
+
+  /** The todos left on a floor once a connector's are taken off. */
+  private todosWithout(projectId: string, connector: ConnectorKind): TodoItem[] {
+    return this.snapshot.todos.filter((t) => t.projectId !== projectId || t.source.kind !== connector);
+  }
+
+  /** A saved key brings every connection's items back, fresh. */
+  private refreshConnections(): void {
+    const fetchedAt = this.now().toISOString();
+    const linked = this.snapshot.connections;
+    const todos = [
+      ...this.snapshot.todos.filter((t) => t.source.kind !== "linear"),
+      ...linked.flatMap((c) => mockLinearTodos(c.projectId, c.link)),
+    ];
+    this.commit({ ...this.snapshot, todos, connections: linked.map((c) => ({ ...c, fetchedAt, error: null, needsKey: false })) });
   }
 
   /** A browser has no native folder picker; the dialog asks for a typed path. */

@@ -1,4 +1,5 @@
-import type { Helper, OfficeSnapshot } from "../types";
+import type { Helper, LinearLink, OfficeSnapshot } from "../types";
+import { mockLinearTodos } from "./mockConnectors";
 
 /** `count` demo helpers (sub-agents) for one session, a few of them thinking. */
 function helpers(sessionId: string, count: number): Helper[] {
@@ -42,25 +43,29 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "d-3", projectId: "p-shop", title: "Checkout audit runs weekly", detail: "Scheduled every Monday; findings filed to TODO.md.", decidedAt: "2026-09-27T09:00:00Z", by: "ai" },
     ],
     todos: [
-      { id: "t-1", projectId: "p-office", text: "Evaluate the CCC HTTP API on the Mac", done: false, assignee: "human", sourceFile: null },
-      { id: "t-2", projectId: "p-office", text: "Generate the app icons", done: false, assignee: "human", sourceFile: null },
-      { id: "t-3", projectId: "p-office", text: "Scaffold the mock UI", done: true, assignee: "ai", sourceFile: null },
-      { id: "t-4", projectId: "p-office", text: "Wire tauri-plugin-pty for spawned sessions", done: false, assignee: "ai", sourceFile: null },
-      { id: "t-5", projectId: "p-shop", text: "Rotate the tile API key", done: false, assignee: "human", sourceFile: null },
-      { id: "t-6", projectId: "p-shop", text: "Refresh map-tiles visual baselines", done: true, assignee: "ai", sourceFile: null },
-      { id: "t-7", projectId: "p-shop", text: "Fix the orders ingest dedupe", done: false, assignee: "ai", sourceFile: null },
+      { id: "t-1", projectId: "p-office", text: "Evaluate the CCC HTTP API on the Mac", done: false, assignee: "human", source: { kind: "app" } },
+      { id: "t-2", projectId: "p-office", text: "Generate the app icons", done: false, assignee: "human", source: { kind: "app" } },
+      { id: "t-3", projectId: "p-office", text: "Scaffold the mock UI", done: true, assignee: "ai", source: { kind: "app" } },
+      { id: "t-4", projectId: "p-office", text: "Wire tauri-plugin-pty for spawned sessions", done: false, assignee: "ai", source: { kind: "app" } },
+      { id: "t-5", projectId: "p-shop", text: "Rotate the tile API key", done: false, assignee: "human", source: { kind: "app" } },
+      { id: "t-6", projectId: "p-shop", text: "Refresh map-tiles visual baselines", done: true, assignee: "ai", source: { kind: "app" } },
+      { id: "t-7", projectId: "p-shop", text: "Fix the orders ingest dedupe", done: false, assignee: "ai", source: { kind: "app" } },
     ],
     messages: [],
     setupProjectId: "p-setup",
     shells: [],
+    connections: [],
   };
 }
 
 /** The seed plus the setup floor, as the browser build shows it (tests keep the plain seed). */
 export function makeDemoSnapshot(): OfficeSnapshot {
   const seed = makeSeedSnapshot();
+  const link: LinearLink = { kind: "linear", teamId: "team-eng", teamKey: "ENG", teamName: "Engineering", project: null, label: null };
   return {
     ...seed,
+    todos: [...seed.todos, ...mockLinearTodos("p-shop", link)],
+    connections: [{ projectId: "p-shop", link, fetchedAt: "2026-09-28T15:40:00Z", error: null, needsKey: false, truncated: false }],
     projects: [...seed.projects, { id: seed.setupProjectId, name: "Setup", path: "~/Library/Application Support/com.wuczynski.office-building/Setup", sessionIds: [] }],
   };
 }

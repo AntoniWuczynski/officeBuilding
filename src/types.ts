@@ -86,8 +86,63 @@ export interface TodoItem {
   readonly done: boolean;
   /** Who is expected to tick it off. */
   readonly assignee: "ai" | "human";
-  /** The repo file the item lives in (TODO.md, FOUNDER_TODO.md); null for the app's own records. */
-  readonly sourceFile: string | null;
+  /** The app's own records, a line in a repo file, or a Linear issue. */
+  readonly source: TodoSource;
+}
+
+/** Where a TODO item lives (`TodoSource` in model.rs). */
+export type TodoSource =
+  | { readonly kind: "app" }
+  | { readonly kind: "file"; readonly file: string }
+  | { readonly kind: "linear"; readonly identifier: string; readonly url: string };
+
+/** A project in Linear (not a floor). */
+export interface LinearProject {
+  readonly id: string;
+  readonly name: string;
+}
+
+/** What feeds a floor from Linear: one team, optionally one project and one label, all combined. */
+export interface LinearLink {
+  readonly kind: "linear";
+  readonly teamId: string;
+  readonly teamKey: string;
+  readonly teamName: string;
+  readonly project: LinearProject | null;
+  readonly label: string | null;
+}
+
+/** A floor's link to a connector. One member per connector. */
+export type FloorLink = LinearLink;
+export type ConnectorKind = FloorLink["kind"];
+
+/** A floor's link and how its last check went. */
+export interface Connection {
+  readonly projectId: string;
+  readonly link: FloorLink;
+  /** When its items were last fetched. Null until a check has worked. */
+  readonly fetchedAt: string | null;
+  /** Why the last check failed, in words. Null when it worked or none has run yet. */
+  readonly error: string | null;
+  /** It cannot be checked until a key is saved, or allowed, in Settings. */
+  readonly needsKey: boolean;
+  /** More issues match than are shown. */
+  readonly truncated: boolean;
+}
+
+/** What the building knows about the Linear key. Never the key itself. */
+export type LinearKeyStatus =
+  | { readonly kind: "missing" }
+  | { readonly kind: "saved"; readonly account: string | null }
+  | { readonly kind: "rejected" }
+  | { readonly kind: "unavailable"; readonly reason: string };
+
+/** A Linear team with its open projects, for the connect form. */
+export interface LinearTeam {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly projects: readonly LinearProject[];
 }
 
 /** A note one agent sent another (agent-to-agent messaging). */
@@ -278,6 +333,8 @@ export interface OfficeSnapshot {
   readonly setupProjectId: string;
   /** Plain shells the human opened, listed in each floor's manager's office. */
   readonly shells: readonly Shell[];
+  /** Each standing floor's links to connectors, with how the last check went. */
+  readonly connections: readonly Connection[];
 }
 
 /** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */
@@ -387,10 +444,17 @@ export interface EditorSettings {
   readonly preferred: Editor | null;
 }
 
+/** Connector defaults for the whole building (`ConnectorSettings` in settings.rs). */
+export interface ConnectorSettings {
+  /** Linear issues carrying this label go on the whiteboard. 1 to 80 characters. */
+  readonly linearAgentLabel: string;
+}
+
 /** The app's settings, kept by the backend. One field per group. */
 export interface Settings {
   readonly notifications: NotificationSettings;
   readonly editor: EditorSettings;
+  readonly connectors: ConnectorSettings;
 }
 
 /** A change to the settings: each group present replaces that group whole. */
