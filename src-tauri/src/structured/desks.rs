@@ -99,7 +99,8 @@ impl Desks {
             Live {
                 info,
                 transcript: Vec::new(),
-                state: SessionState::Thinking,
+                // Not working until the driver starts a turn: its handshake is no turn.
+                state: SessionState::Idle,
                 approval: None,
                 tool_session: None,
                 last: SystemTime::now(),
@@ -249,7 +250,7 @@ impl Desks {
             desk.transcript.clear();
             desk.approval = None;
             desk.ended = None;
-            desk.state = SessionState::Thinking;
+            desk.state = SessionState::Idle;
             desk.last = SystemTime::now();
         }
         match super::start(spawn, self.sink(id)) {
