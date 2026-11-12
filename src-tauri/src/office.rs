@@ -7,8 +7,8 @@ use crate::feed::Feed;
 use crate::focus;
 use crate::model::{
     AgentMessage, AnswerVia, ControlMode, EndedSession, HireFailed, HireRequest, OfficeSnapshot,
-    Project, QuestionAnswer, Session, SessionState, Shell, Spend, TerminalBacklog, TerminalExit,
-    ToolKind, ToolOptions,
+    Project, Question, QuestionAnswer, Session, SessionState, Shell, Spend, TerminalBacklog,
+    TerminalExit, ToolKind, ToolOptions,
 };
 use crate::options;
 use crate::project_files::{self, ProjectFiles};
@@ -52,6 +52,10 @@ struct Inner {
     /// The terminal of each running QA reviewer, with its floor's project id. Only
     /// `seat_reviewer` adds to it and only `dismiss_reviewer` removes from it.
     reviewers: BTreeMap<String, String>,
+    /// Notes on their way to desks, and A Human's keystrokes.
+    mail: deliver::Mail,
+    /// Each floor's running manager, by project id.
+    seats: BTreeMap<String, manager::Seat>,
 }
 
 pub struct Office {
@@ -69,6 +73,10 @@ pub struct Office {
     settings: Option<Arc<SettingsStore>>,
     /// The pull request watch behind each floor's QA desk, if this office was given one.
     qa: Option<Arc<qa::watch::Watch>>,
+    /// What managers need (the token registry, the socket, the helper), or why there is none.
+    manager: Result<manager::ManagerHost, String>,
+    /// Held across a manager's hire, from its checks to its record, so hires are one at a time.
+    hiring: Mutex<()>,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -232,8 +240,14 @@ fn launch_failure(
 /// any desk could show its terminal, so that becomes the error here. The agent
 /// has to outlast [`LAUNCH_GRACE`] from the moment the login shell hands over
 /// to it, however long the shell's profile takes (up to [`LAUNCH_LIMIT`]).
-fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<String, String> {
-    let terminal = terminals.spawn_shell(root, command)?;
+/// `env` is set in the terminal's environment, never on its command line.
+fn start_agent_with(
+    terminals: &Terminals,
+    root: &Path,
+    command: &str,
+    env: &[(&str, &str)],
+) -> Result<String, String> {
+    let terminal = terminals.spawn_shell_with(root, command, env)?;
     let pid = terminals.pid(&terminal)?;
     let started = Instant::now();
     let mut handed_over: Option<Instant> = None;
@@ -253,6 +267,11 @@ fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<Stri
             Some(_) | None => {}
         }
     }
+}
+
+#[cfg(test)]
+fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<String, String> {
+    start_agent_with(terminals, root, command, &[])
 }
 
 /// The tool's own resume command for an ended session, on the model and effort it ran with.
@@ -292,6 +311,20 @@ fn resume_command(ended: &EndedSession, shell: &str, setup: &Launch) -> Result<S
     Ok(words.join(" "))
 }
 
+/// What A Human chose for `question`: an option's label or their own words.
+fn answer_text(question: &Question, answer: &QuestionAnswer) -> Result<String, String> {
+    match answer {
+        QuestionAnswer::Option { option_id } => question
+            .options
+            .iter()
+            .find(|o| &o.id == option_id)
+            .map(|o| o.label.clone())
+            .ok_or_else(|| format!("unknown option {option_id}")),
+        QuestionAnswer::Other { text } if !text.trim().is_empty() => Ok(text.trim().to_string()),
+        QuestionAnswer::Other { .. } => Err("empty free-text answer".to_string()),
+    }
+}
+
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -323,11 +356,15 @@ impl Office {
                 desks: BTreeMap::new(),
                 shells: BTreeMap::new(),
                 reviewers: BTreeMap::new(),
+                mail: deliver::Mail::default(),
+                seats: BTreeMap::new(),
             }),
             terminals,
             connectors: Arc::new(Hub::new(Vec::new(), Box::new(|| {}))),
             settings: None,
             qa: None,
+            manager: Err("the manager's socket is not open".to_string()),
+            hiring: Mutex::new(()),
         }
     }
 
@@ -418,6 +455,7 @@ impl Office {
         let r = &inner.store.records;
         let mut questions = inner.found.questions.clone();
         questions.extend(inner.files.values().flat_map(|f| f.open.iter().cloned()));
+        questions.extend(r.calls.iter().cloned());
         let mut decisions = r.decisions.clone();
         decisions.extend(
             inner
@@ -439,6 +477,7 @@ impl Office {
             shells: inner.shells.values().cloned().collect(),
             connections: self.connections(&inner),
             qa: self.qa_floors(&inner),
+            managers: self.manager_floors(&inner),
         }
     }
 
@@ -453,6 +492,16 @@ impl Office {
     /// Start an agent in an in-app terminal, in the floor's folder. It appears
     /// as a desk as soon as the tool writes its session files.
     pub fn spawn_session(&self, project_id: &str, req: &HireRequest) -> Result<Session, String> {
+        self.spawn_in_terminal(project_id, req)
+            .map(|(session, _)| session)
+    }
+
+    /// `spawn_session`, with the terminal it started (None for a structured desk).
+    pub(super) fn spawn_in_terminal(
+        &self,
+        project_id: &str,
+        req: &HireRequest,
+    ) -> Result<(Session, Option<String>), String> {
         // The absolute root, not the `~/…` display path.
         let root = self
             .lock()
@@ -465,7 +514,9 @@ impl Office {
         let (model, _) = chosen_model(&tool, Some(&req.model), Some(&req.effort))?;
         let task = req.title.trim();
         if req.structured {
-            return self.spawn_structured(project_id, &root, req, model, task);
+            return self
+                .spawn_structured(project_id, &root, req, model, task)
+                .map(|session| (session, None));
         }
         if req.tool == ToolKind::Codex && task.is_empty() {
             // Codex writes nothing discovery can see until its first turn.
@@ -501,7 +552,7 @@ impl Office {
         };
         let terminal = self.launch(&root, &command, launched)?;
         // A discovered session's real id arrives with discovery; this is only the receipt.
-        Ok(Session {
+        let session = Session {
             id: if is_discovered(req.tool) {
                 format!("hired-{}", chrono::Utc::now().timestamp_millis())
             } else {
@@ -521,7 +572,8 @@ impl Office {
             pets: Vec::new(),
             worktree: false,
             branch: None,
-        })
+        };
+        Ok((session, Some(terminal)))
     }
 
     /// Resume an ended session in an in-app terminal, in the folder it ran in.
@@ -554,7 +606,18 @@ impl Office {
     /// once is an error; one that stops later, before reaching a desk, is
     /// reported by `hire_failed`.
     fn launch(&self, dir: &Path, command: &str, launched: Launched) -> Result<String, String> {
-        let terminal = start_agent(&self.terminals, dir, command)?;
+        self.launch_with(dir, command, launched, &[])
+    }
+
+    /// `launch`, with `env` in the terminal's environment and never on its command line.
+    fn launch_with(
+        &self,
+        dir: &Path,
+        command: &str,
+        launched: Launched,
+        env: &[(&str, &str)],
+    ) -> Result<String, String> {
+        let terminal = start_agent_with(&self.terminals, dir, command, env)?;
         // Under the lock `hire_failed` takes: an exit either lands here or finds the entry.
         let mut inner = self.lock();
         if let Some(code) = self.terminals.wait_exit(&terminal, Duration::ZERO)? {
@@ -669,6 +732,9 @@ impl Office {
         question_id: &str,
         answer: &QuestionAnswer,
     ) -> Result<(), String> {
+        if let Some(settled) = self.answer_store_call(question_id, answer) {
+            return settled;
+        }
         {
             let inner = self.lock();
             let question = inner
@@ -689,21 +755,9 @@ impl Office {
                 AnswerVia::App => {
                     return Err("answering in the app is not wired to a terminal yet".to_string());
                 }
+                AnswerVia::Store => return Err("that call is kept by the building".to_string()),
                 AnswerVia::File => {
-                    let text = match answer {
-                        QuestionAnswer::Option { option_id } => question
-                            .options
-                            .iter()
-                            .find(|o| &o.id == option_id)
-                            .map(|o| o.label.clone())
-                            .ok_or_else(|| format!("unknown option {option_id}"))?,
-                        QuestionAnswer::Other { text } if !text.trim().is_empty() => {
-                            text.trim().to_string()
-                        }
-                        QuestionAnswer::Other { .. } => {
-                            return Err("empty free-text answer".to_string());
-                        }
-                    };
+                    let text = answer_text(question, answer)?;
                     let (file, line) =
                         project_files::parse_item_id(question_id).ok_or("malformed question id")?;
                     let root = inner
@@ -780,6 +834,7 @@ impl Office {
     }
 
     pub fn terminal_write(&self, session_id: &str, data: &str) -> Result<(), String> {
+        self.human_typed(session_id, data);
         self.terminals.write(&self.terminal_of(session_id)?, data)
     }
 
@@ -904,9 +959,18 @@ fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
 }
 
 mod connectors;
+mod deliver;
 mod desk_states;
 mod folders;
+#[cfg(test)]
+mod guard;
 mod launch;
+mod manager;
+mod manager_calls;
+mod manager_hire;
+mod manager_send;
+mod manager_tools;
+pub use manager::ManagerHost;
 mod qa_desk;
 mod reviewers;
 mod setup;

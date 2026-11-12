@@ -449,6 +449,65 @@ pub fn set_floor_qa(
     Ok(())
 }
 
+/// On a blocking thread, like a hire: it waits for the manager to start.
+#[tauri::command]
+pub async fn hire_manager(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    project_id: String,
+) -> Result<(), String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || {
+        office.hire_manager(&project_id)?;
+        push_snapshot(&app, &office);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("the hire did not finish: {e}"))?
+}
+
+/// On a blocking thread: resuming hands over every note that waited, with a pause between each.
+#[tauri::command]
+pub async fn set_manager_paused(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    project_id: String,
+    paused: bool,
+) -> Result<(), String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || {
+        office.set_manager_paused(&project_id, paused)?;
+        push_snapshot(&app, &office);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("the change did not finish: {e}"))?
+}
+
+#[tauri::command]
+pub fn set_manager_hiring(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    project_id: String,
+    allowed: bool,
+) -> Result<(), String> {
+    office.set_manager_hiring(&project_id, allowed)?;
+    push_snapshot(&app, &office);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn withdraw_manager_note(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    project_id: String,
+    note_id: String,
+) -> Result<(), String> {
+    office.withdraw_manager_note(&project_id, &note_id)?;
+    push_snapshot(&app, &office);
+    Ok(())
+}
+
 /// Ask GitHub for pull requests again now. It only sets a flag and wakes the watch.
 #[tauri::command]
 pub fn recheck_qa(watch: WatchState<'_>) {

@@ -2,7 +2,8 @@
 //! owns sessions and questions; this owns what only the office knows. Saved as
 //! one JSON file in the app's data directory.
 
-use crate::model::{AgentMessage, Decision, Link, TodoItem};
+use crate::manager::wire::ManagerRecord;
+use crate::model::{AgentMessage, Decision, Link, Question, TodoItem};
 use crate::qa::record::QaRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,6 +35,12 @@ pub struct Records {
     /// Each floor's QA switch and reviews (absolute repo roots, like `pinned_floors`).
     #[serde(default)]
     pub qa: BTreeMap<String, QaRecord>,
+    /// Each floor's manager switches and log (absolute repo roots, like `pinned_floors`).
+    #[serde(default)]
+    pub managers: BTreeMap<String, ManagerRecord>,
+    /// Open calls no repo file holds (`AnswerVia::Store`): a manager's escalations on a floor with no decisions file.
+    #[serde(default)]
+    pub calls: Vec<Question>,
     #[serde(default)]
     pub seq: u64,
 }
@@ -154,6 +161,8 @@ mod tests {
         assert_eq!(store.records.todos[0].source, TodoSource::App);
         assert!(store.records.connectors.is_empty());
         assert!(store.records.qa.is_empty());
+        assert!(store.records.managers.is_empty());
+        assert!(store.records.calls.is_empty());
         store.save().expect("save");
         assert_eq!(
             Store::open(path.clone()).expect("reopen").records,
@@ -203,6 +212,33 @@ mod tests {
         store.save().expect("save");
         let again = Store::open(path.clone()).expect("reopen");
         assert_eq!(again.records.qa["/r"], record);
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn a_manager_record_with_a_log_round_trips_through_a_save() {
+        use crate::manager::wire::{LogEntry, LogEvent, NoteState};
+        let path = temp_path("manager");
+        let mut store = Store::open(path.clone()).expect("open");
+        let record = ManagerRecord {
+            paused: true,
+            may_hire: true,
+            log: vec![LogEntry {
+                id: "g-1".into(),
+                at: "2026-11-12T10:00:00Z".into(),
+                event: LogEvent::Note {
+                    note_id: "n-1".into(),
+                    to_session_id: "s-2".into(),
+                    to_title: "audit checkout".into(),
+                    text: "Take the first item.".into(),
+                    state: NoteState::Delivered,
+                },
+            }],
+        };
+        store.records.managers.insert("/r".into(), record.clone());
+        store.save().expect("save");
+        let again = Store::open(path.clone()).expect("reopen");
+        assert_eq!(again.records.managers["/r"], record);
         fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
     }
 }

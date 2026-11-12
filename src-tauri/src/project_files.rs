@@ -726,5 +726,7 @@ fn decide_item(
     fs::write(path, out.join("\n")).map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
+pub mod append;
+
 #[cfg(test)]
 mod tests;

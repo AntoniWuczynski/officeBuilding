@@ -141,6 +141,7 @@ impl Office {
     }
 
     pub fn structured_prompt(&self, session_id: &str, text: &str) -> Result<(), String> {
+        self.human_prompted(session_id);
         self.structured.prompt(session_id, text)
     }
 

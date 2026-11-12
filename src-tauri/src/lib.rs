@@ -4,11 +4,13 @@
 pub mod alerts;
 pub mod commands;
 pub mod connectors;
+pub mod delivery;
 pub mod discovery;
 pub mod editor;
 pub mod feed;
 pub mod focus;
 pub mod http;
+pub mod manager;
 pub mod model;
 pub mod office;
 pub mod options;
@@ -29,7 +31,7 @@ pub mod watch;
 
 use alerts::Alerts;
 use connectors::{Connector, hub::Hub, linear::Linear};
-use office::Office;
+use office::{ManagerHost, Office};
 use pty::{TerminalEvent, Terminals};
 use settings::SettingsStore;
 use std::path::PathBuf;
@@ -38,6 +40,16 @@ use std::time::Duration;
 use store::Store;
 use tauri::{Emitter, Manager};
 
+/// Push a snapshot from a background thread. A closed webview just means nobody is listening.
+fn snapshot_pusher(app: &tauri::App) -> Box<dyn Fn() + Send + Sync> {
+    let handle = app.handle().clone();
+    Box::new(move || {
+        if let Some(office) = handle.try_state::<Arc<Office>>() {
+            let _ = handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
+        }
+    })
+}
+
 /// The pull request watch behind the QA desks, handed to Tauri. It pushes a snapshot when
 /// anything it shows has changed.
 fn qa_watch(
@@ -45,26 +57,43 @@ fn qa_watch(
     settings: &Arc<SettingsStore>,
     data: PathBuf,
 ) -> Arc<qa::watch::Watch> {
-    let handle = app.handle().clone();
     let qa_watch = Arc::new(qa::watch::Watch::new(
         Arc::new(process::SystemRunner),
         Arc::clone(settings),
         data,
-        Box::new(move || {
-            // A closed webview just means nobody is listening right now.
-            if let Some(office) = handle.try_state::<Arc<Office>>() {
-                let _ = handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
-            }
-        }),
+        snapshot_pusher(app),
     ));
     app.manage(Arc::clone(&qa_watch));
     qa_watch
+}
+
+/// The managers' socket in `<data>/ipc`, and the host the office runs managers with. A socket
+/// that cannot be opened stops no other part of the app: its reason is kept, and a hire says it.
+fn manager_host(
+    app: &tauri::App,
+    data: &std::path::Path,
+) -> (Option<manager::socket::Server>, Result<ManagerHost, String>) {
+    let server = match manager::socket::Server::bind(&data.join("ipc")) {
+        Ok(server) => server,
+        Err(reason) => return (None, Err(reason)),
+    };
+    let host = std::env::current_exe()
+        .map_err(|e| format!("the app's own path is unknown ({e})"))
+        .map(|helper| ManagerHost {
+            registry: Arc::new(manager::auth::Registry::default()),
+            socket: server.path().to_path_buf(),
+            helper,
+            changed: snapshot_pusher(app),
+        });
+    (Some(server), host)
 }
 
 /// Open the stores, start discovery and the watchers, and hand Tauri the shared state.
 fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().ok_or("the home folder could not be found")?;
     let data = app.path().app_data_dir()?;
+    // `Store::open` does not make the folder, and the socket's folder goes inside it.
+    std::fs::create_dir_all(&data)?;
     let store = Store::open(data.join("store.json"))?;
     let settings = Arc::new(SettingsStore::open(data.join("settings.json")));
     let alerts = Arc::new(Alerts::new(Arc::clone(&settings)));
@@ -73,16 +102,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(secrets::Keychain::new(app.config().identifier.clone()));
     let linear = Arc::new(Linear::new(http, keychain, Arc::clone(&settings)));
     let linear_connector: Arc<dyn Connector> = linear.clone();
-    let hub_handle = app.handle().clone();
-    let hub = Arc::new(Hub::new(
-        vec![linear_connector],
-        Box::new(move || {
-            // A closed webview just means nobody is listening right now.
-            if let Some(office) = hub_handle.try_state::<Arc<Office>>() {
-                let _ = hub_handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
-            }
-        }),
-    ));
+    let hub = Arc::new(Hub::new(vec![linear_connector], snapshot_pusher(app)));
     app.manage(Arc::clone(&hub));
     app.manage(linear);
     app.manage(Arc::clone(&settings));
@@ -101,13 +121,14 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
             TerminalEvent::Exit(e) => {
                 let office = handle.try_state::<Arc<Office>>();
+                let manager_gone = office.as_ref().is_some_and(|o| o.manager_left(&e));
                 let failed = office.as_ref().and_then(|o| o.hire_failed(&e));
                 let shell_gone = office.as_ref().is_some_and(|o| o.shell_exited(&e));
                 let _ = handle.emit(pty::EXIT_EVENT, e);
                 if let Some(failed) = failed {
                     let _ = handle.emit(office::HIRE_FAILED_EVENT, failed);
                 }
-                if let (true, Some(office)) = (shell_gone, office) {
+                if let (true, Some(office)) = (shell_gone || manager_gone, office) {
                     let _ = handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
                 }
             }
@@ -131,12 +152,21 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }
     }));
     let qa_watch = qa_watch(app, &settings, data.clone());
+    let (server, host) = manager_host(app, &data);
+    let registry = host.as_ref().ok().map(|h| Arc::clone(&h.registry));
     let office = Arc::new(
         Office::new(home.clone(), store, terminals, setup, feed, structured)
             .with_connectors(Arc::clone(&hub))
             .with_settings(Arc::clone(&settings))
-            .with_qa(Arc::clone(&qa_watch)),
+            .with_qa(Arc::clone(&qa_watch))
+            .with_manager(host),
     );
+    if let (Some(server), Some(registry)) = (server, registry) {
+        server.serve(
+            registry,
+            Arc::new(manager::mcp::Protocol::new(office.clone())),
+        )?;
+    }
     office.refresh();
     office.ensure_setup_floor()?;
     watch::start_setup(app.handle().clone(), watched_setup)?;
@@ -218,6 +248,10 @@ pub fn run() -> tauri::Result<()> {
             commands::set_floor_qa,
             commands::open_review,
             commands::recheck_qa,
+            commands::hire_manager,
+            commands::set_manager_paused,
+            commands::set_manager_hiring,
+            commands::withdraw_manager_note,
         ])
         .run(tauri::generate_context!())
 }

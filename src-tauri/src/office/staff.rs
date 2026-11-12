@@ -1,14 +1,18 @@
 //! Agents the building starts for a fixed job, with a role's own instructions, permissions,
-//! folder and report file. The QA reviewer is the first. Issue #4's manager is another.
+//! folder and report file: the QA reviewer and the floor's manager.
 
 use super::Office;
 use super::launch::{chosen_model, hireable, launch_command};
+use crate::manager::helper;
 use crate::model::{HireRequest, ModelOption, ToolKind};
 use crate::pty;
-use crate::setup::{Hook, HookEvent, Launch, Opt, RoleSetup, Targets};
+use crate::setup::{Hook, HookEvent, Launch, Opt, RoleServer, RoleSetup, Targets};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+
+/// The name the building's tools are served under: the allow rule and the server config share it.
+const SERVER: &str = "office";
 
 /// What a fixed-role agent may do without asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,9 +20,19 @@ pub enum PermissionMode {
     /// Reads and searches files in its folder. No shell, no edits, no web, no MCP tools,
     /// and anything that would ask is refused.
     ReadOnly,
+    /// Reads and searches files in its folder and uses the building's tools. No shell, no
+    /// edits, no web, no other MCP server.
+    Manager,
 }
 
-/// An agent the building starts for a fixed job. Issue #4's manager is another one.
+/// The helper a role's agent reaches the building through.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpHelper {
+    pub exe: PathBuf,
+    pub socket: PathBuf,
+}
+
+/// An agent the building starts for a fixed job.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Role {
     /// Names its generated launch folder: see `RoleSetup::name`.
@@ -30,11 +44,14 @@ pub struct Role {
     pub folder: PathBuf,
     /// Where the last reply of each turn is written (the Stop hook's input), if anywhere.
     pub report: Option<PathBuf>,
+    /// The building's tools, through this helper, if it has them.
+    pub helper: Option<McpHelper>,
 }
 
 /// The options that put `tool` in `mode`: Claude Code's `dontAsk` mode with only the file
-/// reading and search tools, no MCP servers and no project settings (`claude --help`,
-/// <https://code.claude.com/docs/en/permission-modes>).
+/// reading and search tools, no project settings, no MCP server but the building's for a
+/// manager, and no messages from other sessions (`claude --help`,
+/// <https://code.claude.com/docs/en/permission-modes>, `permissions`, `mcp`).
 pub(super) fn permission_options(
     tool: ToolKind,
     mode: PermissionMode,
@@ -43,21 +60,20 @@ pub(super) fn permission_options(
     if tool != ToolKind::ClaudeCode {
         return Err("only Claude Code can take a fixed job so far".to_string());
     }
+    let mut opts = vec![
+        ("--permission-mode", "dontAsk".to_string()),
+        ("--tools", "Read,Grep,Glob".to_string()),
+        ("--setting-sources", "user".to_string()),
+    ];
     match mode {
-        PermissionMode::ReadOnly => {
-            for (flag, value) in [
-                ("--permission-mode", "dontAsk"),
-                ("--tools", "Read,Grep,Glob"),
-                ("--setting-sources", "user"),
-            ] {
-                launch.opts.push(Opt {
-                    flag,
-                    value: value.to_string(),
-                });
-            }
-            launch.flags.push("--strict-mcp-config");
-        }
+        PermissionMode::ReadOnly => {}
+        PermissionMode::Manager => opts.push(("--allowedTools", format!("mcp__{SERVER}__*"))),
     }
+    for (flag, value) in opts {
+        launch.opts.push(Opt { flag, value });
+    }
+    launch.flags.push("--strict-mcp-config");
+    launch.refuse_peer_messages = true;
     Ok(())
 }
 
@@ -110,6 +126,12 @@ impl Office {
     ) -> Result<String, String> {
         let options = hireable(self.hire_options(), tool)?;
         let (model, effort) = chosen_model(&options, model, effort)?;
+        let setup = self.role_setup(role, tool)?;
+        staff_command(role, tool, model, &effort, task, &pty::login_shell(), setup)
+    }
+
+    /// The role's launch folder written and a stale report deleted.
+    pub(super) fn role_setup(&self, role: &Role, tool: ToolKind) -> Result<Launch, String> {
         if let Some(report) = &role.report {
             if let Some(parent) = report.parent() {
                 fs::create_dir_all(parent)
@@ -122,7 +144,13 @@ impl Office {
                 Ok(()) | Err(_) => {}
             }
         }
-        let setup = self.setup.role_launch(
+        let args = |h: &McpHelper| {
+            vec![
+                helper::MODE.to_string(),
+                h.socket.to_string_lossy().into_owned(),
+            ]
+        };
+        self.setup.role_launch(
             tool,
             &RoleSetup {
                 name: &role.name,
@@ -133,10 +161,14 @@ impl Office {
                     .map(report_hook)
                     .into_iter()
                     .collect(),
+                server: role.helper.as_ref().map(|h| RoleServer {
+                    name: SERVER,
+                    command: &h.exe,
+                    args: args(h),
+                }),
             },
             Some(&self.lock().feed),
-        )?;
-        staff_command(role, tool, model, &effort, task, &pty::login_shell(), setup)
+        )
     }
 }
 
@@ -154,6 +186,7 @@ mod tests {
             permissions: PermissionMode::ReadOnly,
             folder: PathBuf::from("/tmp/wt"),
             report: None,
+            helper: None,
         }
     }
 
@@ -190,10 +223,87 @@ mod tests {
         );
         assert_eq!(launch.flags, vec!["--strict-mcp-config"]);
         assert!(launch.env.is_empty());
+        assert!(launch.refuse_peer_messages);
         assert_eq!(
             permission_options(ToolKind::Codex, PermissionMode::ReadOnly, &mut launch),
             Err("only Claude Code can take a fixed job so far".to_string())
         );
+    }
+
+    #[test]
+    fn a_manager_adds_the_buildings_tools_and_nothing_else() {
+        let mut launch = Launch::default();
+        permission_options(ToolKind::ClaudeCode, PermissionMode::Manager, &mut launch)
+            .expect("options");
+        let opts: Vec<(&str, &str)> = launch
+            .opts
+            .iter()
+            .map(|o| (o.flag, o.value.as_str()))
+            .collect();
+        assert_eq!(
+            opts,
+            vec![
+                ("--permission-mode", "dontAsk"),
+                ("--tools", "Read,Grep,Glob"),
+                ("--setting-sources", "user"),
+                ("--allowedTools", "mcp__office__*"),
+            ]
+        );
+        assert_eq!(launch.flags, vec!["--strict-mcp-config"]);
+        assert!(launch.env.is_empty());
+        assert!(launch.refuse_peer_messages);
+    }
+
+    #[test]
+    fn the_managers_command_reads_files_and_calls_the_building_only() {
+        let setup = Launch {
+            opts: vec![Opt {
+                flag: "--mcp-config",
+                value: "/b/roles/manager-p-1/mcp.json".to_string(),
+            }],
+            ..Launch::default()
+        };
+        let manager = Role {
+            name: "manager-p-1".to_string(),
+            permissions: PermissionMode::Manager,
+            ..role()
+        };
+        let command = staff_command(
+            &manager,
+            ToolKind::ClaudeCode,
+            &model(),
+            "high",
+            "Call list_desks.",
+            "/bin/zsh",
+            setup,
+        )
+        .expect("command");
+        let model_at = command.find(" --model ").expect("model");
+        for option in [
+            "--mcp-config '/b/roles/manager-p-1/mcp.json'",
+            "--permission-mode 'dontAsk'",
+            "--tools 'Read,Grep,Glob'",
+            "--setting-sources 'user'",
+            "--allowedTools 'mcp__office__*'",
+            "--strict-mcp-config",
+        ] {
+            let at = command.find(option).expect(option);
+            assert!(at < model_at, "{option} comes before --model");
+        }
+        assert_eq!(command.matches("--strict-mcp-config").count(), 1);
+        assert!(
+            command.contains(r#"--settings '{"ultracode":false,"crossSessionInbound":"refuse"}'"#)
+        );
+        for banned in [
+            "Bash",
+            "Edit",
+            "Write",
+            "SendMessage",
+            "bypassPermissions",
+            "--dangerously-skip-permissions",
+        ] {
+            assert!(!command.contains(banned), "{banned} in {command}");
+        }
     }
 
     #[test]
@@ -237,6 +347,10 @@ mod tests {
             assert!(!command.contains(banned), "{banned} in {command}");
         }
         assert_eq!(command.matches("--permission-mode").count(), 1);
+        assert!(
+            command.contains(r#"--settings '{"ultracode":false,"crossSessionInbound":"refuse"}'"#)
+        );
+        assert!(!command.contains("--allowedTools"));
     }
 
     #[test]

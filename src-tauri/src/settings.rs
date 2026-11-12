@@ -16,6 +16,8 @@ pub const QA_POLL_MINUTES: RangeInclusive<u32> = 1..=60;
 pub const QA_MAX_CONCURRENT: RangeInclusive<u32> = 1..=4;
 pub const QA_REVIEWS_PER_DAY: RangeInclusive<u32> = 1..=20;
 pub const QA_NAME_MAX: usize = 100;
+pub const MANAGER_MAX_DESKS: RangeInclusive<u32> = 1..=10;
+pub const MANAGER_SPEND_CEILING_USD: RangeInclusive<u32> = 1..=1000;
 const DEFAULT_AGENT_LABEL: &str = "agent";
 
 /// `raw` trimmed, if it is 1 to `AGENT_LABEL_MAX` characters.
@@ -35,6 +37,7 @@ pub struct Settings {
     pub editor: EditorSettings,
     pub connectors: ConnectorSettings,
     pub qa: QaSettings,
+    pub manager: ManagerSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,23 +167,34 @@ fn between(range: &RangeInclusive<u32>) -> String {
     format!("between {} and {}", range.start(), range.end())
 }
 
+/// `model` and `effort` trimmed (empty becomes None), or why one is not valid.
+pub(crate) fn checked_names(
+    model: Option<String>,
+    effort: Option<String>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let check = |n: Option<String>, what: &str| {
+        n.as_deref()
+            .map(qa_name)
+            .transpose()
+            .map(Option::flatten)
+            .map_err(|()| format!("that {what} name is not valid"))
+    };
+    Ok((check(model, "model")?, check(effort, "effort")?))
+}
+
+/// A name from a file, or None when it is not valid.
+fn clamped_name(name: Option<String>) -> Option<String> {
+    name.and_then(|n| qa_name(&n).ok().flatten())
+}
+
+fn clamp(v: u32, r: &RangeInclusive<u32>) -> u32 {
+    v.clamp(*r.start(), *r.end())
+}
+
 impl QaSettings {
     /// The same settings with each name trimmed (empty becomes None), or why one is not valid.
     fn checked(mut self) -> Result<Self, String> {
-        self.model = self
-            .model
-            .as_deref()
-            .map(qa_name)
-            .transpose()
-            .map_err(|()| "that model name is not valid".to_string())?
-            .flatten();
-        self.effort = self
-            .effort
-            .as_deref()
-            .map(qa_name)
-            .transpose()
-            .map_err(|()| "that effort name is not valid".to_string())?
-            .flatten();
+        (self.model, self.effort) = checked_names(self.model, self.effort)?;
         if !QA_POLL_MINUTES.contains(&self.poll_minutes) {
             return Err(format!(
                 "the check interval must be {} minutes",
@@ -204,13 +218,74 @@ impl QaSettings {
 
     /// Clamp the numbers into range and drop a name that is not valid, as a file may hold any.
     fn clamped(mut self) -> Self {
-        let clamp = |v: u32, r: &RangeInclusive<u32>| v.clamp(*r.start(), *r.end());
         self.poll_minutes = clamp(self.poll_minutes, &QA_POLL_MINUTES);
         self.max_concurrent = clamp(self.max_concurrent, &QA_MAX_CONCURRENT);
         self.reviews_per_day = clamp(self.reviews_per_day, &QA_REVIEWS_PER_DAY);
-        let name = |n: Option<String>| n.and_then(|n| qa_name(&n).ok().flatten());
-        self.model = name(self.model);
-        self.effort = name(self.effort);
+        self.model = clamped_name(self.model);
+        self.effort = clamped_name(self.effort);
+        self
+    }
+}
+
+/// The tools that can be a floor's manager.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManagerTool {
+    #[default]
+    ClaudeCode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ManagerSettings {
+    pub tool: ManagerTool,
+    /// None: the tool's default model.
+    pub model: Option<String>,
+    /// None: the model's default effort.
+    pub effort: Option<String>,
+    /// Desks a manager may have hired at once: 1 to 10.
+    pub max_desks: u32,
+    /// Ceiling on the summed spend of the desks a manager hired, in whole US dollars: 1 to 1000.
+    pub spend_ceiling_usd: u32,
+}
+
+impl Default for ManagerSettings {
+    fn default() -> Self {
+        Self {
+            tool: ManagerTool::ClaudeCode,
+            model: None,
+            effort: None,
+            max_desks: 3,
+            spend_ceiling_usd: 20,
+        }
+    }
+}
+
+impl ManagerSettings {
+    /// The same settings with each name trimmed (empty becomes None), or why one is not valid.
+    fn checked(mut self) -> Result<Self, String> {
+        (self.model, self.effort) = checked_names(self.model, self.effort)?;
+        if !MANAGER_MAX_DESKS.contains(&self.max_desks) {
+            return Err(format!(
+                "desks at once must be {}",
+                between(&MANAGER_MAX_DESKS)
+            ));
+        }
+        if !MANAGER_SPEND_CEILING_USD.contains(&self.spend_ceiling_usd) {
+            return Err(format!(
+                "the spend ceiling must be {} dollars",
+                between(&MANAGER_SPEND_CEILING_USD)
+            ));
+        }
+        Ok(self)
+    }
+
+    /// Clamp the numbers into range and drop a name that is not valid, as a file may hold any.
+    fn clamped(mut self) -> Self {
+        self.max_desks = clamp(self.max_desks, &MANAGER_MAX_DESKS);
+        self.spend_ceiling_usd = clamp(self.spend_ceiling_usd, &MANAGER_SPEND_CEILING_USD);
+        self.model = clamped_name(self.model);
+        self.effort = clamped_name(self.effort);
         self
     }
 }
@@ -227,6 +302,8 @@ pub struct SettingsPatch {
     pub connectors: Option<ConnectorSettings>,
     #[serde(default)]
     pub qa: Option<QaSettings>,
+    #[serde(default)]
+    pub manager: Option<ManagerSettings>,
 }
 
 impl Settings {
@@ -255,6 +332,9 @@ impl Settings {
         }
         if let Some(qa) = patch.qa {
             self.qa = qa.checked()?;
+        }
+        if let Some(manager) = patch.manager {
+            self.manager = manager.checked()?;
         }
         Ok(())
     }
@@ -286,6 +366,7 @@ impl SettingsStore {
             agent_label(&settings.connectors.linear_agent_label)
                 .unwrap_or_else(|| DEFAULT_AGENT_LABEL.to_string());
         settings.qa = settings.qa.clamped();
+        settings.manager = settings.manager.clamped();
         Self {
             path,
             current: Mutex::new(settings),
@@ -467,7 +548,9 @@ mod tests {
             "connectors": { "linearAgentLabel": "agent" },
             "qa": { "defaultOn": false, "pollMinutes": 5, "everyPush": true, "skipDrafts": true,
             "postWhenClean": true, "maxConcurrent": 1, "reviewsPerDay": 3,
-            "tool": "claude-code", "model": null, "effort": null } }"#,
+            "tool": "claude-code", "model": null, "effort": null },
+            "manager": { "tool": "claude-code", "model": null, "effort": null,
+            "maxDesks": 3, "spendCeilingUsd": 20 } }"#,
         )
         .expect("json");
         assert_eq!(
@@ -718,5 +801,130 @@ mod tests {
     fn a_patch_naming_an_unknown_reviewer_tool_does_not_deserialise() {
         assert!(serde_json::from_str::<SettingsPatch>(r#"{"qa":{"tool":"codex"}}"#).is_err());
         assert!(serde_json::from_str::<SettingsPatch>(r#"{"qa":{"tool":"claude-code"}}"#).is_ok());
+    }
+
+    type ManagerChange = fn(&mut ManagerSettings);
+
+    fn manager_patch(change: impl FnOnce(&mut ManagerSettings)) -> SettingsPatch {
+        let mut manager = ManagerSettings::default();
+        change(&mut manager);
+        SettingsPatch {
+            manager: Some(manager),
+            ..SettingsPatch::default()
+        }
+    }
+
+    #[test]
+    fn a_file_from_before_the_manager_group_loads_its_defaults() {
+        let path = with_file("no-manager", r#"{"qa":{"defaultOn":true}}"#);
+        let got = SettingsStore::open(path.clone()).get();
+        assert_eq!(got.manager, ManagerSettings::default());
+        assert_eq!(
+            (
+                got.manager.tool,
+                got.manager.max_desks,
+                got.manager.spend_ceiling_usd
+            ),
+            (ManagerTool::ClaudeCode, 3, 20)
+        );
+        assert!(got.qa.default_on);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_partial_manager_group_fills_in_defaults() {
+        let path = with_file("manager-partial", r#"{"manager":{"maxDesks":5}}"#);
+        let got = SettingsStore::open(path.clone()).get().manager;
+        assert_eq!(
+            got,
+            ManagerSettings {
+                max_desks: 5,
+                ..ManagerSettings::default()
+            }
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn out_of_range_manager_values_are_refused_and_change_nothing() {
+        let path = temp_path("manager-refuse");
+        let store = SettingsStore::open(path.clone());
+        store
+            .update(manager_patch(|m| m.max_desks = 4))
+            .expect("update");
+        let before = fs::read_to_string(&path).expect("file");
+        let bad: [(ManagerChange, &str); 6] = [
+            (
+                |m| m.max_desks = 0,
+                "desks at once must be between 1 and 10",
+            ),
+            (
+                |m| m.max_desks = 11,
+                "desks at once must be between 1 and 10",
+            ),
+            (
+                |m| m.spend_ceiling_usd = 0,
+                "the spend ceiling must be between 1 and 1000 dollars",
+            ),
+            (
+                |m| m.spend_ceiling_usd = 1001,
+                "the spend ceiling must be between 1 and 1000 dollars",
+            ),
+            (
+                |m| m.model = Some("o\npus".into()),
+                "that model name is not valid",
+            ),
+            (
+                |m| m.effort = Some("x".repeat(101)),
+                "that effort name is not valid",
+            ),
+        ];
+        for (change, message) in bad {
+            assert_eq!(
+                store.update(manager_patch(change)).expect_err("refused"),
+                message
+            );
+        }
+        assert_eq!(store.get().manager.max_desks, 4);
+        assert_eq!(fs::read_to_string(&path).expect("file"), before);
+        let saved = store
+            .update(manager_patch(|m| {
+                m.max_desks = 10;
+                m.spend_ceiling_usd = 1000;
+                m.model = Some(" opus ".into());
+                m.effort = Some(String::new());
+            }))
+            .expect("ends");
+        assert_eq!(
+            (
+                saved.manager.max_desks,
+                saved.manager.spend_ceiling_usd,
+                saved.manager.model.as_deref(),
+                saved.manager.effort.as_deref()
+            ),
+            (10, 1000, Some("opus"), None)
+        );
+        assert_eq!(SettingsStore::open(path.clone()).get(), saved);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_file_with_out_of_range_manager_values_loads_clamped() {
+        let path = with_file(
+            "manager-clamp",
+            r#"{"manager":{"maxDesks":0,"spendCeilingUsd":5000,"model":" ","effort":"bad\u0007"}}"#,
+        );
+        let got = SettingsStore::open(path.clone()).get().manager;
+        assert_eq!((got.max_desks, got.spend_ceiling_usd), (1, 1000));
+        assert_eq!((got.model, got.effort), (None, None));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_patch_naming_an_unknown_manager_tool_does_not_deserialise() {
+        assert!(serde_json::from_str::<SettingsPatch>(r#"{"manager":{"tool":"codex"}}"#).is_err());
+        assert!(
+            serde_json::from_str::<SettingsPatch>(r#"{"manager":{"tool":"claude-code"}}"#).is_ok()
+        );
     }
 }

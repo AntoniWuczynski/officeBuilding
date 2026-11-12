@@ -119,6 +119,25 @@ impl Desks {
         }
     }
 
+    /// Seat a desk in `state` with `driver`, replacing any desk with that id, without
+    /// starting an agent.
+    #[cfg(test)]
+    pub fn seat(&self, id: &str, info: DeskInfo, state: SessionState, driver: Box<dyn Driver>) {
+        lock(&self.live).insert(
+            id.to_string(),
+            Live {
+                info,
+                transcript: Vec::new(),
+                state,
+                approval: None,
+                tool_session: None,
+                last: SystemTime::now(),
+                ended: None,
+            },
+        );
+        lock(&self.drivers).insert(id.to_string(), driver);
+    }
+
     /// Fold one driver event into its desk and tell the panel. Never takes the
     /// drivers lock: a driver may report while one of its methods runs.
     fn on_event(&self, id: &str, event: Event) {

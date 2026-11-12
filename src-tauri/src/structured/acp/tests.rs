@@ -417,6 +417,7 @@ mod live {
             env,
             opts: Vec::new(),
             flags: Vec::new(),
+            refuse_peer_messages: false,
         };
         let (tx, rx) = mpsc::channel();
         let driver = start(

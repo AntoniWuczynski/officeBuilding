@@ -34,6 +34,7 @@ impl Office {
             permissions: PermissionMode::ReadOnly,
             folder: job.folder.clone(),
             report: Some(job.report.clone()),
+            helper: None,
         };
         let command =
             self.staff_launch(&role, tool, model.as_deref(), effort.as_deref(), &job.task)?;

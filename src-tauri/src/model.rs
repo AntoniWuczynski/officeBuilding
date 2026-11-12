@@ -2,6 +2,7 @@
 //! request types of `src/api/DiscoveryApi.ts`. Everything serialises in the
 //! shape the frontend expects (camelCase fields, kebab-case enum values).
 
+use crate::manager::wire::ManagerFloor;
 use crate::qa::record::{Review, Verdict};
 use serde::{Deserialize, Serialize};
 
@@ -181,6 +182,8 @@ pub enum AnswerVia {
     Terminal,
     /// An open call in the repo's decisions file: the answer is written back there.
     File,
+    /// An open call kept in the app's store, answered in the app.
+    Store,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -383,6 +386,8 @@ pub struct OfficeSnapshot {
     pub connections: Vec<Connection>,
     /// One entry per standing floor except the setup floor, in floor order.
     pub qa: Vec<QaFloor>,
+    /// One entry per standing floor except the setup floor, in floor order.
+    pub managers: Vec<ManagerFloor>,
 }
 
 /// What a floor's QA desk is doing (`QaStatus` in types.ts).
@@ -721,6 +726,16 @@ mod tests {
     #[test]
     fn a_default_snapshot_has_no_qa_floors() {
         assert_eq!(value(&OfficeSnapshot::default())["qa"], json!([]));
+    }
+
+    #[test]
+    fn a_default_snapshot_has_no_managers_and_a_store_call_is_named_store() {
+        assert_eq!(value(&OfficeSnapshot::default())["managers"], json!([]));
+        assert_eq!(value(&AnswerVia::Store), json!("store"));
+        assert_eq!(
+            serde_json::from_value::<AnswerVia>(json!("store")).expect("read"),
+            AnswerVia::Store
+        );
     }
 
     #[test]

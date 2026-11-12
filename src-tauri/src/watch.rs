@@ -52,7 +52,9 @@ pub fn start(
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                     Err(mpsc::RecvTimeoutError::Disconnected) => return,
                 }
-                if office.refresh() {
+                let changed = office.refresh();
+                let moved = office.deliver_due();
+                if changed || moved {
                     // A closed webview just means nobody is listening right now.
                     let _ = app.emit(SNAPSHOT_EVENT, office.snapshot());
                 }

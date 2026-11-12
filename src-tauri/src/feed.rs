@@ -60,6 +60,9 @@ struct Seen {
 pub struct Feed {
     dir: PathBuf,
     latest: BTreeMap<String, Seen>,
+    /// The newest event of every session ever seen, never pruned by age: a desk idle
+    /// for an hour must still be known to be idle.
+    last: BTreeMap<String, Seen>,
 }
 
 fn state_of(event: HookEvent, payload: &Payload) -> SessionState {
@@ -82,6 +85,7 @@ impl Feed {
         Self {
             dir,
             latest: BTreeMap::new(),
+            last: BTreeMap::new(),
         }
     }
 
@@ -119,12 +123,10 @@ impl Feed {
                         state: state_of(event, &payload),
                         at,
                     };
-                    let newer = self
-                        .latest
-                        .get(&payload.session_id)
-                        .is_none_or(|old| old.at <= at);
-                    if newer {
-                        self.latest.insert(payload.session_id, seen);
+                    for map in [&mut self.latest, &mut self.last] {
+                        if map.get(&payload.session_id).is_none_or(|old| old.at <= at) {
+                            map.insert(payload.session_id.clone(), seen);
+                        }
                     }
                 }
                 (Some(_), None) if age < WRITE_GRACE => continue,
@@ -142,6 +144,12 @@ impl Feed {
     #[must_use]
     pub fn reports(&self, session_id: &str) -> bool {
         self.latest.contains_key(session_id)
+    }
+
+    /// The newest event ever collected for this session, however old: its state and when it happened.
+    #[must_use]
+    pub fn seen(&self, session_id: &str) -> Option<(SessionState, SystemTime)> {
+        self.last.get(session_id).map(|seen| (seen.state, seen.at))
     }
 
     /// Let each session's newest event set its state when it is newer than the
@@ -302,6 +310,27 @@ mod tests {
         feed.collect(SystemTime::now());
         assert!(feed.reports("s1"));
         assert!(!feed.reports("s2"));
+    }
+
+    #[test]
+    fn seen_keeps_the_newest_event_past_the_stale_limit() {
+        let mut feed = feed("seen");
+        assert_eq!(feed.seen("s1"), None);
+        fire(&feed, HookEvent::PreToolUse, r#"{"session_id":"s1"}"#);
+        feed.collect(SystemTime::now());
+        assert_eq!(feed.seen("s1").map(|(s, _)| s), Some(SessionState::Running));
+        let before = SystemTime::now();
+        fire(&feed, HookEvent::Stop, r#"{"session_id":"s1"}"#);
+        feed.collect(SystemTime::now());
+        let (state, at) = feed.seen("s1").expect("seen");
+        assert_eq!(state, SessionState::Idle);
+        assert!(
+            at + Duration::from_secs(2) >= before,
+            "the event's own time"
+        );
+        feed.collect(at + STALE + Duration::from_secs(1));
+        assert!(!feed.reports("s1"), "stale for the state");
+        assert_eq!(feed.seen("s1"), Some((SessionState::Idle, at)));
     }
 
     #[test]
