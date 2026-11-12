@@ -1,6 +1,7 @@
 //! The app's settings: typed groups kept in `settings.json` beside `store.json`.
 //! The webview is the only writer; Rust readers take the plain copy from `get`.
 
+use crate::editor::Editor;
 use crate::store::write_json_atomic;
 use crate::sync::lock;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,7 @@ pub const COOLDOWN_MAX_SECS: u32 = 600;
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub notifications: NotificationSettings,
+    pub editor: EditorSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,12 +52,21 @@ impl Default for NotificationSettings {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EditorSettings {
+    /// The editor "Open in" uses. None: the first one found.
+    pub preferred: Option<Editor>,
+}
+
 /// A change from the Settings panel: each group present replaces that group whole.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SettingsPatch {
     #[serde(default)]
     pub notifications: Option<NotificationSettings>,
+    #[serde(default)]
+    pub editor: Option<EditorSettings>,
 }
 
 impl Settings {
@@ -71,6 +82,9 @@ impl Settings {
                 ));
             }
             self.notifications = notifications;
+        }
+        if let Some(editor) = patch.editor {
+            self.editor = editor;
         }
         Ok(())
     }
@@ -150,6 +164,7 @@ mod tests {
                 cooldown_secs: secs,
                 ..NotificationSettings::default()
             }),
+            ..SettingsPatch::default()
         }
     }
 
@@ -227,6 +242,7 @@ mod tests {
                 cooldown_secs: 30,
                 ..NotificationSettings::default()
             }),
+            ..SettingsPatch::default()
         };
         let saved = store.update(change).expect("update");
         assert!(!saved.notifications.sound);
@@ -273,12 +289,57 @@ mod tests {
         let want: serde_json::Value = serde_json::from_str(
             r#"{ "notifications": { "finished": true, "needsYou": true, "stuck": true,
             "sound": true, "dockBounce": true, "systemNotification": true,
-            "cooldownSecs": 10 } }"#,
+            "cooldownSecs": 10 }, "editor": { "preferred": null } }"#,
         )
         .expect("json");
         assert_eq!(
             serde_json::to_value(Settings::default()).expect("value"),
             want
+        );
+    }
+
+    #[test]
+    fn a_file_without_the_editor_group_loads_with_no_preference() {
+        let path = with_file("no-editor", r#"{"notifications":{}}"#);
+        assert_eq!(
+            SettingsStore::open(path.clone()).get().editor.preferred,
+            None
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_saved_preferred_editor_loads() {
+        let path = with_file("zed", r#"{"editor":{"preferred":"zed"}}"#);
+        let got = SettingsStore::open(path.clone()).get();
+        assert_eq!(got.editor.preferred, Some(Editor::Zed));
+        assert_eq!(got.notifications, NotificationSettings::default());
+        cleanup(&path);
+    }
+
+    #[test]
+    fn an_editor_patch_saves_and_reloads() {
+        let path = temp_path("editor-patch");
+        let store = SettingsStore::open(path.clone());
+        let change: SettingsPatch =
+            serde_json::from_str(r#"{"editor":{"preferred":"devin-desktop"}}"#).expect("patch");
+        let saved = store.update(change).expect("update");
+        assert_eq!(saved.editor.preferred, Some(Editor::DevinDesktop));
+        assert_eq!(saved.notifications, NotificationSettings::default());
+        assert_eq!(SettingsStore::open(path.clone()).get(), saved);
+        let cleared: SettingsPatch =
+            serde_json::from_str(r#"{"editor":{"preferred":null}}"#).expect("patch");
+        assert_eq!(
+            store.update(cleared).expect("update").editor.preferred,
+            None
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_patch_naming_an_unknown_editor_is_rejected() {
+        assert!(
+            serde_json::from_str::<SettingsPatch>(r#"{"editor":{"preferred":"notepad"}}"#).is_err()
         );
     }
 }

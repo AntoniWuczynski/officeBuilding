@@ -51,7 +51,7 @@ const MODES_ON_BY_DEFAULT: &[u16] = &[7, 25];
 /// are what a Claude Code session sets for its children (read from `env` under
 /// Claude Code 2.1.285); the rest name the launching terminal or multiplexer.
 /// Claude Code's own configuration (`CLAUDE_CODE_USE_BEDROCK` and the like) is kept.
-const LAUNCHER_IDENTITY: &[&str] = &[
+pub(crate) const LAUNCHER_IDENTITY: &[&str] = &[
     "CLAUDECODE",
     "CLAUDE_CODE_BRIDGE_SESSION_ID",
     "CLAUDE_CODE_CHILD_SESSION",

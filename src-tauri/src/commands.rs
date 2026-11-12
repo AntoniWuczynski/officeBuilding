@@ -6,8 +6,9 @@
 )]
 
 use crate::alerts::Alerts;
+use crate::editor::{Editor, EditorList, Editors};
 use crate::model::{
-    HireRequest, OfficeSnapshot, Project, QuestionAnswer, Session, Shell, TerminalBacklog,
+    HireRequest, OfficeSnapshot, Place, Project, QuestionAnswer, Session, Shell, TerminalBacklog,
     ToolKind, ToolOptions, ToolUsage,
 };
 use crate::office::Office;
@@ -279,4 +280,34 @@ pub fn set_open_desk(alerts: State<'_, Arc<Alerts>>, session_id: Option<String>)
 #[tauri::command]
 pub fn test_alert(app: AppHandle, alerts: State<'_, Arc<Alerts>>) -> Result<(), String> {
     alerts.test(app)
+}
+
+/// On a blocking thread: finding the editors runs a login shell.
+#[tauri::command]
+pub async fn editors(
+    editors: State<'_, Arc<Editors>>,
+    settings: State<'_, Arc<SettingsStore>>,
+) -> Result<EditorList, String> {
+    let editors = Arc::clone(&editors);
+    let preferred = settings.get().editor.preferred;
+    tauri::async_runtime::spawn_blocking(move || editors.list(preferred))
+        .await
+        .map_err(|e| format!("the editors could not be listed: {e}"))
+}
+
+/// On a blocking thread: it waits for the editor's command to hand over.
+#[tauri::command]
+pub async fn open_in_editor(
+    office: OfficeState<'_>,
+    editors: State<'_, Arc<Editors>>,
+    settings: State<'_, Arc<SettingsStore>>,
+    place: Place,
+    editor: Option<Editor>,
+) -> Result<Editor, String> {
+    let folder = office.folder_of(&place)?;
+    let editors = Arc::clone(&editors);
+    let preferred = settings.get().editor.preferred;
+    tauri::async_runtime::spawn_blocking(move || editors.open(&folder, editor, preferred))
+        .await
+        .map_err(|e| format!("the editor did not open: {e}"))?
 }

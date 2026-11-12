@@ -4,11 +4,13 @@
 pub mod alerts;
 pub mod commands;
 pub mod discovery;
+pub mod editor;
 pub mod feed;
 pub mod focus;
 pub mod model;
 pub mod office;
 pub mod options;
+pub mod process;
 pub mod project_files;
 pub mod pty;
 pub mod settings;
@@ -24,6 +26,7 @@ use alerts::Alerts;
 use office::Office;
 use pty::{TerminalEvent, Terminals};
 use settings::SettingsStore;
+use std::path::PathBuf;
 use std::sync::Arc;
 use store::Store;
 use tauri::{Emitter, Manager};
@@ -36,6 +39,10 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let settings = Arc::new(SettingsStore::open(data.join("settings.json")));
     let alerts = Arc::new(Alerts::new(Arc::clone(&settings)));
     app.manage(settings);
+    app.manage(Arc::new(editor::Editors::new(
+        Arc::new(process::SystemRunner),
+        vec![PathBuf::from("/Applications"), home.join("Applications")],
+    )));
     app.manage(Arc::clone(&alerts));
     let setup = setup::Library::new(data.join("Setup"), data.join("setup-build"));
     let handle = app.handle().clone();
@@ -149,6 +156,8 @@ pub fn run() -> tauri::Result<()> {
             commands::update_settings,
             commands::set_open_desk,
             commands::test_alert,
+            commands::editors,
+            commands::open_in_editor,
         ])
         .run(tauri::generate_context!())
 }
