@@ -41,6 +41,30 @@ Decided by A Human on 2026-10-08:
 
 Evidence: `docs/research/harness-hub/`.
 
+## OB-059 — How should the building tell me an agent has stopped, and where do the app's settings live? — DECIDED 2026-11-12: one app-level Settings panel, with the alert details left to the build
+
+Decided by A Human on 2026-11-12, before an unattended build of GitHub issue #1:
+
+- Settings is one app-level panel. It opens with Cmd+, from the building view and from any floor, and from a new object on the Setup floor, a fuse box beside the toolbox. Cmd+, keeps it reachable if the Setup floor is demolished.
+- Commits stay local. Nothing is pushed until A Human approves.
+
+Calls the build made while A Human was away. Issue #1 gave no design, so everything about the alerts themselves is in this list. Each stands until A Human says otherwise:
+
+- The building alerts on three events, each with its own switch and all on by default: an agent finished its turn, an agent needs you (a question or a permission prompt), an agent is stuck on an error.
+- There are three ways to deliver an alert, each with its own switch and all on by default: a soft system sound, a Dock bounce, a system notification. The system notification shows only when the app window is not in front.
+- "Frequency" is one cooldown, at most one alert every N seconds (default 10). Alerts inside the window are merged into one.
+- No alert for anything on the first scan after launch.
+- "No alert for the desk whose panel is open" is built as no alert for that desk while the app window is in front. With another app in front, an open panel does not mean anyone is watching it.
+- Clicking a notification only brings the app forward in this version.
+- Left for later, and filed in TODO.md (OB-060 to OB-063): an alert when an agent leaves the floor, per-floor mute, an "only agents hired in the building" switch, and opening the right desk on a click.
+- Settings are kept by the Rust side in `settings.json` in the app data folder, so that background work can read them later. The webview's own preferences stay where they were.
+- Settings is a dialog plate, not a sidebar section, because it has to open from the building view, which has no sidebar. It never shares the screen with another plate or the docked terminal.
+- A change in Settings saves at once. There is no Save button.
+- The Dock bounce is also skipped while the app is in front, since macOS ignores it then.
+- The "flash" in the issue is the Dock bounce. An in-window flash is TODO OB-065.
+
+This amends no earlier ruling. Built as TODO OB-057, with the checks for A Human in HUMAN_TODO OB-058.
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.

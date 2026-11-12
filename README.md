@@ -109,6 +109,19 @@ sessions as an **office building**:
   Cmd+N is a new shell. They are not agents (no desk, no count) and are listed
   in the Shells panel, which reopens or ends any of them. Closing the panel
   keeps a shell running. End in the panel, or typing `exit`, ends it.
+- **The building tells you when an agent stops.** It alerts when an agent
+  finishes its turn, needs you or is stuck on an error, by a soft system
+  sound, a Dock bounce and a system notification. The Dock bounce and the
+  notification only happen while another app is in front, and the desk whose
+  panel you have open in the app never alerts. Alerts closer together than
+  the cooldown (10 seconds unless you change it) arrive as one. Nothing
+  alerts on the first scan after launch. Clicking a notification brings the
+  app forward.
+- **Settings open with Cmd+,** from the building or any floor, and from the
+  fuse box beside the toolbox on the Setup floor. Each event and each method
+  has its own switch, the cooldown runs from 0 to 600 seconds, and "Test in 3
+  seconds" sends a test alert. A change saves at once. Settings are kept in
+  `settings.json` in the app's data folder.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -220,7 +233,8 @@ publish them. For a reviewed false positive, put `sensitive-ok` on the line.
 
 `pnpm tauri:dev` starts its own Vite server on :5183, so stop `pnpm dev` first.
 The Tauri crates are pinned to the 2.11 line to match `@tauri-apps/api`; move
-both together. The app icon is generated from `src-tauri/icons/icon-source.svg`
+both together. The notification plugin stays on 2.4 until then, because its
+later releases need Tauri 2.12. The app icon is generated from `src-tauri/icons/icon-source.svg`
 (see `src-tauri/icons/README.md`).
 
 ## Layout
@@ -237,6 +251,7 @@ src/
   state/
     selectors.ts          # floor lights, search, per-floor queues/TODOs/spend, labels
     useOffice.ts          # load + subscribe hook with loading / error / retry
+    useSettings.ts        # load and save the app's settings
   lib/
     iso.ts                # camera + projection maths for the CSS 3D rig
     layout.ts             # where desks, seats and the manager's office stand
@@ -248,6 +263,7 @@ src/
   components/
     building/             # the cutaway: storeys, lobby, roof, directory bar
     floor/                # the room, its objects, rail, sidebar panels, terminal, hire dialog
+    settings/             # the Settings plate and its Notifications group
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
@@ -259,6 +275,8 @@ src-tauri/
     office/               # launching agents in terminals, the Setup floor, structured desks
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
+    settings.rs           # the app's settings (settings.json in the app data dir)
+    alerts.rs, alerts/    # alerts when an agent stops: state tracker, text, native delivery
     options.rs, options/  # hireable tools, models and per-model efforts, tools' own model lists
     setup/                # the Setup floor's library, each tool's inventory, import, injection
     structured/           # desks without a terminal: Codex app-server and ACP clients
