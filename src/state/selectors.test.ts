@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   STATE_LABEL,
+  checkoutLine,
+  editorMenuItems,
   SESSION_STATE_SEVERITY,
   TOOL_LABEL,
   decisionsForProject,
@@ -25,7 +27,7 @@ import {
   totalSpend,
 } from "./selectors";
 import { makeSeedSnapshot } from "../api/mockData";
-import type { Question, Session, SessionState } from "../types";
+import type { EditorList, Question, Session, SessionState } from "../types";
 
 function session(state: SessionState, over: Partial<Session> = {}): Session {
   return {
@@ -43,6 +45,7 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
     helpers: over.helpers ?? [],
     pets: over.pets ?? [],
     worktree: over.worktree ?? false,
+    branch: over.branch ?? null,
   };
 }
 
@@ -164,8 +167,8 @@ describe("per-floor manager data", () => {
 describe("helpersLine", () => {
   it("counts a session's working helpers, and says nothing when it has none", () => {
     expect(helpersLine(session("running"))).toBeNull();
-    expect(helpersLine(session("running", { helpers: [{ id: "a", state: "running", worktree: false }] }))).toBe("1 helper working");
-    expect(helpersLine(session("idle", { helpers: [{ id: "a", state: "running", worktree: false }, { id: "b", state: "thinking", worktree: false }] }))).toBe("2 helpers working");
+    expect(helpersLine(session("running", { helpers: [{ id: "a", state: "running", worktree: false, branch: null }] }))).toBe("1 helper working");
+    expect(helpersLine(session("idle", { helpers: [{ id: "a", state: "running", worktree: false, branch: null }, { id: "b", state: "thinking", worktree: false, branch: null }] }))).toBe("2 helpers working");
   });
 });
 
@@ -189,5 +192,35 @@ describe("spend", () => {
     expect(formatTokens(530_000)).toBe("530k tokens");
     expect(formatTokens(1_948_000)).toBe("1.9M tokens");
     expect(formatTokens(900)).toBe("900 tokens");
+  });
+});
+
+describe("editor lines", () => {
+  const list: EditorList = {
+    editors: [
+      { editor: "cursor", label: "Cursor", installed: false },
+      { editor: "vs-code", label: "VS Code", installed: true },
+      { editor: "zed", label: "Zed", installed: true },
+      { editor: "devin-desktop", label: "Devin Desktop", installed: true },
+    ],
+    defaultEditor: "zed",
+  };
+  it("checkoutLine says what will open", () => {
+    expect(checkoutLine({ worktree: true, branch: "fix/orders" })).toBe("its worktree on branch fix/orders");
+    expect(checkoutLine({ worktree: true, branch: null })).toBe("its worktree");
+    expect(checkoutLine({ worktree: false, branch: "main" })).toBe("its floor's folder");
+  });
+  it("editorMenuItems lets the backend choose before the list loads", () => {
+    expect(editorMenuItems(null)).toEqual([{ editor: null, label: "Open in editor", name: "your editor" }]);
+  });
+  it("editorMenuItems is empty with nothing installed", () => {
+    expect(editorMenuItems({ editors: list.editors.map((o) => ({ ...o, installed: false })), defaultEditor: null })).toEqual([]);
+  });
+  it("editorMenuItems puts the default first and keeps list order after it", () => {
+    expect(editorMenuItems(list)).toEqual([
+      { editor: "zed", label: "Open in Zed", name: "Zed" },
+      { editor: "vs-code", label: "Open in VS Code", name: "VS Code" },
+      { editor: "devin-desktop", label: "Open in Devin Desktop", name: "Devin Desktop" },
+    ]);
   });
 });

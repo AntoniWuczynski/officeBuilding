@@ -288,19 +288,80 @@ describe("MockApi floors", () => {
     await expect(api.demolishFloor("p-shop")).rejects.toThrow(/not a floor/);
   });
 
+  describe("editors", () => {
+    const place = { kind: "session", sessionId: "s-1" } as const;
+
+    it("lists the four editors, the default being the first installed", async () => {
+      const list = await new MockApi().editors();
+      expect(list.editors.map((o) => [o.editor, o.installed])).toEqual([["cursor", true], ["vs-code", true], ["zed", false], ["devin-desktop", false]]);
+      expect(list.editors.map((o) => o.label)).toEqual(["Cursor", "VS Code", "Zed", "Devin Desktop"]);
+      expect(list.defaultEditor).toBe("cursor");
+    });
+
+    it("prefers the saved editor when installed, skips it when not", async () => {
+      const api = new MockApi();
+      await api.updateSettings({ editor: { preferred: "vs-code" } });
+      expect((await api.editors()).defaultEditor).toBe("vs-code");
+      await api.updateSettings({ editor: { preferred: "zed" } });
+      expect((await api.editors()).defaultEditor).toBe("cursor");
+    });
+
+    it("has no default when nothing is installed", async () => {
+      const api = new MockApi();
+      api.setInstalledEditors([]);
+      expect((await api.editors()).defaultEditor).toBeNull();
+      await expect(api.openInEditor(place, null)).rejects.toThrow("no editor was found on this Mac (looked for Cursor, VS Code, Zed and Devin Desktop)");
+    });
+
+    it("opens each kind of place and logs it", async () => {
+      const api = new MockApi();
+      const helper = (await api.getSnapshot()).sessions.find((s) => s.id === "s-1")?.helpers[0]?.id ?? "";
+      const places = [place, { kind: "helper", sessionId: "s-1", helperId: helper }, { kind: "floor", projectId: "p-shop" }] as const;
+      for (const p of places) await expect(api.openInEditor(p, null)).resolves.toBe("cursor");
+      await expect(api.openInEditor(place, "vs-code")).resolves.toBe("vs-code");
+      expect(api.opened).toEqual([...places.map((p) => ({ place: p, editor: "cursor" })), { place, editor: "vs-code" }]);
+    });
+
+    it("opens a signed-out session", async () => {
+      const api = new MockApi();
+      const ended = (await api.getSnapshot()).ended[0];
+      if (ended === undefined) throw new Error("no ended session in the seed");
+      await expect(api.openInEditor({ kind: "session", sessionId: ended.id }, null)).resolves.toBe("cursor");
+    });
+
+    it("refuses what the backend refuses", async () => {
+      const api = new MockApi();
+      await expect(api.openInEditor({ kind: "floor", projectId: "nope" }, null)).rejects.toThrow("nope is not a floor of this building");
+      await expect(api.openInEditor({ kind: "session", sessionId: "nope" }, null)).rejects.toThrow("unknown session: nope");
+      await expect(api.openInEditor({ kind: "helper", sessionId: "nope", helperId: "h" }, null)).rejects.toThrow("unknown session: nope");
+      await expect(api.openInEditor({ kind: "helper", sessionId: "s-1", helperId: "nope" }, null)).rejects.toThrow("unknown helper: nope");
+      await expect(api.openInEditor(place, "zed")).rejects.toThrow("Zed is not installed on this Mac");
+      expect(api.opened).toEqual([]);
+    });
+
+    it("says a lost folder is gone", async () => {
+      const api = new MockApi();
+      api.loseFolder("s-2");
+      await expect(api.openInEditor({ kind: "session", sessionId: "s-2" }, null)).rejects.toThrow("that worktree is gone");
+      await expect(api.openInEditor(place, null)).resolves.toBe("cursor");
+    });
+  });
+
   describe("settings", () => {
     it("starts on the defaults", async () => {
       const settings = await new MockApi().getSettings();
       expect(settings).toEqual({
         notifications: { finished: true, needsYou: true, stuck: true, sound: true, dockBounce: true, systemNotification: true, cooldownSecs: 10 },
+        editor: { preferred: null },
       });
     });
 
     it("merges an update, returns it and reads it back", async () => {
       const api = new MockApi();
       const notifications = { ...makeSettings().notifications, sound: false, cooldownSecs: 600 };
-      await expect(api.updateSettings({ notifications })).resolves.toEqual({ notifications });
-      await expect(api.getSettings()).resolves.toEqual({ notifications });
+      const expected = { ...makeSettings(), notifications };
+      await expect(api.updateSettings({ notifications })).resolves.toEqual(expected);
+      await expect(api.getSettings()).resolves.toEqual(expected);
     });
 
     it("resolves an empty patch and changes nothing", async () => {

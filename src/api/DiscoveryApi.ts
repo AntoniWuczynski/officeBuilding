@@ -1,4 +1,4 @@
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, Editor, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -83,6 +83,16 @@ export interface DiscoveryApi {
 
   /** Change settings: each group in `patch` replaces that group. Resolves to the saved settings. */
   updateSettings(patch: SettingsPatch): Promise<Settings>;
+
+  /** The editors the building knows, which are installed, and the default. Looks afresh on every call. */
+  editors(): Promise<EditorList>;
+
+  /**
+   * Open the folder behind a desk, a helper's tiny desk or a floor in an editor
+   * (null: the default). Resolves to the editor used. Rejects when the place is
+   * unknown, its folder is gone, or no editor could be started.
+   */
+  openInEditor(place: Place, editor: Editor | null): Promise<Editor>;
 
   /** Tell the backend which desk's panel is open (null: none), so it does not alert for it. */
   setOpenDesk(sessionId: string | null): Promise<void>;

@@ -1,5 +1,7 @@
 import type {
   Decision,
+  Editor,
+  EditorList,
   EndedSession,
   FloorLight,
   OfficeSnapshot,
@@ -216,4 +218,38 @@ export function formatTokens(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M tokens`;
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k tokens`;
   return `${tokens} tokens`;
+}
+
+/** What "Open in" opens for a desk or a helper, in words. */
+export function checkoutLine(at: { readonly worktree: boolean; readonly branch: string | null }): string {
+  if (!at.worktree) return "its floor's folder";
+  return at.branch === null ? "its worktree" : `its worktree on branch ${at.branch}`;
+}
+
+/** "A, B and C". */
+export function joinNames(names: readonly string[]): string {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** The name the backend gave `editor`, if the list knows it. */
+export function editorLabel(list: EditorList | null, editor: Editor | null): string | undefined {
+  return list?.editors.find((o) => o.editor === editor)?.label;
+}
+
+export interface EditorMenuItem {
+  /** Null: let the backend choose. */
+  readonly editor: Editor | null;
+  /** The menu line: "Open in Cursor". */
+  readonly label: string;
+  /** The bare name, for sentences: "Cursor". */
+  readonly name: string;
+}
+
+/** The menu's lines: the default first, then the other installed editors, in list order. */
+export function editorMenuItems(list: EditorList | null): readonly EditorMenuItem[] {
+  if (list === null) return [{ editor: null, label: "Open in editor", name: "your editor" }];
+  const installed = list.editors.filter((o) => o.installed);
+  const first = installed.find((o) => o.editor === list.defaultEditor);
+  const ordered = first === undefined ? installed : [first, ...installed.filter((o) => o !== first)];
+  return ordered.map((o) => ({ editor: o.editor, label: `Open in ${o.label}`, name: o.label }));
 }

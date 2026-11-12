@@ -42,8 +42,19 @@ describe("wire", () => {
   });
   it("accepts settings and drops a group it does not know", () => {
     expect(parseWire(settingsSchema, "settings", makeSettings())).toEqual(makeSettings());
-    expect(parseWire(settingsSchema, "settings", { ...makeSettings(), editor: { name: "zed" } })).toEqual(makeSettings());
+    expect(parseWire(settingsSchema, "settings", { ...makeSettings(), future: { name: "zed" } })).toEqual(makeSettings());
   });
+  it("needs the editor group in settings and a branch on every session", () => {
+    expect(parseWire(settingsSchema, "settings", { ...makeSettings(), editor: { preferred: "zed" } }).editor.preferred).toBe("zed");
+    const { editor: _editor, ...without } = makeSettings();
+    expect(() => parseWire(settingsSchema, "settings", without)).toThrow(/unexpected settings at editor/);
+    const seed = makeSeedSnapshot();
+    const [first, ...rest] = seed.sessions;
+    if (first === undefined) throw new Error("no session in the seed");
+    const { branch: _branch, ...bare } = first;
+    expect(() => parseWire(snapshotSchema, "snapshot", { ...seed, sessions: [bare, ...rest] })).toThrow(/sessions\.0\.branch/);
+  });
+
   it("names where a payload went wrong", () => {
     const bad = { ...makeSeedSnapshot(), sessions: [{ id: 1 }] };
     expect(() => parseWire(snapshotSchema, "snapshot", bad)).toThrow(/unexpected snapshot at sessions\.0\.id/);
@@ -101,12 +112,12 @@ describe("TauriApi", () => {
     const patch = { notifications: { ...makeSettings().notifications, sound: false } };
     invoke
       .mockResolvedValueOnce(makeSettings())
-      .mockResolvedValueOnce(patch)
+      .mockResolvedValueOnce({ ...makeSettings(), ...patch })
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
     await expect(api.getSettings()).resolves.toEqual(makeSettings());
-    await expect(api.updateSettings(patch)).resolves.toEqual(patch);
+    await expect(api.updateSettings(patch)).resolves.toEqual({ ...makeSettings(), ...patch });
     await api.setOpenDesk("s-1");
     await api.setOpenDesk(null);
     await api.testAlert();
@@ -117,6 +128,28 @@ describe("TauriApi", () => {
       ["set_open_desk", { sessionId: null }],
       ["test_alert", undefined],
     ]);
+  });
+
+  it("calls the editor commands and parses the answers", async () => {
+    const list = { editors: [{ editor: "cursor", label: "Cursor", installed: true }], defaultEditor: "cursor" };
+    const place = { kind: "helper", sessionId: "s-1", helperId: "agent-a1" } as const;
+    invoke.mockResolvedValueOnce(list).mockResolvedValueOnce("vs-code").mockResolvedValueOnce("cursor");
+    const api = new TauriApi();
+    await expect(api.editors()).resolves.toEqual(list);
+    await expect(api.openInEditor(place, "vs-code")).resolves.toBe("vs-code");
+    await expect(api.openInEditor(place, null)).resolves.toBe("cursor");
+    expect(invoke.mock.calls).toEqual([
+      ["editors", undefined],
+      ["open_in_editor", { place, editor: "vs-code" }],
+      ["open_in_editor", { place, editor: null }],
+    ]);
+  });
+
+  it("rejects an editor list or an editor of the wrong shape", async () => {
+    invoke.mockResolvedValueOnce({ editors: [{ editor: "emacs", label: "Emacs", installed: true }], defaultEditor: null });
+    await expect(new TauriApi().editors()).rejects.toThrow(/unexpected list of editors/);
+    invoke.mockResolvedValueOnce("emacs");
+    await expect(new TauriApi().openInEditor({ kind: "floor", projectId: "p" }, null)).rejects.toThrow(/unexpected editor/);
   });
 
   it("rejects settings of the wrong shape", async () => {

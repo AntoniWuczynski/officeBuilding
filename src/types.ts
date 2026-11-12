@@ -119,6 +119,8 @@ export interface Session {
   readonly pets: readonly Pet[];
   /** It works in a linked git worktree of its floor's repo: a plant sits on its desk. */
   readonly worktree: boolean;
+  /** The worktree's branch; null outside a worktree or on a detached HEAD. */
+  readonly branch: string | null;
 }
 
 /** A shell running a background or long command, Claude Code's `Monitor` watching one, a browser the agent drives, or any other program it started. */
@@ -149,6 +151,8 @@ export interface Helper {
   readonly state: SessionState;
   /** It works in a linked git worktree: a plant sits on its tiny desk. */
   readonly worktree: boolean;
+  /** The worktree's branch; null outside a worktree or on a detached HEAD. */
+  readonly branch: string | null;
 }
 
 export interface Project {
@@ -355,9 +359,38 @@ export interface NotificationSettings {
   readonly cooldownSecs: number;
 }
 
+/** An editor the building can open a folder in (`Editor` in editor.rs). */
+export type Editor = "cursor" | "vs-code" | "zed" | "devin-desktop";
+
+export interface EditorOption {
+  readonly editor: Editor;
+  readonly label: string;
+  readonly installed: boolean;
+}
+
+/** The editors the building knows, in a fixed order, and the one "Open in" uses. */
+export interface EditorList {
+  readonly editors: readonly EditorOption[];
+  /** Null when none is installed. */
+  readonly defaultEditor: Editor | null;
+}
+
+/** Something in the building that has a folder. The backend finds the folder: a path is never sent. */
+export type Place =
+  | { readonly kind: "session"; readonly sessionId: string }
+  | { readonly kind: "helper"; readonly sessionId: string; readonly helperId: string }
+  | { readonly kind: "floor"; readonly projectId: string };
+
+/** Which editor "Open in" uses (`EditorSettings` in settings.rs). */
+export interface EditorSettings {
+  /** Null: the first one found. */
+  readonly preferred: Editor | null;
+}
+
 /** The app's settings, kept by the backend. One field per group. */
 export interface Settings {
   readonly notifications: NotificationSettings;
+  readonly editor: EditorSettings;
 }
 
 /** A change to the settings: each group present replaces that group whole. */

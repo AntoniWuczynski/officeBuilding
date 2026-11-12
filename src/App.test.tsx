@@ -797,7 +797,7 @@ describe("live updates and failures", () => {
       sessions: seed.sessions.map((s) => (s.id === "s-1" ? { ...s, helpers: change(s.helpers) } : s)),
     });
     act(() => {
-      api.push(withHelpers((h) => [...h, { id: "s-1-new", state: "running", worktree: false }]));
+      api.push(withHelpers((h) => [...h, { id: "s-1-new", state: "running", worktree: false, branch: null }]));
     });
     const arrive = screen.getByTestId("walk");
     expect(arrive).toHaveClass("walk-arrive");

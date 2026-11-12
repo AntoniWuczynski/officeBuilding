@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, Editor, EditorList, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
 
 // Runtime schemas for everything the Rust backend sends. The `satisfies`
@@ -22,9 +22,10 @@ export const sessionSchema = z.object({
   lastActivityAt: z.string(),
   pendingQuestionIds: z.array(z.string()),
   spend: z.object({ usd: z.number(), tokens: z.number(), unpricedTokens: z.number() }),
-  helpers: z.array(z.object({ id: z.string(), state: sessionState, worktree: z.boolean() })),
+  helpers: z.array(z.object({ id: z.string(), state: sessionState, worktree: z.boolean(), branch: z.string().nullable() })),
   pets: z.array(z.object({ id: z.string(), kind: z.enum(["shell", "monitor", "browser", "process"]), label: z.string() })),
   worktree: z.boolean(),
+  branch: z.string().nullable(),
 }) satisfies z.ZodType<Session>;
 
 export const projectSchema = z.object({
@@ -199,8 +200,16 @@ const notificationSettingsSchema = z.object({
   cooldownSecs: z.number(),
 });
 
+export const editorSchema = z.enum(["cursor", "vs-code", "zed", "devin-desktop"]) satisfies z.ZodType<Editor>;
+
+export const editorListSchema = z.object({
+  editors: z.array(z.object({ editor: editorSchema, label: z.string(), installed: z.boolean() })),
+  defaultEditor: editorSchema.nullable(),
+}) satisfies z.ZodType<EditorList>;
+
 export const settingsSchema = z.object({
   notifications: notificationSettingsSchema,
+  editor: z.object({ preferred: editorSchema.nullable() }),
 }) satisfies z.ZodType<Settings>;
 
 /** Parse a backend payload, turning a shape mismatch into a readable error. */

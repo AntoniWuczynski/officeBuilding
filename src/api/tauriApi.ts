@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, Editor, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
@@ -13,6 +13,8 @@ import {
   conversationBacklogSchema,
   conversationUpdateSchema,
   sessionSchema,
+  editorListSchema,
+  editorSchema,
   settingsSchema,
   setupViewSchema,
   shellSchema,
@@ -79,6 +81,14 @@ export class TauriApi implements DiscoveryApi {
 
   async updateSettings(patch: SettingsPatch): Promise<Settings> {
     return parseWire(settingsSchema, "settings", await call("update_settings", { patch }));
+  }
+
+  async editors(): Promise<EditorList> {
+    return parseWire(editorListSchema, "list of editors", await call("editors"));
+  }
+
+  async openInEditor(place: Place, editor: Editor | null): Promise<Editor> {
+    return parseWire(editorSchema, "editor", await call("open_in_editor", { place, editor }));
   }
 
   async setOpenDesk(sessionId: string | null): Promise<void> {

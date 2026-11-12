@@ -3,7 +3,10 @@ import type {
   ConversationBacklog,
   ConversationUpdate,
   Decision,
+  Editor,
+  EditorList,
   OfficeSnapshot,
+  Place,
   Project,
   Session,
   SessionState,
@@ -21,6 +24,8 @@ import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, 
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions } from "./mockHireOptions";
 import { COOLDOWN_MAX_SECS } from "../lib/cooldown";
+import { MOCK_EDITORS } from "./mockEditors";
+import { joinNames } from "../state/selectors";
 import { makeSettings } from "./mockSettings";
 import { makeSetupView } from "./mockSetup";
 import { MockConversations } from "./mockConversation";
@@ -68,6 +73,9 @@ export class MockApi implements DiscoveryApi {
   private readonly options: readonly ToolOptions[] = makeHireOptions();
   private setup: SetupView = makeSetupView();
   private settings: Settings = makeSettings();
+  private installedEditors: readonly Editor[] = ["cursor", "vs-code"];
+  private readonly goneFolders = new Set<string>();
+  private readonly openLog: { readonly place: Place; readonly editor: Editor }[] = [];
   private openDeskId: string | null = null;
   private testAlertCount = 0;
   /** A structured desk's state follows its conversation; one that ends leaves its floor. */
@@ -110,6 +118,64 @@ export class MockApi implements DiscoveryApi {
     }
     this.settings = { ...this.settings, ...patch };
     return Promise.resolve(this.settings);
+  }
+
+  /** Which editors count as installed, for tests. */
+  setInstalledEditors(list: readonly Editor[]): void {
+    this.installedEditors = list;
+  }
+
+  /** Make a session's folder disappear, for tests. */
+  loseFolder(sessionId: string): void {
+    this.goneFolders.add(sessionId);
+  }
+
+  /** Every open that succeeded, for tests. */
+  get opened(): readonly { readonly place: Place; readonly editor: Editor }[] {
+    return this.openLog;
+  }
+
+  editors(): Promise<EditorList> {
+    return Promise.resolve({
+      editors: MOCK_EDITORS.map((o) => ({ ...o, installed: this.installedEditors.includes(o.editor) })),
+      defaultEditor: this.pickEditor(null),
+    });
+  }
+
+  openInEditor(place: Place, editor: Editor | null): Promise<Editor> {
+    const failure = this.placeError(place);
+    if (failure !== null) return Promise.reject(new Error(failure));
+    const asked = editor === null ? null : MOCK_EDITORS.find((o) => o.editor === editor);
+    if (asked !== null && asked !== undefined && !this.installedEditors.includes(asked.editor)) {
+      return Promise.reject(new Error(`${asked.label} is not installed on this Mac`));
+    }
+    const used = this.pickEditor(editor);
+    if (used === null) return Promise.reject(new Error(`no editor was found on this Mac (looked for ${joinNames(MOCK_EDITORS.map((e) => e.label))})`));
+    this.openLog.push({ place, editor: used });
+    return Promise.resolve(used);
+  }
+
+  /** The asked editor, else the preferred one, else the first installed; null when none is installed. */
+  private pickEditor(asked: Editor | null): Editor | null {
+    const installed = (e: Editor | null): e is Editor => e !== null && this.installedEditors.includes(e);
+    if (installed(asked)) return asked;
+    if (installed(this.settings.editor.preferred)) return this.settings.editor.preferred;
+    return MOCK_EDITORS.map((o) => o.editor).find(installed) ?? null;
+  }
+
+  /** Why the backend would refuse this place, or null when its folder can be opened. */
+  private placeError(place: Place): string | null {
+    const { sessions, ended, projects } = this.snapshot;
+    if (place.kind === "floor") {
+      return projects.some((p) => p.id === place.projectId) ? null : `${place.projectId} is not a floor of this building`;
+    }
+    const known = sessions.find((s) => s.id === place.sessionId);
+    if (known === undefined && !ended.some((s) => s.id === place.sessionId)) return `unknown session: ${place.sessionId}`;
+    if (place.kind === "helper") {
+      if (known === undefined) return `unknown session: ${place.sessionId}`;
+      if (!known.helpers.some((h) => h.id === place.helperId)) return `unknown helper: ${place.helperId}`;
+    }
+    return this.goneFolders.has(place.sessionId) ? "that worktree is gone" : null;
   }
 
   setOpenDesk(sessionId: string | null): Promise<void> {
@@ -237,6 +303,7 @@ export class MockApi implements DiscoveryApi {
       helpers: [],
       pets: [],
       worktree: false,
+      branch: null,
     };
     const projects = this.snapshot.projects.map((p) =>
       p.id === projectId ? { ...p, sessionIds: [...p.sessionIds, id] } : p,
@@ -300,6 +367,7 @@ export class MockApi implements DiscoveryApi {
       helpers: [],
       pets: [],
       worktree: false,
+      branch: null,
     };
     this.commit({
       ...this.snapshot,

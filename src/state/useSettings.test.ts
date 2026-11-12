@@ -5,7 +5,7 @@ import type { Settings, SettingsPatch } from "../types";
 import { useSettings } from "./useSettings";
 
 const saved = makeSettings();
-const quiet = (s: Settings): Settings => ({ notifications: { ...s.notifications, sound: false } });
+const quiet = (s: Settings): Settings => ({ ...s, notifications: { ...s.notifications, sound: false } });
 
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: Error) => void } {
   let resolve: (v: T) => void = () => undefined;
@@ -43,8 +43,8 @@ describe("useSettings", () => {
     const patch = { notifications: { ...saved.notifications, sound: false } };
     act(() => result.current.change(patch));
     expect(save).toHaveBeenCalledWith(patch);
-    expect(result.current.state).toEqual({ status: "ready", settings: patch, saveError: null });
-    const back = { notifications: { ...patch.notifications, cooldownSecs: 30 } };
+    expect(result.current.state).toEqual({ status: "ready", settings: { ...saved, ...patch }, saveError: null });
+    const back = { ...saved, notifications: { ...patch.notifications, cooldownSecs: 30 } };
     await act(async () => reply.resolve(back));
     expect(result.current.state).toEqual({ status: "ready", settings: back, saveError: null });
   });
@@ -75,7 +75,7 @@ describe("useSettings", () => {
     const save = vi.fn<(patch: SettingsPatch) => Promise<Settings>>().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const { result } = renderHook(() => useSettings(load, save));
     await waitFor(() => expect(result.current.state.status).toBe("ready"));
-    const newer = { notifications: { ...saved.notifications, stuck: false } };
+    const newer = { ...saved, notifications: { ...saved.notifications, stuck: false } };
     act(() => result.current.change(quiet(saved)));
     act(() => result.current.change(newer));
     await act(async () => second.resolve(newer));

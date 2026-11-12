@@ -12,5 +12,6 @@ export function makeSettings(): Settings {
       systemNotification: true,
       cooldownSecs: 10,
     },
+    editor: { preferred: null },
   };
 }
