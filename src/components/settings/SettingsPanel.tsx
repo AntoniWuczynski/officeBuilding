@@ -4,6 +4,7 @@ import { useSettings } from "../../state/useSettings";
 import { EditorGroup } from "./EditorGroup";
 import { ConnectorsGroup } from "./ConnectorsGroup";
 import { NotificationsGroup } from "./NotificationsGroup";
+import { ManagerGroup } from "./ManagerGroup";
 import { QaGroup } from "./QaGroup";
 
 interface Props {
@@ -66,6 +67,10 @@ export function SettingsPanel({ load, save, editors, loadHireOptions, onTestAler
             <section className="settings-group">
               <h3>Quality assurance</h3>
               <QaGroup value={state.settings.qa} loadOptions={loadHireOptions} onChange={(qa) => change({ qa })} />
+            </section>
+            <section className="settings-group">
+              <h3>Manager</h3>
+              <ManagerGroup value={state.settings.manager} loadOptions={loadHireOptions} onChange={(manager) => change({ manager })} />
             </section>
           </>
         ) : null}

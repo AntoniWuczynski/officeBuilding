@@ -172,4 +172,10 @@ describe("SettingsPanel", () => {
     open();
     expect(await screen.findByRole("heading", { name: "Quality assurance" })).toBeInTheDocument();
   });
+
+  it("shows the Manager group once the settings have loaded", async () => {
+    open();
+    expect(await screen.findByRole("heading", { name: "Manager" })).toBeInTheDocument();
+    expect(screen.getByTestId("settings-manager-max-desks")).toHaveValue(3);
+  });
 });
