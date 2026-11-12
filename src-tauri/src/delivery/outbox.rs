@@ -1,5 +1,5 @@
-//! Notes waiting for their desks, oldest first. In memory only. Issue #6 adds
-//! its composer's notes here too, with an origin of their own.
+//! Notes waiting for their desks, oldest first. In memory only. The manager's notes
+//! and A Human's own messages from a chat panel each have an outbox of their own.
 
 pub const PER_DESK_MAX: usize = 5;
 pub const FLOOR_MAX: usize = 20;
@@ -64,6 +64,12 @@ impl Outbox {
     pub fn take(&mut self, id: &str) -> Option<Item> {
         let at = self.items.iter().position(|i| i.id == id)?;
         Some(self.items.remove(at))
+    }
+
+    /// Put a taken note back at the front, so it is its desk's head again. The caps are not
+    /// checked: it was counted when it was first pushed.
+    pub fn put_back(&mut self, item: Item) {
+        self.items.insert(0, item);
     }
 
     /// Remove and return every note `gone` is true for.
@@ -136,6 +142,19 @@ mod tests {
         );
         assert!(outbox.push(note("y", "g", "e1")).is_ok());
         assert_eq!(outbox.items().len(), FLOOR_MAX + 1);
+    }
+
+    #[test]
+    fn a_note_put_back_is_its_desks_head_again() {
+        let mut outbox = Outbox::default();
+        for (id, to) in [("n1", "a"), ("n2", "b"), ("n3", "a")] {
+            outbox.push(note(id, "f", to)).expect("push");
+        }
+        let taken = outbox.take("n1").expect("take");
+        assert_eq!(ids(outbox.heads()), ["n2", "n3"]);
+        outbox.put_back(taken);
+        assert_eq!(ids(outbox.heads()), ["n1", "n2"]);
+        assert_eq!(ids(outbox.items()), ["n1", "n2", "n3"]);
     }
 
     #[test]

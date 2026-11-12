@@ -4,7 +4,7 @@
 use super::Office;
 use super::launch::{chosen_model, hireable, launch_command};
 use crate::manager::helper;
-use crate::model::{HireRequest, ModelOption, ToolKind};
+use crate::model::{DeskView, HireRequest, ModelOption, ToolKind};
 use crate::pty;
 use crate::setup::{Hook, HookEvent, Launch, Opt, RoleServer, RoleSetup, Targets};
 use std::fs;
@@ -108,7 +108,7 @@ pub(super) fn staff_command(
         model: model.id.clone(),
         effort: effort.to_string(),
         ultracode: false,
-        structured: false,
+        view: DeskView::Terminal,
     };
     launch_command(&req, model, task, shell, &setup)
 }

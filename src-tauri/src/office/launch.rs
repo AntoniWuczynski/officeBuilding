@@ -229,17 +229,16 @@ mod tests {
             efforts: efforts.iter().map(|e| effort(e)).collect(),
             default_effort: default.to_string(),
         };
-        ToolOptions {
-            tool: ToolKind::ClaudeCode,
-            available: true,
-            models: vec![
+        ToolOptions::new(
+            ToolKind::ClaudeCode,
+            true,
+            vec![
                 model("default", "Default", &["medium", "high"], "medium"),
                 model("opus", "Opus", &["low", "high", "max"], "high"),
             ],
-            default_model: "default".to_string(),
-            ultracode: Some(false),
-            structured: false,
-        }
+            "default".to_string(),
+            Some(false),
+        )
     }
 
     #[test]
@@ -251,7 +250,7 @@ mod tests {
             model: "opus".to_string(),
             effort: "high".to_string(),
             ultracode: true,
-            structured: false,
+            view: crate::model::DeskView::Terminal,
         };
         let mut setup = Launch {
             opts: vec![crate::setup::Opt {

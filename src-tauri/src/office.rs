@@ -6,11 +6,10 @@ use crate::discovery::{self, Discovered, Discovery};
 use crate::feed::Feed;
 use crate::focus;
 use crate::model::{
-    AgentMessage, AnswerVia, ControlMode, EndedSession, HireFailed, HireRequest, OfficeSnapshot,
-    Project, Question, QuestionAnswer, Session, SessionState, Shell, Spend, TerminalBacklog,
-    TerminalExit, ToolKind, ToolOptions,
+    AgentMessage, AnswerVia, ControlMode, DeskView, EndedSession, HireFailed, HireRequest,
+    OfficeSnapshot, Project, Question, QuestionAnswer, Session, SessionState, Shell, Spend,
+    TerminalBacklog, TerminalExit, ToolKind,
 };
-use crate::options;
 use crate::project_files::{self, ProjectFiles};
 use crate::pty::{self, Terminals};
 use crate::qa;
@@ -24,6 +23,7 @@ use launch::{
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -56,6 +56,8 @@ struct Inner {
     mail: deliver::Mail,
     /// Each floor's running manager, by project id.
     seats: BTreeMap<String, manager::Seat>,
+    /// Which terminals were hired with the chat view.
+    chat: chat::State,
 }
 
 pub struct Office {
@@ -77,6 +79,10 @@ pub struct Office {
     manager: Result<manager::ManagerHost, String>,
     /// Held across a manager's hire, from its checks to its record, so hires are one at a time.
     hiring: Mutex<()>,
+    /// The Claude Code conversations a panel follows. Taken before the office lock, never under it.
+    chats: Mutex<chat::follow::Followers>,
+    /// The last ticket handed to a `keep_chat` call, so a stale desk switch is ignored.
+    chat_tickets: AtomicU64,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -358,6 +364,7 @@ impl Office {
                 reviewers: BTreeMap::new(),
                 mail: deliver::Mail::default(),
                 seats: BTreeMap::new(),
+                chat: chat::State::default(),
             }),
             terminals,
             connectors: Arc::new(Hub::new(Vec::new(), Box::new(|| {}))),
@@ -365,6 +372,8 @@ impl Office {
             qa: None,
             manager: Err("the manager's socket is not open".to_string()),
             hiring: Mutex::new(()),
+            chats: Mutex::default(),
+            chat_tickets: AtomicU64::new(0),
         }
     }
 
@@ -478,22 +487,9 @@ impl Office {
             connections: self.connections(&inner),
             qa: self.qa_floors(&inner),
             managers: self.manager_floors(&inner),
+            chat_desks: Self::chat_desks(&inner),
+            queued: self.queued_messages(&inner),
         }
-    }
-
-    pub fn hire_options(&self) -> Vec<ToolOptions> {
-        let mut all = options::hire_options(&self.home);
-        for o in &mut all {
-            o.structured = o.available && structured::supports(o.tool);
-        }
-        all
-    }
-
-    /// Start an agent in an in-app terminal, in the floor's folder. It appears
-    /// as a desk as soon as the tool writes its session files.
-    pub fn spawn_session(&self, project_id: &str, req: &HireRequest) -> Result<Session, String> {
-        self.spawn_in_terminal(project_id, req)
-            .map(|(session, _)| session)
     }
 
     /// `spawn_session`, with the terminal it started (None for a structured desk).
@@ -513,7 +509,7 @@ impl Office {
         let tool = hireable(self.hire_options(), req.tool)?;
         let (model, _) = chosen_model(&tool, Some(&req.model), Some(&req.effort))?;
         let task = req.title.trim();
-        if req.structured {
+        if req.view == DeskView::Chat && structured::supports(req.tool) {
             return self
                 .spawn_structured(project_id, &root, req, model, task)
                 .map(|session| (session, None));
@@ -598,8 +594,9 @@ impl Office {
             .setup
             .launch(ended.tool, &self.home, Some(&self.lock().feed))?;
         let command = resume_command(&ended, &shell, &setup)?;
+        let tool = ended.tool;
         self.launch(&dir, &command, Launched::Discovered { title: ended.title })
-            .map(drop)
+            .map(|terminal| self.note_view(tool, &terminal))
     }
 
     /// Run `command` in a new in-app terminal in `dir`. An agent that stops at
@@ -958,6 +955,7 @@ fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
     }
 }
 
+mod chat;
 mod connectors;
 mod deliver;
 mod desk_states;

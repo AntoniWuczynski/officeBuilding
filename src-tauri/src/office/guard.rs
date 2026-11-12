@@ -18,6 +18,10 @@ const FORBIDDEN: &[&str] = &[
     "structured.prompt",
     "resume_session",
     "libc::kill",
+    "chat_send",
+    "chat_interrupt",
+    "withdraw_message",
+    "mail.own",
 ];
 
 const MANAGER_FILES: &[(&str, &str)] = &[

@@ -9,7 +9,7 @@ use super::{Inner, Office};
 use crate::delivery::text;
 use crate::manager::tools::{HireDesk, HireTool, WaitForDesk};
 use crate::manager::wire::LogEvent;
-use crate::model::{HireRequest, SessionState, ToolKind};
+use crate::model::{DeskView, HireRequest, SessionState, ToolKind};
 use crate::settings::checked_names;
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -135,7 +135,7 @@ impl Office {
                     model: model.id.clone(),
                     effort,
                     ultracode: false,
-                    structured: false,
+                    view: DeskView::Terminal,
                 })
             })
             .and_then(|req| self.spawn_in_terminal(floor, &req))
