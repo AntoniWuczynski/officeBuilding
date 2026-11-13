@@ -18,8 +18,8 @@ use crate::setup::{Launch, Library};
 use crate::store::Store;
 use crate::structured::{self, desks::Desks};
 use launch::{
-    DESK_ACTIVE, Desk, Launched, chosen_model, desk_session, desk_session_id, hireable,
-    is_discovered, launch_command,
+    CLAUDE_SUBCOMMANDS, DESK_ACTIVE, Desk, Launched, chosen_model, desk_session, desk_session_id,
+    hireable, is_discovered, launch_command,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -58,6 +58,8 @@ struct Inner {
     seats: BTreeMap<String, manager::Seat>,
     /// Which terminals were hired with the chat view.
     chat: chat::State,
+    /// Used-up subscriptions, handovers and what each desk has to say about them.
+    handover: handover::State,
 }
 
 pub struct Office {
@@ -85,6 +87,10 @@ pub struct Office {
     chat_tickets: AtomicU64,
     /// The provider router, if this office was given one.
     routing: Option<Arc<crate::routing::router::Router>>,
+    /// What handing desks over needs, if this office was given it.
+    handover_host: Option<HandoverHost>,
+    /// The transcript readers the handover follows. Taken before the office lock, never under it.
+    limits: Mutex<handover::Limits>,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -106,33 +112,6 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 /// Process names of shells: while the started process still runs one, the
 /// login shell has not handed over to the agent yet.
 const SHELL_NAMES: &[&str] = &["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh"];
-/// `claude` subcommands (from `claude --help`, 2.1.285, plus commander's own
-/// `help`). A task that is exactly one of these runs the subcommand even after
-/// `--`; codex takes such a task as its prompt.
-const CLAUDE_SUBCOMMANDS: &[&str] = &[
-    "agents",
-    "attach",
-    "auth",
-    "auto-mode",
-    "doctor",
-    "gateway",
-    "help",
-    "import",
-    "install",
-    "logs",
-    "mcp",
-    "plugin",
-    "plugins",
-    "project",
-    "respawn",
-    "rm",
-    "setup-token",
-    "stop",
-    "kill",
-    "ultrareview",
-    "update",
-    "upgrade",
-];
 
 /// The app-owned terminal a process runs in, and how many generations below
 /// the agent we started there the process is (0: it is that agent).
@@ -367,6 +346,7 @@ impl Office {
                 mail: deliver::Mail::default(),
                 seats: BTreeMap::new(),
                 chat: chat::State::default(),
+                handover: handover::State::default(),
             }),
             terminals,
             connectors: Arc::new(Hub::new(Vec::new(), Box::new(|| {}))),
@@ -377,6 +357,8 @@ impl Office {
             chats: Mutex::default(),
             chat_tickets: AtomicU64::new(0),
             routing: None,
+            handover_host: None,
+            limits: Mutex::default(),
         }
     }
 
@@ -492,6 +474,7 @@ impl Office {
             managers: self.manager_floors(&inner),
             chat_desks: Self::chat_desks(&inner),
             queued: self.queued_messages(&inner),
+            handover: inner.handover.view.clone(),
         }
     }
 
@@ -908,6 +891,8 @@ mod floor_list;
 mod folders;
 #[cfg(test)]
 mod guard;
+mod handover;
+pub use handover::{HandoverHost, start_due_handovers};
 mod launch;
 mod manager;
 mod manager_calls;

@@ -9,6 +9,7 @@ pub mod discovery;
 pub mod editor;
 pub mod feed;
 pub mod focus;
+pub mod handover;
 pub mod http;
 pub mod manager;
 pub mod model;
@@ -191,7 +192,8 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             .with_settings(Arc::clone(&settings))
             .with_qa(Arc::clone(&qa_watch))
             .with_manager(host)
-            .with_routing(router),
+            .with_routing(router)
+            .with_handover(office::HandoverHost::system(&data)),
     );
     if let (Some(server), Some(registry)) = (server, registry) {
         server.serve(
@@ -292,6 +294,7 @@ pub fn run() -> tauri::Result<()> {
             routing::commands::desk_route,
             routing::commands::retry_route,
             routing::commands::switch_route,
+            handover::commands::hand_over_desk,
         ])
         .run(tauri::generate_context!())
 }

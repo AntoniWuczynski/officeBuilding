@@ -63,7 +63,12 @@ pub fn start(
                 }
                 let changed = office.refresh();
                 let moved = office.deliver_due();
-                if changed || moved {
+                let (handle, shown) = (app.clone(), Arc::clone(&office));
+                // Each handover runs on its own thread and pushes a snapshot when it is done.
+                let handed = crate::office::start_due_handovers(&office, move || {
+                    let _ = handle.emit(SNAPSHOT_EVENT, shown.snapshot());
+                });
+                if changed || moved || handed {
                     // A closed webview just means nobody is listening right now.
                     let _ = app.emit(SNAPSHOT_EVENT, office.snapshot());
                 }

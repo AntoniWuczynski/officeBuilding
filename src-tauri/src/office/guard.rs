@@ -22,6 +22,11 @@ const FORBIDDEN: &[&str] = &[
     "chat_interrupt",
     "withdraw_message",
     "mail.own",
+    "hand_over_desk",
+    "carry_out_handover",
+    "handover_due",
+    "start_due_handovers",
+    "handover::",
 ];
 
 const MANAGER_FILES: &[(&str, &str)] = &[
@@ -39,6 +44,14 @@ fn the_managers_files_name_no_way_to_stop_answer_or_type() {
             assert!(!text.contains(name), "{file} names {name}");
         }
     }
+}
+
+/// No tool of the manager's catalogue can hand a desk over.
+#[test]
+fn the_managers_tool_catalogue_names_no_handover() {
+    let tools = include_str!("../manager/tools.rs");
+    assert!(!tools.contains("handover"));
+    assert!(!tools.contains("hand_over"));
 }
 
 #[test]

@@ -10,6 +10,34 @@ use crate::tools;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// `claude` subcommands (from `claude --help`, 2.1.285, plus commander's own
+/// `help`). A task that is exactly one of these runs the subcommand even after
+/// `--`; codex takes such a task as its prompt.
+pub(super) const CLAUDE_SUBCOMMANDS: &[&str] = &[
+    "agents",
+    "attach",
+    "auth",
+    "auto-mode",
+    "doctor",
+    "gateway",
+    "help",
+    "import",
+    "install",
+    "logs",
+    "mcp",
+    "plugin",
+    "plugins",
+    "project",
+    "respawn",
+    "rm",
+    "setup-token",
+    "stop",
+    "kill",
+    "ultrareview",
+    "update",
+    "upgrade",
+];
+
 /// What a terminal-backed desk shows, fixed when the agent was hired.
 pub(super) struct Desk {
     pub(super) tool: ToolKind,
@@ -31,9 +59,9 @@ pub(super) enum Launched {
 /// A terminal-backed desk counts as running while its terminal printed this recently.
 pub(super) const DESK_ACTIVE: Duration = Duration::from_secs(10);
 /// The effort id of a model with no effort choices: pass no effort flag.
-const DEFAULT_EFFORT: &str = "default";
+pub(super) const DEFAULT_EFFORT: &str = "default";
 /// The model id that means "the tool's own default": pass no model flag.
-const DEFAULT_MODEL: &str = "default";
+pub(super) const DEFAULT_MODEL: &str = "default";
 /// Codex otherwise opens on an "Update available!" menu whenever a newer
 /// release is out, and the agent never starts work (`check_for_update_on_startup`
 /// in Codex's config).
