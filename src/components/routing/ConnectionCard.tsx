@@ -183,6 +183,8 @@ export function ConnectionCard({ connection, position, last, settings, onChange 
         </>
       ) : null}
       {traits.holdsKey ? <ApiKey id={id} /> : null}
+      {connection.kind === "anthropic-api-key" ? <p className="panel-hint">Use a key that belongs to one workspace. The building cannot send a workspace id.</p> : null}
+      {connection.kind === "openai-api-key" ? <p className="panel-hint">This build cannot use this kind of connection yet, so it is always passed over.</p> : null}
       {connection.kind === "chatgpt-sign-in" ? <p className="panel-hint">Sign in with ChatGPT is not available in this build.</p> : null}
       {traits.passesThrough ? null : (
         <div className="routing-models">

@@ -13,6 +13,7 @@ import { readPref, writePref } from "../../lib/prefs";
 import { Conversation } from "./Conversation";
 import { useDeskView } from "./useDeskView";
 import { OpenInEditor } from "../editor/OpenInEditor";
+import { RouteStrip } from "../routing/RouteStrip";
 
 export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal" | "subscribeFileDrops">;
 
@@ -168,6 +169,7 @@ export function TerminalPanel(props: Props): React.ReactElement {
           </button>
         </span>
       </header>
+      {flippable ? <RouteStrip sessionId={session.id} /> : null}
       {session !== null && showingChat ? (
         <Conversation sessionId={session.id} queued={queued} onFlip={flippable ? () => setView("terminal") : undefined} />
       ) : !live ? (

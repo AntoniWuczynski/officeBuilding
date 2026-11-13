@@ -14,13 +14,15 @@
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
 }
-.open-in.is-dark .btn {
+.open-in.is-dark .btn,
+.dark-btn {
   height: 26px;
   background: transparent;
   color: var(--terminal-text);
   border-color: #2e3138;
 }
-.open-in.is-dark .btn:hover:not(:disabled) {
+.open-in.is-dark .btn:hover:not(:disabled),
+.dark-btn:hover:not(:disabled) {
   border-color: var(--terminal-text);
 }
 .editor-menu {

@@ -24,7 +24,7 @@ export function RoutingGroup({ value, onChange }: Props): React.ReactElement {
   return (
     <>
       <Toggle label="Route Claude Code desks through the building" checked={value.enabled} disabled={false} onChange={(enabled) => onChange({ ...value, enabled })} />
-      <p className="panel-hint">Off: every desk starts exactly as it does today. This build only saves these choices. Nothing is routed until the router itself is built.</p>
+      <p className="panel-hint">Off: every desk starts exactly as it does today. On: a Claude Code desk the building starts on a floor that has an account context sends its requests through the building, which passes them to the first connection of that context’s order and moves on only when a connection reports that its allowance is used up. Desks that are already running are not changed either way. A routed desk needs the building: if the building quits, the desk loses its model access.</p>
 
       <h4 className="panel-subhead">Account contexts</h4>
       <p className="panel-hint">

@@ -247,4 +247,16 @@ describe("RoutingGroup", () => {
     show(seeded([connection("a", "anthropic-api-key")]), false);
     expect(screen.queryByTestId("routing-key-a")).not.toBeInTheDocument();
   });
+
+  it("words the master switch hint for a running building and drops the old one", () => {
+    show(makeRoutingSettings());
+    expect(screen.getByText(/Desks that are already running are not changed either way/)).toHaveTextContent("if the building quits, the desk loses its model access");
+    expect(screen.queryByText(/Nothing is routed until the router itself is built/)).not.toBeInTheDocument();
+  });
+
+  it("shows the key and unsupported-kind hints on their kinds only", () => {
+    show(seeded([connection("sub", "claude-subscription"), connection("api", "anthropic-api-key"), connection("oai", "openai-api-key")]));
+    expect(screen.getAllByText("Use a key that belongs to one workspace. The building cannot send a workspace id.")).toHaveLength(1);
+    expect(screen.getAllByText("This build cannot use this kind of connection yet, so it is always passed over.")).toHaveLength(1);
+  });
 });
