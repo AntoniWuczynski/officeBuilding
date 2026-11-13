@@ -241,8 +241,12 @@ sessions as an **office building**:
   you switch it on, and nothing in it has been checked against a real account
   yet. Set it up in Settings, in the Routing group. Name an account context
   (work and personal, say) and give it an ordered list of connections, which
-  may be the Claude subscription, an Anthropic API key or OpenRouter. An
-  OpenAI API key can be saved too, and this build cannot use it yet. Allow
+  may be the Claude subscription, an Anthropic API key, OpenRouter or an
+  OpenAI API key. The OpenAI route is experimental. It translates each request
+  to OpenAI's format and the reply back, it needs "Allow this experimental
+  route" switched on as well, and it has never met a real OpenAI account.
+  [`docs/provider-routing-matrix.md`](docs/provider-routing-matrix.md) lists
+  every pairing and how far each has been checked. Allow
   each billed connection to spend money, type the model names your desks ask
   for under the four tiers, and type each key connection's own model name for
   each tier. Nothing is filled in for you. A key has its own Save button, is
@@ -269,7 +273,10 @@ sessions as an **office building**:
   Anthropic directly may not work. Claude Code switches Remote Control off on
   a desk with a base address of its own. After a move to OpenRouter, hidden
   reasoning is removed from what the desk sends there, and the visible
-  conversation and the tool results are sent in full. The router connects to
+  conversation and the tool results are sent in full. On the OpenAI route
+  hidden reasoning is left out in both directions, and a request that needs
+  documents, tools the provider runs or context management is refused with a
+  sentence that says which. The router connects to
   providers directly, so it does not work on a Mac that needs a proxy to reach
   the internet. Your own configuration can take a desk off the router. A shell
   profile that exports `ANTHROPIC_CUSTOM_HEADERS`, an `env`
@@ -329,8 +336,8 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   what the same work would cost through the API, not what a subscription bills.
 - **Not yet:** answering a terminal agent's own question from the Decisions
   panel (answer it in the agent's terminal instead), the app's own MCP
-  server for assistant agents, and in provider routing the OpenAI route, Sign
-  in with ChatGPT and the compatibility matrix. In the chat view: Antigravity, a read-only chat
+  server for assistant agents, and in provider routing Sign in with ChatGPT,
+  which waits for OpenAI's answer on whether the app may use it. In the chat view: Antigravity, a read-only chat
   for sessions you started by hand, opening a link, images and attachments, a
   model and effort switcher, plans as cards, sub-agent threads, paging in older
   messages and word-by-word replies from Claude Code. See `TODO.md`. Calls from
@@ -453,7 +460,7 @@ src-tauri/
     qa/                   # the QA desk: the pull request watch, the gh and git calls, the reviewer's brief, its findings, the review that is posted
     manager/              # a floor's manager: its socket, tokens, the MCP server it talks to, the helper mode and the tool list
     delivery/             # notes and messages for desks: cleaning the text, deciding whether a desk can take one, the queue
-    routing/              # provider routing, with its preferences, the selection policy, exhaustion records and their file, the failover state machine, connection keys, the router on the loopback address, the relays to Anthropic and OpenRouter, a reply read as evidence, the router's own answers and what a routed launch adds
+    routing/              # provider routing, with its preferences, the selection policy, exhaustion records and their file, the failover state machine, connection keys, the router on the loopback address, the relays to Anthropic and OpenRouter, the experimental translation to OpenAI's Responses format, a reply read as evidence, the router's own answers and what a routed launch adds
     secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
     http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
     poll.rs               # a background job on a timer that backs off, waits when told to and can be woken

@@ -301,14 +301,17 @@ here.
           (TODO OB-184).
 
 - [ ] OB-209 — Check the Routing group and a floor's account context (TODO
-      OB-208), and then a routed desk (TODO OB-212), in the installed app
-      (`pnpm app:install`). Steps 1 to 18 are for the first of three
-      stages, which saves your choices. They send nothing to a provider and
-      cost nothing. Steps 19 to 33 are for the second stage, which routes.
-      They use your real Claude login, and the steps marked "Paid" spend
-      money on a real key. No agent may drive the Tauri window, write to
-      the real Keychain, start a routed desk or use a paid account, so none
-      of this has run against them.
+      OB-208), then a routed desk (TODO OB-212), and then the experimental
+      route to OpenAI (TODO OB-214), in the installed app (`pnpm
+      app:install`). Steps 1 to 18 are for the first of three stages, which
+      saves your choices. They send nothing to a provider and cost nothing.
+      Steps 19 to 33 are for the second stage, which routes. They use your
+      real Claude login, and the steps marked "Paid" spend money on a real
+      key. Steps 34 to 44 are for the third stage. They need an OpenAI API
+      key with credit on it, which the build machine never had, so nothing
+      about OpenAI has been checked anywhere. No agent may drive the Tauri
+      window, write to the real Keychain, start a routed desk or use a paid
+      account, so none of this has run against them.
       1. Open Settings with Cmd+,. Routing is the last group. Its switch,
          "Route Claude Code desks through the building", is off. The hint
          under it says what off and on do, and ends by saying that a routed
@@ -480,6 +483,95 @@ here.
           details are the build's. Say whether the note stands.
           HUMAN_DECISIONS OB-211, on Anthropic's terms, is still open, and
           the relay it asks about now exists.
+      34. Paid. Set the OpenAI route up (TODO OB-214). Read note 4 of
+          `docs/provider-routing-matrix.md` first. In Work, add an "OpenAI
+          API key" connection below the Claude subscription and save a real
+          key that belongs to one organisation and project. Switch on both
+          "May spend money" and "Allow this experimental route". Type the
+          OpenAI model name you want for each tier and its effort pairs,
+          written as asked=sent. Nothing is filled in for you. The card says
+          the route is experimental and has never been run against a real
+          OpenAI account, and it lists what the route carries, leaves out and
+          refuses. Check that the three hints read well in the real window
+          and stay inside the card.
+      35. Paid. Text. Hire a new routed desk, let the subscription answer one
+          request, then open Details and press "Switch to this" on the OpenAI
+          connection. Ask a question that needs no tool. It is answered, and
+          the strip names the OpenAI connection. Details says that hidden
+          reasoning is left out of every request sent to OpenAI, and the line
+          about the last request names the model it was sent as. The request
+          shows on OpenAI's usage page. If the agent stops with a sentence
+          that starts "Office Building", copy it whole (TODO OB-277).
+      36. Paid. A tool round trip. Ask the agent to read a file, run a
+          command and say what it found. Each tool runs once and the agent
+          carries on with the results. Then ask for something that makes it
+          call several tools in one turn. Note any tool that runs with an
+          empty input (TODO OB-279), and any stop with a sentence about a
+          request that is not streamed (TODO OB-262) or about a tool the
+          route cannot carry (TODO OB-264, OB-270).
+      37. Paid. An image. Paste a screenshot into the desk and ask what it
+          shows. The answer describes the picture (TODO OB-278).
+      38. Context management (TODO OB-269). This shows on the first request
+          of step 35. The router refuses a request that carries
+          `context_management`, with a sentence that holds
+          "context_management: Extra inputs are not permitted". Claude Code's
+          documentation says the client then sends the request once more
+          without it, and a local probe on 2026-11-13 saw Claude Code 2.1.323
+          do so against a test listener that replayed the sentence. That was
+          not the built router. Note which of three things you saw. You saw no refusal
+          at all, the agent showed it and carried on by itself, or the agent
+          stopped with that sentence on every request. In the last case
+          switch the desk back to the subscription, and the route cannot be
+          used until that is fixed.
+      39. The usage and cost display (TODO OB-272). On the desk that OpenAI
+          serves, look at the context meter, `/cost` and `/context`. The
+          numbers are OpenAI's token counts under Anthropic's names, and
+          Claude Code prices them as if a Claude model had run. Note what the
+          client shows as the model's name, and compare the cost it shows
+          with OpenAI's usage page. If a long conversation is refused as too
+          long, copy the sentence (TODO OB-268).
+      40. Paid. Coming back to Anthropic (TODO OB-278). On the same desk,
+          switch back to the Claude subscription and send a request that uses
+          a tool. Note whether it is answered, refused or answered after a
+          pause. The history now holds tool calls with OpenAI's identifiers
+          and turns with no hidden reasoning.
+      41. Both opt-ins. With a desk on the OpenAI connection, switch "Allow
+          this experimental route" off for it in Settings. The next request
+          is answered in the agent's terminal with a sentence that starts
+          "Office Building:" and gives the reason, the agent stops at once,
+          and nothing shows on OpenAI's usage page. Do the same with "May
+          spend money". A new desk never reaches OpenAI while either switch
+          is off.
+      42. A used-up or unfunded OpenAI key (TODO OB-213, OB-277). Use a key
+          from a project with no credit, or set that project's spend limit
+          below what it has already spent. Put a paid connection you trust
+          below the OpenAI one in the order, start a new desk, switch it to
+          the OpenAI connection and send a request. The desk should move to
+          the next connection by itself, and Details should say "Moved from"
+          the OpenAI connection "because the allowance" was used up. The
+          router knows four codes from OpenAI's documentation,
+          `credit_balance_exhausted`, `organization_spend_limit_exceeded`,
+          `project_spend_limit_exceeded` and
+          `organization_usage_limit_exceeded`. If the desk does not move,
+          copy what the agent's terminal shows and what Details says about
+          the connection's last problem. That means OpenAI's real reply and
+          its documentation disagree.
+      43. A question for OpenAI, not a check (TODO OB-260). Sign in with
+          ChatGPT is not built. You ruled that it be built dormant, and the
+          build could only leave it impossible to try. Ask OpenAI whether
+          Office Building counts as an "open-source partner" for ChatGPT plan
+          use, and which client identifier it may send. Note 5 of the matrix
+          lists the other things it needs from you, which are leave to add a
+          JSON Web Token (JWT) library, an eligible ChatGPT account for the
+          first live check and the button's approved branding.
+      44. A question for you, not a check. HUMAN_DECISIONS OB-210 now lists
+          the calls the third stage made. The ones most worth your eye are
+          these. Sign in with ChatGPT is not built. Context management is
+          refused. A desk that has used a document or a tool the provider
+          runs is never moved to OpenAI by itself (TODO OB-265). Hidden
+          reasoning is dropped in both directions, which may make answers
+          weaker (TODO OB-267). The system prompt's attribution block goes to
+          OpenAI (TODO OB-275). Say which you veto.
 
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
