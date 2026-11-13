@@ -72,6 +72,7 @@ fn task(task: &Task) -> String {
         TaskKind::Subagent => "a background subagent",
         TaskKind::Shell => "a background shell",
         TaskKind::Scheduled => "a scheduled wake-up",
+        TaskKind::Goal => "a goal",
         TaskKind::Other => "a background task",
     };
     match task.name.as_deref().map(tidy_line) {
@@ -120,7 +121,7 @@ fn header(facts: &Facts<'_>) -> String {
          This desk was handed over from {from} to {to} by Office Building.\n\n\
          - When: {when}\n\
          - Asked by: {asked}\n\
-         - Why: {from}'s subscription allowance is used up ({limit}). {reset}\n\
+         - Why: {from}'s {ran_out} ({limit}). {reset}\n\
          - The desk: {title}\n\
          - Folder: {folder}\n\
          - Floor: {floor}\n\
@@ -132,6 +133,7 @@ fn header(facts: &Facts<'_>) -> String {
          Oldest first. Hidden reasoning is left out, tool output is cut short and file changes \
          are not repeated here: the files in the folder are the truth.\n",
         id = facts.id,
+        ran_out = facts.from.ran_out(),
         to = facts.to.label(),
         when = time(facts.at),
         title = known(facts.title),
@@ -536,6 +538,18 @@ mod tests {
     }
 
     #[test]
+    fn a_goal_is_named_by_its_word() {
+        let task = |name: Option<&str>| {
+            super::task(&Task {
+                kind: TaskKind::Goal,
+                name: name.map(str::to_owned),
+            })
+        };
+        assert_eq!(task(Some("Ship it")), "a goal \"Ship it\"");
+        assert_eq!(task(None), "a goal");
+    }
+
+    #[test]
     fn the_header_rows() {
         let running = Work::Running {
             tasks: vec![
@@ -579,6 +593,15 @@ mod tests {
             row(&neither, "- Why"),
             "- Why: Claude Code's subscription allowance is used up (which limit is not known). \
              It resets at 2026-11-13T12:53:05Z."
+        );
+
+        let mut codex = facts(&CLEAR);
+        (codex.from, codex.to) = (Tool::Codex, Tool::ClaudeCode);
+        (codex.window, codex.reset_at) = (None, None);
+        assert_eq!(
+            row(&codex, "- Why"),
+            "- Why: Codex's usage limit is reached (which limit is not known). \
+             The reset time is not known."
         );
 
         let ended = "- Ended with the old session";

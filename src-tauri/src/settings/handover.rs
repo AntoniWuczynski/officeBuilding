@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum StartWith {
-    /// The tool's own configured default: no model and no effort is passed.
+    /// The tool's own configured default. Codex: no model and no effort is passed.
+    /// Claude Code: the model the hire dialog preselects, at that model's default effort.
     ToolDefault,
     Chosen {
         model: String,
@@ -25,7 +26,7 @@ pub struct HandoverSettings {
     pub automatic: bool,
     /// What Codex starts with when a Claude Code desk is handed to it. None: not chosen.
     pub claude_to_codex: Option<StartWith>,
-    /// The other direction. Stage H1 refuses anything but None.
+    /// What Claude Code starts with when a Codex desk is handed to it. None: not chosen.
     pub codex_to_claude: Option<StartWith>,
 }
 
@@ -56,13 +57,13 @@ pub(super) fn dropped(text: &str) -> bool {
 
 impl StartWith {
     /// The same choice with a model and an effort trimmed, or why one is not valid.
-    fn checked(self) -> Result<Self, String> {
+    fn checked(self, to: Tool) -> Result<Self, String> {
         let Self::Chosen { model, effort } = self else {
             return Ok(self);
         };
         let name = |raw: &str, what: &str| match qa_name(raw) {
             Ok(Some(n)) => Ok(n),
-            Ok(None) => Err("choose a model and an effort for Codex".to_string()),
+            Ok(None) => Err(format!("choose a model and an effort for {}", to.label())),
             Err(()) => Err(format!("that {what} name is not valid")),
         };
         Ok(Self::Chosen {
@@ -83,17 +84,25 @@ impl HandoverSettings {
     }
 
     pub(super) fn checked(mut self) -> Result<Self, String> {
-        if self.codex_to_claude.is_some() {
-            return Err("handing a Codex desk to Claude Code is not built yet".to_string());
-        }
-        self.claude_to_codex = self.claude_to_codex.map(StartWith::checked).transpose()?;
+        self.claude_to_codex = self
+            .claude_to_codex
+            .map(|c| c.checked(Tool::Codex))
+            .transpose()?;
+        self.codex_to_claude = self
+            .codex_to_claude
+            .map(|c| c.checked(Tool::ClaudeCode))
+            .transpose()?;
         Ok(self)
     }
 
-    /// As a file may hold anything: a choice that is not valid, or a direction not built, is dropped.
+    /// As a file may hold anything: a choice that is not valid is dropped, each direction by itself.
     pub(super) fn clamped(mut self) -> Self {
-        self.claude_to_codex = self.claude_to_codex.and_then(|c| c.checked().ok());
-        self.codex_to_claude = None;
+        self.claude_to_codex = self
+            .claude_to_codex
+            .and_then(|c| c.checked(Tool::Codex).ok());
+        self.codex_to_claude = self
+            .codex_to_claude
+            .and_then(|c| c.checked(Tool::ClaudeCode).ok());
         self
     }
 }
@@ -211,24 +220,55 @@ mod tests {
     }
 
     #[test]
-    fn codex_to_claude_is_refused() {
+    fn codex_to_claude_is_trimmed_saved_and_reloaded() {
+        let (store, p) = store_with("to-claude", None);
+        let text = r#"{"handover":{"automatic":true,"claudeToCodex":{"kind":"tool-default"},"codexToClaude":{"kind":"chosen","model":" claude-opus-5-5 ","effort":"high"}}}"#;
+        let patch: SettingsPatch = serde_json::from_str(text).expect("patch");
+        let saved = store.update(patch).expect("update");
+        let want = HandoverSettings {
+            automatic: true,
+            claude_to_codex: Some(StartWith::ToolDefault),
+            codex_to_claude: Some(chosen("claude-opus-5-5", "high")),
+        };
+        assert_eq!(saved.handover, want);
+        assert_eq!(SettingsStore::open(p.clone()).get().handover, want);
+        cleanup(&p);
+    }
+
+    #[test]
+    fn codex_to_claude_tool_default_saves() {
+        let (store, p) = store_with("to-claude-default", None);
         let h = HandoverSettings {
             codex_to_claude: Some(StartWith::ToolDefault),
             ..HandoverSettings::default()
         };
-        assert_eq!(
-            refused(h),
-            "handing a Codex desk to Claude Code is not built yet"
-        );
+        store.update(patch(h.clone())).expect("update");
+        assert_eq!(SettingsStore::open(p.clone()).get().handover, h);
+        cleanup(&p);
     }
 
     #[test]
-    fn a_file_with_an_invalid_choice_or_the_other_direction_loads_both_as_none() {
+    fn an_empty_name_in_the_second_direction_names_claude_code() {
+        let h = HandoverSettings {
+            codex_to_claude: Some(chosen("", "high")),
+            ..HandoverSettings::default()
+        };
+        assert_eq!(refused(h), "choose a model and an effort for Claude Code");
+        let h = HandoverSettings {
+            codex_to_claude: Some(chosen("m", "g\u{7}")),
+            ..HandoverSettings::default()
+        };
+        assert_eq!(refused(h), "that effort name is not valid");
+    }
+
+    #[test]
+    fn a_file_keeps_a_valid_direction_and_drops_an_invalid_one() {
         let text = r#"{"handover":{"automatic":true,"claudeToCodex":{"kind":"chosen","model":"","effort":"high"},"codexToClaude":{"kind":"tool-default"}}}"#;
         let (store, p) = store_with("invalid", Some(text));
         let h = store.get().handover;
         assert!(h.automatic);
-        assert_eq!((h.claude_to_codex, h.codex_to_claude), (None, None));
+        assert_eq!(h.claude_to_codex, None);
+        assert_eq!(h.codex_to_claude, Some(StartWith::ToolDefault));
         cleanup(&p);
     }
 
@@ -249,5 +289,11 @@ mod tests {
             Some(&StartWith::ToolDefault)
         );
         assert_eq!(h.start_with(Tool::Codex), None);
+        let h = HandoverSettings {
+            codex_to_claude: Some(StartWith::ToolDefault),
+            ..HandoverSettings::default()
+        };
+        assert_eq!(h.start_with(Tool::Codex), Some(&StartWith::ToolDefault));
+        assert_eq!(h.start_with(Tool::ClaudeCode), None);
     }
 }

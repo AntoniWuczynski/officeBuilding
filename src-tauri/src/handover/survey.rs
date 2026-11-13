@@ -1,11 +1,11 @@
 //! One pass over the desks: what each has to say about a handover, and which to hand
 //! over now. Pure: `now` and every other input is passed in.
 
+use super::Tool;
 use super::decide::{Decision, Facts, decide};
 use super::record::{Book, Done, Outcome, UsedUp};
 use super::view::{DeskHandover, DeskState, HandoverView, UsedUpView};
 use super::work::WorkLog;
-use super::{Tool, Work};
 use crate::settings::HandoverSettings;
 use std::collections::BTreeSet;
 
@@ -65,10 +65,7 @@ fn desk_state(
     let record = book
         .own(id, at.now)
         .or_else(|| book.live(desk.tool, at.now));
-    let work = match desk.tool {
-        Tool::ClaudeCode => works.of(id),
-        Tool::Codex => Work::Unknown,
-    };
+    let work = works.of(id);
     let receiver = book.live(to, at.now);
     let facts = Facts {
         ours: desk.ours,
@@ -180,7 +177,9 @@ pub fn survey(book: &Book, works: &WorkLog, desks: &[DeskFacts<'_>], at: &Now<'_
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handover::Work;
     use crate::handover::view::{BlockWhy, OfferWhy};
+    use crate::handover::work;
     use crate::settings::StartWith;
 
     const NOW: i64 = 1_000_000;
@@ -544,6 +543,173 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    fn desk_of(tool: Tool, id: &str) -> DeskFacts<'_> {
+        DeskFacts {
+            session_id: id,
+            tool,
+            ours: true,
+        }
+    }
+
+    #[test]
+    fn a_codex_desk_is_decided_on_the_work_it_was_told() {
+        let book = book_with(vec![record(Tool::Codex, "z", Some(RESET))]);
+        let codex = [desk_of(Tool::Codex, "z")];
+        let mut c = Case::new();
+        c.fresh = set(&["z"]);
+        let run = |c: &Case, log: &WorkLog| c.run(&book, log, &codex, &[]);
+
+        let mut log = WorkLog::default();
+        let s = run(&c, &log);
+        assert!(matches!(
+            state(&s, "z"),
+            Some(DeskState::Offered {
+                why: OfferWhy::WorkUnknown,
+                ..
+            })
+        ));
+
+        log.put("z", Work::Clear);
+        let s = run(&c, &log);
+        assert_eq!(s.hand_over, vec!["z".to_string()]);
+
+        let goal = work::codex(
+            &work::Goal::Standing {
+                objective: "Ship it".into(),
+            },
+            0,
+        );
+        log.put("z", goal.clone());
+        let s = run(&c, &log);
+        assert!(s.hand_over.is_empty());
+        assert!(matches!(
+            state(&s, "z"),
+            Some(DeskState::Offered { why: OfferWhy::WorkRunning, work, .. }) if *work == goal
+        ));
+    }
+
+    #[test]
+    fn an_unset_direction_blocks_only_its_own_tool() {
+        let book = book_with(vec![
+            record(Tool::Codex, "z", Some(RESET)),
+            record(Tool::ClaudeCode, "a", Some(RESET)),
+        ]);
+        let mut log = clear_log(&["a"]);
+        log.put("z", Work::Clear);
+        let mut c = Case::new();
+        c.fresh = set(&["a", "z"]);
+        c.settings.codex_to_claude = None;
+        let desks = [desk_of(Tool::Codex, "z"), claude("a")];
+        let s = c.run(&book, &log, &desks, &[]);
+        assert!(matches!(
+            state(&s, "z"),
+            Some(DeskState::Blocked {
+                why: BlockWhy::NotChosen,
+                ..
+            })
+        ));
+        // The Claude Code desk is judged by its own direction: both tools are used up here.
+        assert!(matches!(
+            state(&s, "a"),
+            Some(DeskState::Blocked {
+                why: BlockWhy::BothUsedUp,
+                ..
+            })
+        ));
+    }
+
+    /// The bounds of call 9, once per direction: the first tool is where the desk came from.
+    #[test]
+    fn the_bounds_hold_in_both_directions() {
+        for (first, second) in [
+            (Tool::ClaudeCode, Tool::Codex),
+            (Tool::Codex, Tool::ClaudeCode),
+        ] {
+            let arrived = || {
+                let mut book = Book::default();
+                book.finished(Done {
+                    from: first,
+                    to: second,
+                    ..done(
+                        "a",
+                        Outcome::Started {
+                            session: Some("n".into()),
+                        },
+                        NOW - 30,
+                    )
+                });
+                book
+            };
+            let mut log = WorkLog::default();
+            log.put("n", Work::Clear);
+            let desks = [desk_of(second, "n")];
+            let mut c = Case::new();
+            c.fresh = set(&["n"]);
+
+            // The first tool's record stands: both are used up.
+            let mut book = arrived();
+            book.saw(record(first, "a", Some(RESET)));
+            book.saw(record(second, "n", Some(RESET + 900)));
+            let s = c.run(&book, &log, &desks, &[]);
+            assert!(
+                matches!(
+                    state(&s, "n"),
+                    Some(DeskState::Blocked {
+                        why: BlockWhy::BothUsedUp,
+                        ..
+                    })
+                ),
+                "{first:?}"
+            );
+            assert!(s.hand_over.is_empty());
+
+            // That record has lapsed and the proof is no longer fresh: it waits.
+            let mut book = arrived();
+            book.saw(record(first, "a", Some(NOW - 10)));
+            book.saw(record(second, "n", Some(RESET + 900)));
+            c.fresh = set(&[]);
+            let s = c.run(&book, &log, &desks, &[]);
+            assert!(
+                matches!(
+                    state(&s, "n"),
+                    Some(DeskState::Offered {
+                        why: OfferWhy::NotAtTheTime,
+                        ..
+                    })
+                ),
+                "{first:?}"
+            );
+            assert!(s.hand_over.is_empty());
+
+            // A fresh proof with the other tool clear is handed over.
+            c.fresh = set(&["n"]);
+            let s = c.run(&book, &log, &desks, &[]);
+            assert_eq!(s.hand_over, vec!["n".to_string()], "{first:?}");
+
+            // A desk already handed over for this limit stays.
+            let mut book = Book::default();
+            book.saw(record(first, "a", Some(RESET)));
+            book.finished(Done {
+                from: first,
+                to: second,
+                ..done("a", Outcome::Started { session: None }, NOW - 30)
+            });
+            let mut log = WorkLog::default();
+            log.put("a", Work::Clear);
+            let s = c.run(&book, &log, &[desk_of(first, "a")], &[]);
+            assert!(
+                matches!(
+                    state(&s, "a"),
+                    Some(DeskState::Blocked {
+                        why: BlockWhy::AlreadyHandedOver,
+                        ..
+                    })
+                ),
+                "{first:?}"
+            );
+        }
     }
 
     #[test]

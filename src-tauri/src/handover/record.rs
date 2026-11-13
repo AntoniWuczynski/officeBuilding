@@ -10,6 +10,10 @@ use std::path::PathBuf;
 /// How long a record with no reset time is held.
 pub const UNKNOWN_HOLD: i64 = 5 * 60 * 60;
 
+/// The furthest reset taken as real, counted from now or from the record's own time: a
+/// week and a day. A larger number (milliseconds, say) would be a record that never lapses.
+pub const RESET_HORIZON: i64 = 8 * 24 * 60 * 60;
+
 const KEEP_SECONDS: i64 = 7 * 24 * 60 * 60;
 const KEEP_COUNT: usize = 200;
 const FILE_VERSION: u32 = 1;

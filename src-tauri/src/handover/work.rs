@@ -1,6 +1,6 @@
 //! What the hooks said about each session's background work, and what that rules out.
 
-use super::{Task, Work};
+use super::{Task, TaskKind, Work, head, tidy_line};
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 
@@ -9,6 +9,56 @@ const TASKS_MAX: usize = 20;
 
 /// How long a session discovery has not found yet keeps its signals.
 const GRACE: Duration = Duration::from_secs(300);
+
+/// What a Codex thread's rollout says about its goal.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Goal {
+    /// No goal was set, or its last recorded status is `complete` or `paused`.
+    #[default]
+    None,
+    /// The last recorded status is any other word: it would carry on, or a limit stopped it.
+    Standing { objective: String },
+    /// The last word on the goal could not be read.
+    Unknown,
+}
+
+/// The most characters of a goal's objective a task carries.
+const OBJECTIVE_MAX: usize = 80;
+
+/// A Codex desk's background work: its goal, and its sub-agent threads with a turn in flight.
+#[must_use]
+pub fn codex(goal: &Goal, busy_subagents: usize) -> Work {
+    let objective = match goal {
+        Goal::Unknown => return Work::Unknown,
+        Goal::None => None,
+        Goal::Standing { objective } => Some(objective),
+    };
+    let goal_task = objective.map(|text| {
+        let line = tidy_line(text);
+        let (kept, _) = head(&line, OBJECTIVE_MAX);
+        Task {
+            kind: TaskKind::Goal,
+            name: Some(kept.to_owned()).filter(|n| !n.is_empty()),
+        }
+    });
+    let subagents = std::iter::repeat_n(
+        Task {
+            kind: TaskKind::Subagent,
+            name: None,
+        },
+        busy_subagents,
+    );
+    let tasks: Vec<Task> = goal_task
+        .into_iter()
+        .chain(subagents)
+        .take(TASKS_MAX)
+        .collect();
+    if tasks.is_empty() {
+        Work::Clear
+    } else {
+        Work::Running { tasks }
+    }
+}
 
 /// One thing a hook said about a session's background work.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +81,8 @@ pub enum Signal {
 struct Entry {
     listing: Option<(SystemTime, Option<Vec<Task>>)>,
     starts: Vec<(SystemTime, Task)>,
+    /// What the desk's own file said outright.
+    told: Option<Work>,
 }
 
 /// Per session: the newest listing, and the starts not older than it.
@@ -68,12 +120,22 @@ impl WorkLog {
         }
     }
 
-    /// Whether documented signals rule background work out for this session.
+    /// What a desk's own file says outright about its work. It replaces what was told
+    /// before and is what `of` answers from then on.
+    pub fn put(&mut self, session_id: &str, work: Work) {
+        self.sessions.entry(session_id.to_owned()).or_default().told = Some(work);
+    }
+
+    /// What the desk's file told, else whether documented signals rule background work out.
     #[must_use]
     pub fn of(&self, session_id: &str) -> Work {
+        if let Some(told) = self.sessions.get(session_id).and_then(|e| e.told.as_ref()) {
+            return told.clone();
+        }
         let Some(Entry {
             listing: Some((_, Some(listed))),
             starts,
+            ..
         }) = self.sessions.get(session_id)
         else {
             return Work::Unknown;
@@ -226,6 +288,120 @@ mod tests {
             }
             assert_eq!(log.of("a"), want, "{name}");
         }
+    }
+
+    fn standing(objective: &str) -> Goal {
+        Goal::Standing {
+            objective: objective.into(),
+        }
+    }
+
+    fn named(kind: TaskKind, name: Option<&str>) -> Task {
+        Task {
+            kind,
+            name: name.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn the_codex_work_table() {
+        let sub = || named(TaskKind::Subagent, None);
+        let long = "x".repeat(200);
+        let cases: Vec<(&str, Goal, usize, Work)> = vec![
+            ("unknown with nothing", Goal::Unknown, 0, Work::Unknown),
+            ("unknown with busy", Goal::Unknown, 3, Work::Unknown),
+            ("nothing", Goal::None, 0, Work::Clear),
+            (
+                "standing goal",
+                standing("Finish the migration"),
+                0,
+                Work::Running {
+                    tasks: vec![named(TaskKind::Goal, Some("Finish the migration"))],
+                },
+            ),
+            (
+                "long objective",
+                standing(&long),
+                0,
+                Work::Running {
+                    tasks: vec![named(TaskKind::Goal, Some(&"x".repeat(80)))],
+                },
+            ),
+            (
+                "line break and escape",
+                standing("one\ntwo\x1b[31m red"),
+                0,
+                Work::Running {
+                    tasks: vec![named(TaskKind::Goal, Some("one two red"))],
+                },
+            ),
+            (
+                "empty objective",
+                standing(""),
+                0,
+                Work::Running {
+                    tasks: vec![named(TaskKind::Goal, None)],
+                },
+            ),
+            (
+                "goal then two sub-agents",
+                standing("g"),
+                2,
+                Work::Running {
+                    tasks: vec![named(TaskKind::Goal, Some("g")), sub(), sub()],
+                },
+            ),
+            (
+                "sub-agents alone",
+                Goal::None,
+                1,
+                Work::Running { tasks: vec![sub()] },
+            ),
+        ];
+        for (name, goal, busy, want) in cases {
+            assert_eq!(codex(&goal, busy), want, "{name}");
+        }
+        match codex(&standing("g"), 30) {
+            Work::Running { tasks } => {
+                assert_eq!(tasks.len(), 20);
+                assert_eq!(tasks[0].kind, TaskKind::Goal);
+            }
+            other => panic!("expected running, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn put_is_what_of_answers() {
+        let mut log = WorkLog::default();
+        log.put("a", Work::Clear);
+        assert_eq!(log.of("a"), Work::Clear);
+        let running = codex(&standing("g"), 0);
+        log.put("a", running.clone());
+        assert_eq!(log.of("a"), running);
+        assert_eq!(log.of("b"), Work::Unknown);
+    }
+
+    #[test]
+    fn hook_signals_read_as_before_until_something_is_told() {
+        let mut log = WorkLog::default();
+        log.note(listed("a", 1, Some(vec![])));
+        assert_eq!(log.of("a"), Work::Clear);
+        log.put("a", Work::Unknown);
+        assert_eq!(log.of("a"), Work::Unknown);
+        let mut log = WorkLog::default();
+        log.put("a", Work::Clear);
+        log.note(listed("a", 1, Some(vec![task(TaskKind::Shell)])));
+        assert_eq!(log.of("a"), Work::Clear);
+    }
+
+    #[test]
+    fn keep_forgets_what_was_told_with_the_session() {
+        let mut log = WorkLog::default();
+        log.put("a", Work::Clear);
+        log.put("b", Work::Clear);
+        log.keep(|id| id == "a", t(1_000_000));
+        assert_eq!(log.of("a"), Work::Clear);
+        assert_eq!(log.of("b"), Work::Unknown);
     }
 
     #[test]

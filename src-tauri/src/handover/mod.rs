@@ -83,6 +83,16 @@ impl Tool {
             Self::Codex => "Codex",
         }
     }
+
+    /// How this tool's used-up allowance is worded after its name:
+    /// "subscription allowance is used up" | "usage limit is reached".
+    #[must_use]
+    pub fn ran_out(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "subscription allowance is used up",
+            Self::Codex => "usage limit is reached",
+        }
+    }
 }
 
 /// A subscription window the building can name.
@@ -100,6 +110,7 @@ pub enum TaskKind {
     Subagent,
     Shell,
     Scheduled,
+    Goal,
     Other,
 }
 
@@ -109,6 +120,22 @@ pub enum TaskKind {
 pub struct Task {
     pub kind: TaskKind,
     pub name: Option<String>,
+}
+
+/// What a desk's own tool record says about its allowance, at the end of what was read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Allowance {
+    /// Nothing that proves anything.
+    Unproven,
+    /// No refusal stands: none was read, or the tool has answered since.
+    Clear,
+    /// The tool's own record that its allowance is used up. `at`: when the tool wrote it,
+    /// Unix seconds, if the record says.
+    UsedUp {
+        window: Option<Window>,
+        reset_at: Option<i64>,
+        at: Option<i64>,
+    },
 }
 
 /// What the building knows about a desk's background work.
@@ -150,6 +177,11 @@ mod tests {
         assert_eq!(Tool::Codex.other(), Tool::ClaudeCode);
         assert_eq!(Tool::ClaudeCode.label(), "Claude Code");
         assert_eq!(Tool::Codex.label(), "Codex");
+        assert_eq!(
+            Tool::ClaudeCode.ran_out(),
+            "subscription allowance is used up"
+        );
+        assert_eq!(Tool::Codex.ran_out(), "usage limit is reached");
     }
 
     #[test]
@@ -169,6 +201,24 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Window::SevenDay).expect("json"),
             r#""seven-day""#
+        );
+    }
+
+    #[test]
+    fn a_goal_is_a_task_kind_on_the_wire() {
+        assert_eq!(
+            serde_json::to_string(&TaskKind::Goal).expect("json"),
+            r#""goal""#
+        );
+        let running = Work::Running {
+            tasks: vec![Task {
+                kind: TaskKind::Goal,
+                name: Some("Finish the migration and keep tests green".into()),
+            }],
+        };
+        assert_eq!(
+            serde_json::to_string(&running).expect("json"),
+            r#"{"kind":"running","tasks":[{"kind":"goal","name":"Finish the migration and keep tests green"}]}"#
         );
     }
 
