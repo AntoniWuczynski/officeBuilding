@@ -1,6 +1,7 @@
 import type { Settings } from "../types";
 import { makeManagerSettings } from "./mockManager";
 import { makeQaSettings } from "./mockQa";
+import { makeRoutingSettings } from "./mockRouting";
 
 /** The settings of a fresh install (`Settings::default` in settings.rs). */
 export function makeSettings(): Settings {
@@ -19,5 +20,6 @@ export function makeSettings(): Settings {
     qa: makeQaSettings(),
     manager: makeManagerSettings(),
     agents: { view: "terminal" },
+    routing: makeRoutingSettings(),
   };
 }

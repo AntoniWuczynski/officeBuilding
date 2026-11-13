@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MockApi } from "./mockApi";
 import { STRUCTURED } from "./mockConversation";
 import { makeSeedSnapshot } from "./mockData";
+import { addContext } from "../lib/routing";
 import { makeSettings } from "./mockSettings";
 
 const NOW = new Date("2026-09-29T12:00:00Z");
@@ -438,7 +439,20 @@ describe("MockApi floors", () => {
         qa: { defaultOn: false, pollMinutes: 5, everyPush: true, skipDrafts: true, postWhenClean: true, maxConcurrent: 1, reviewsPerDay: 3, tool: "claude-code", model: null, effort: null },
         manager: { tool: "claude-code", model: null, effort: null, maxDesks: 3, spendCeilingUsd: 20 },
         agents: { view: "terminal" },
+        routing: {
+          enabled: false,
+          contexts: [],
+          connections: [],
+          tiers: { fable: [], opus: [], sonnet: [], haiku: [] },
+        },
       });
+    });
+
+    it("saves a routing group and reads it back", async () => {
+      const api = new MockApi();
+      const routing = addContext(makeSettings().routing, "ctx-1a2b3c4d", "Work");
+      await expect(api.updateSettings({ routing })).resolves.toEqual({ ...makeSettings(), routing });
+      await expect(api.getSettings()).resolves.toMatchObject({ routing });
     });
 
     it("merges an update, returns it and reads it back", async () => {

@@ -566,6 +566,56 @@ export interface AgentSettings {
   readonly view: DeskView;
 }
 
+/** The ways a desk's requests can be served (`ConnectionKind` in routing/config.rs). */
+export type ConnectionKind = "claude-subscription" | "anthropic-api-key" | "openrouter" | "openai-api-key" | "chatgpt-sign-in";
+/** The four model tiers (`TierId` in routing/config.rs). */
+export type TierId = "fable" | "opus" | "sonnet" | "haiku";
+export type PerTier<T> = Readonly<Record<TierId, T>>;
+
+/** What a tier is sent as on one connection (`TierTarget` in routing/config.rs). */
+export interface TierTarget {
+  readonly model: string;
+  /** The effort a desk asks for, to the effort sent upstream. */
+  readonly efforts: Readonly<Record<string, string>>;
+}
+
+export interface RoutingConnection {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: ConnectionKind;
+  /** The id of its account context. */
+  readonly context: string;
+  readonly paid: boolean;
+  readonly experimental: boolean;
+  readonly targets: PerTier<TierTarget | null>;
+}
+
+export interface AccountContext {
+  readonly id: string;
+  readonly name: string;
+  /** Connection ids, in the order they are tried. */
+  readonly chain: readonly string[];
+}
+
+/** The Routing group (`RoutingSettings` in settings/routing.rs). */
+export interface RoutingSettings {
+  readonly enabled: boolean;
+  readonly contexts: readonly AccountContext[];
+  readonly connections: readonly RoutingConnection[];
+  /** The model names a desk asks for, by tier. */
+  readonly tiers: PerTier<readonly string[]>;
+}
+
+/** What the building knows about a connection's API key. Never the key (`KeyStatus` in routing/keys.rs). */
+export type RoutingKeyStatus = { readonly kind: "missing" } | { readonly kind: "saved" } | { readonly kind: "unavailable"; readonly reason: string };
+
+/** A floor's account context with the contexts it can pick from (`FloorRouting` in routing/floors.rs). */
+export interface FloorRouting {
+  readonly enabled: boolean;
+  readonly context: string | null;
+  readonly contexts: readonly { readonly id: string; readonly name: string }[];
+}
+
 /** The app's settings, kept by the backend. One field per group. */
 export interface Settings {
   readonly notifications: NotificationSettings;
@@ -574,6 +624,7 @@ export interface Settings {
   readonly qa: QaSettings;
   readonly manager: ManagerSettings;
   readonly agents: AgentSettings;
+  readonly routing: RoutingSettings;
 }
 
 /** A change to the settings: each group present replaces that group whole. */

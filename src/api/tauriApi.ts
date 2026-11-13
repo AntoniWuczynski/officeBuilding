@@ -48,7 +48,7 @@ function asError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
-async function call(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+export async function call(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   try {
     return await invoke<unknown>(cmd, args);
   } catch (err: unknown) {

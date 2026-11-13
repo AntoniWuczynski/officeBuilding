@@ -48,6 +48,8 @@ describe("wire", () => {
     expect(parseWire(settingsSchema, "settings", { ...makeSettings(), editor: { preferred: "zed" } }).editor.preferred).toBe("zed");
     const { editor: _editor, ...without } = makeSettings();
     expect(() => parseWire(settingsSchema, "settings", without)).toThrow(/unexpected settings at editor/);
+    const { routing: _routing, ...noRouting } = makeSettings();
+    expect(() => parseWire(settingsSchema, "settings", noRouting)).toThrow(/unexpected settings at routing/);
     const seed = makeSeedSnapshot();
     const [first, ...rest] = seed.sessions;
     if (first === undefined) throw new Error("no session in the seed");

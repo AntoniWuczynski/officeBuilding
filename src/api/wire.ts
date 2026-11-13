@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, QueuedNote, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
+import { routingSettingsSchema } from "./routingWire";
 
 // Runtime schemas for everything the Rust backend sends. The `satisfies`
 // clauses make the compiler prove each schema produces exactly our types, so
@@ -346,6 +347,7 @@ export const settingsSchema = z.object({
     spendCeilingUsd: z.number(),
   }),
   agents: z.object({ view: deskView }),
+  routing: routingSettingsSchema,
 }) satisfies z.ZodType<Settings>;
 
 /** Parse a backend payload, turning a shape mismatch into a readable error. */
