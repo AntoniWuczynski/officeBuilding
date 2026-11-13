@@ -33,6 +33,7 @@ toml = "=1.1.6"
 tauri-plugin-notification = "~2.4"
 ureq = { version = "=3.5.1", default-features = false, features = ["native-tls-no-default"] }
 security-framework = "3.7.0"
+httparse = "1.10.1"
 
 [features]
 # by default Tauri v2 apps enable no extra features here

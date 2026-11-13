@@ -4,8 +4,10 @@ use super::config::{
     AccountContext, Connection, ConnectionId, ConnectionKind, ContextId, PerTier, Targets,
     TierTarget, Tiers,
 };
+use crate::routing::router::Opened;
 use crate::settings::RoutingSettings;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 pub(crate) fn conn(id: &str) -> ConnectionId {
     ConnectionId::parse(id).expect("fixture connection id")
@@ -147,4 +149,22 @@ pub(crate) fn credentials() -> BTreeSet<ConnectionId> {
         .filter(|c| c.kind.needs_credential())
         .map(|c| c.id)
         .collect()
+}
+
+/// A fresh folder for one test's records file, named by `scope` and `name`.
+pub(crate) fn temp_path(scope: &str, name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("ob-{scope}-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    dir.join("routing-exhaustion.json")
+}
+
+/// The secret half of a routed launch's local header.
+pub(crate) fn secret_of(opened: &Opened) -> String {
+    let (_, secret) = opened
+        .header
+        .expose()
+        .split_once(": ")
+        .expect("name: value");
+    secret.to_owned()
 }

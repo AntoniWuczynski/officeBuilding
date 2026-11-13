@@ -1,7 +1,12 @@
 //! Provider routing: which connection a desk's requests may use, and what happens when one runs out.
-//! Stage A is pure types and rules: no network, no listener, no clock.
+//! Stage A holds the types and rules. Stage B adds the loopback router (`router`, `serve`,
+//! `wire`), the same-vendor relays (`upstream`, `body`, `evidence`, `answers`), the routed launch
+//! (`launch`, with `office/routed.rs`) and the live route calls (`live`, `commands`).
 //!
-//! # How Stage B calls the state machine (`state::RouteState`)
+//! # How the router calls the state machine (`state::RouteState`)
+//!
+//! `router::Router` holds the one lock and reaches it only through `with_state`, which follows
+//! the steps below.
 //!
 //! One `Mutex<RouteState>`, locked with `sync::lock`. It is a leaf lock: never take the Office
 //! lock, the settings lock or the `Keys` lock while holding it, and never hold it across the
@@ -33,16 +38,25 @@
 //! through, `saved(revision)`. At start-up: `ExhaustionFile::load`, then
 //! `RouteState::new(records)`.
 
+pub mod answers;
 pub mod availability;
+pub mod body;
 pub mod capabilities;
 pub mod commands;
 pub mod config;
+pub mod evidence;
 #[cfg(test)]
 pub(crate) mod fixtures;
 pub mod floors;
 pub mod keys;
+pub mod launch;
+pub mod live;
 pub mod observe;
 pub mod policy;
 pub mod records;
+pub mod router;
+pub mod serve;
 pub mod state;
 pub mod status;
+pub mod upstream;
+pub mod wire;

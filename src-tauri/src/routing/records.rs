@@ -109,17 +109,9 @@ mod tests {
     use super::*;
     use crate::routing::availability::Bucket;
     use crate::routing::config::TierId;
-    use crate::routing::fixtures::conn;
+    use crate::routing::fixtures::{conn, temp_path};
     use serde_json::json;
     use std::path::Path;
-
-    fn temp_path(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("ob-routing-records-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("mkdir");
-        dir.join("routing-exhaustion.json")
-    }
 
     fn cleanup(path: &Path) {
         fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
@@ -142,7 +134,7 @@ mod tests {
 
     #[test]
     fn a_save_reads_back_equal() {
-        let path = temp_path("round-trip");
+        let path = temp_path("routing-records", "round-trip");
         let records = vec![
             record("api", Bucket::Whole),
             record("sub", Bucket::Tier { tier: TierId::Opus }),
@@ -169,7 +161,7 @@ mod tests {
 
     #[test]
     fn no_file_loads_empty_with_no_problem() {
-        let path = temp_path("missing");
+        let path = temp_path("routing-records", "missing");
         assert_eq!(
             ExhaustionFile::new(path.clone()).load(),
             Loaded {
@@ -188,7 +180,7 @@ mod tests {
             ("no version", r#"{ "records": [] }"#),
         ];
         for (name, text) in rows {
-            let path = temp_path(&name.replace(' ', "-"));
+            let path = temp_path("routing-records", &name.replace(' ', "-"));
             fs::write(&path, text).expect("write");
             let loaded = ExhaustionFile::new(path.clone()).load();
             assert!(loaded.records.is_empty(), "{name}");
@@ -202,7 +194,7 @@ mod tests {
 
     #[test]
     fn an_older_revision_never_overwrites_a_newer_one() {
-        let path = temp_path("older");
+        let path = temp_path("routing-records", "older");
         let file = ExhaustionFile::new(path.clone());
         let newer = vec![record("api", Bucket::Whole)];
         file.save(&saved(5, newer.clone())).expect("newer");
@@ -215,7 +207,7 @@ mod tests {
 
     #[test]
     fn the_written_text_has_a_version_and_the_records() {
-        let path = temp_path("text");
+        let path = temp_path("routing-records", "text");
         ExhaustionFile::new(path.clone())
             .save(&saved(1, vec![record("api", Bucket::Whole)]))
             .expect("save");
