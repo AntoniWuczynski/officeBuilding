@@ -8,7 +8,7 @@ const limitWindow = z.enum(["five-hour", "seven-day"]);
 const time = z.number();
 
 const backgroundTask = z.object({
-  kind: z.enum(["workflow", "subagent", "shell", "scheduled", "other"]),
+  kind: z.enum(["workflow", "subagent", "shell", "scheduled", "goal", "other"]),
   name: z.string().nullable(),
 }) satisfies z.ZodType<BackgroundTask>;
 

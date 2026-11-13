@@ -779,7 +779,7 @@ export interface ManagerSettings {
 export type HandoverTool = "claude-code" | "codex";
 /** A subscription window the building can name (`Window` in handover/mod.rs). */
 export type LimitWindow = "five-hour" | "seven-day";
-export type BackgroundTaskKind = "workflow" | "subagent" | "shell" | "scheduled" | "other";
+export type BackgroundTaskKind = "workflow" | "subagent" | "shell" | "scheduled" | "goal" | "other";
 /** One piece of background work a desk has in flight (`Task` in handover/mod.rs). */
 export interface BackgroundTask {
   readonly kind: BackgroundTaskKind;

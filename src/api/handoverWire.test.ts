@@ -8,7 +8,7 @@ import { parseWire, settingsSchema, snapshotSchema } from "./wire";
 // The JSON shapes of section 3 of the handover spec, as the backend sends them.
 const STATES: readonly unknown[] = [
   { kind: "offered", to: "codex", why: { kind: "automatic-off" }, work: { kind: "clear" }, window: "five-hour", resetAt: 1700000000 },
-  { kind: "offered", to: "codex", why: { kind: "failed", reason: "no" }, work: { kind: "running", tasks: [{ kind: "workflow", name: "w" }, { kind: "shell", name: null }] }, window: null, resetAt: null },
+  { kind: "offered", to: "codex", why: { kind: "failed", reason: "no" }, work: { kind: "running", tasks: [{ kind: "workflow", name: "w" }, { kind: "shell", name: null }, { kind: "goal", name: "g" }] }, window: null, resetAt: null },
   { kind: "offered", to: "codex", why: { kind: "work-unknown" }, work: { kind: "unknown" }, window: "seven-day", resetAt: 1 },
   { kind: "blocked", to: "codex", why: "both-used-up", window: null, resetAt: null, otherResetAt: 5 },
   { kind: "underway", to: "codex" },
@@ -22,6 +22,10 @@ describe("handoverViewSchema", () => {
     const view = { usedUp: [{ tool: "claude-code", window: "five-hour", resetAt: null, seenAt: 3 }], desks: STATES.map((state, i) => ({ sessionId: `s${i}`, state })) };
     expect(parseWire(handoverViewSchema, "handover", view)).toEqual(view);
     expect(parseWire(handoverViewSchema, "handover", { usedUp: [], desks: [] })).toEqual({ usedUp: [], desks: [] });
+  });
+  it("refuses an unknown task kind", () => {
+    const state = { kind: "offered", to: "codex", why: { kind: "work-running" }, work: { kind: "running", tasks: [{ kind: "chore", name: null }] }, window: null, resetAt: null };
+    expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], desks: [{ sessionId: "s", state }] })).toThrow(/kind/);
   });
   it("refuses an unknown kind and a missing field", () => {
     expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], desks: [{ sessionId: "s", state: { kind: "gone", to: "codex" } }] })).toThrow(/unexpected handover/);

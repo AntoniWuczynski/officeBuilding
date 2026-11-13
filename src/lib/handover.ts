@@ -7,7 +7,14 @@ import { clock } from "./route";
 type Offered = Extract<DeskHandoverState, { kind: "offered" }>;
 type Blocked = Extract<DeskHandoverState, { kind: "blocked" }>;
 
-export const SUBSCRIPTION: Record<HandoverTool, string> = { "claude-code": "Claude subscription", codex: "ChatGPT plan" };
+const RAN_OUT: Record<HandoverTool, { readonly now: string; readonly then: string }> = {
+  "claude-code": { now: "The Claude subscription is used up.", then: "when the Claude subscription was used up" },
+  codex: { now: "Codex's usage limit is reached.", then: "when Codex's usage limit was reached" },
+};
+const BACKGROUND: Record<HandoverTool, { readonly some: string; readonly any: string }> = {
+  "claude-code": { some: "a workflow or other background work", any: "any workflow or background work" },
+  codex: { some: "a goal or a subagent", any: "any goal or subagent" },
+};
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKDAY = new Intl.DateTimeFormat("en-GB", { weekday: "long" });
@@ -31,22 +38,18 @@ export function resetSentence(window: LimitWindow | null, resetAt: number | null
   return `The ${words} resets on ${WEEKDAY.format(ms)} at ${clock(resetAt)}.`;
 }
 
-function usedUpHead(tool: HandoverTool): string {
-  return `The ${SUBSCRIPTION[tool]} is used up.`;
-}
-
 export function usedUpSentence(tool: HandoverTool, window: LimitWindow | null, resetAt: number | null, now: Date): string {
-  return `${usedUpHead(tool)} ${resetSentence(window, resetAt, now)}`;
+  return `${RAN_OUT[tool].now} ${resetSentence(window, resetAt, now)}`;
 }
 
-export function offerWhySentence(why: OfferWhy): string {
+export function offerWhySentence(why: OfferWhy, from: HandoverTool): string {
   switch (why.kind) {
     case "automatic-off":
       return "Automatic handover is off, so it waits for you.";
     case "work-running":
       return "It has background work running, so it was not handed over by itself.";
     case "work-unknown":
-      return "The building cannot tell whether it has a workflow or other background work running, so it was not handed over by itself.";
+      return `The building cannot tell whether it has ${BACKGROUND[from].some} running, so it was not handed over by itself.`;
     case "seen-elsewhere":
       return "Another desk on the same login reached the limit. This one has not been refused yet.";
     case "not-at-the-time":
@@ -71,6 +74,7 @@ export function blockSentence(state: Blocked): string {
 
 const KIND_WORDS: readonly { readonly kind: BackgroundTaskKind; readonly one: string; readonly many: string }[] = [
   { kind: "workflow", one: "workflow", many: "workflows" },
+  { kind: "goal", one: "goal", many: "goals" },
   { kind: "subagent", one: "background subagent", many: "background subagents" },
   { kind: "shell", one: "background shell", many: "background shells" },
   { kind: "scheduled", one: "scheduled wake-up", many: "scheduled wake-ups" },
@@ -84,9 +88,9 @@ function joinWords(parts: readonly string[]): string {
 }
 
 function taskWords(tasks: readonly BackgroundTask[]): string {
-  const named = tasks.flatMap((t) => (t.kind === "workflow" && t.name !== null ? [`the workflow “${t.name}”`] : []));
+  const named = tasks.flatMap((t) => ((t.kind === "workflow" || t.kind === "goal") && t.name !== null ? [`the ${t.kind} “${t.name}”`] : []));
   const counted = KIND_WORDS.flatMap(({ kind, one, many }) => {
-    const n = tasks.filter((t) => t.kind === kind && !(kind === "workflow" && t.name !== null)).length;
+    const n = tasks.filter((t) => t.kind === kind && !((kind === "workflow" || kind === "goal") && t.name !== null)).length;
     return n === 0 ? [] : [plural(n, one, many)];
   });
   return joinWords([...named, ...counted]);
@@ -96,7 +100,7 @@ export function endsSentence(work: DeskWork, from: HandoverTool): string {
   const head = `This ends the ${TOOL_LABEL[from]} session at this desk`;
   if (work.kind === "clear") return `${head}.`;
   if (work.kind === "running" && work.tasks.length > 0) return `${head}, and with it ${taskWords(work.tasks)}.`;
-  return `${head}, and with it any workflow or background work it is running.`;
+  return `${head}, and with it ${BACKGROUND[from].any} it is running.`;
 }
 
 export function confirmSentence(state: Offered): string {
@@ -107,7 +111,7 @@ export function confirmSentence(state: Offered): string {
 export function stripLine(state: DeskHandoverState, now: Date): { readonly tone: "ok" | "wait" | "fault"; readonly text: string } {
   switch (state.kind) {
     case "offered":
-      return { tone: "wait", text: `${usedUpSentence(otherTool(state.to), state.window, state.resetAt, now)} ${offerWhySentence(state.why)}` };
+      return { tone: "wait", text: `${usedUpSentence(otherTool(state.to), state.window, state.resetAt, now)} ${offerWhySentence(state.why, otherTool(state.to))}` };
     case "blocked":
       return { tone: "fault", text: `${usedUpSentence(otherTool(state.to), state.window, state.resetAt, now)} ${blockSentence(state)}` };
     case "underway":
@@ -115,7 +119,7 @@ export function stripLine(state: DeskHandoverState, now: Date): { readonly tone:
     case "arrived":
       return {
         tone: "ok",
-        text: `Handed over from ${TOOL_LABEL[state.from]} at ${clock(state.at)}, when the ${SUBSCRIPTION[state.from]} was used up. ${resetSentence(state.window, state.resetAt, now)}`,
+        text: `Handed over from ${TOOL_LABEL[state.from]} at ${clock(state.at)}, ${RAN_OUT[state.from].then}. ${resetSentence(state.window, state.resetAt, now)}`,
       };
     case "left":
       return { tone: "ok", text: `Handed over to ${TOOL_LABEL[state.to]} at ${clock(state.at)}.` };
@@ -143,7 +147,7 @@ export function cardLine(state: DeskHandoverState, _now: Date): string | null {
   switch (state.kind) {
     case "offered":
     case "blocked":
-      return usedUpHead(otherTool(state.to));
+      return RAN_OUT[otherTool(state.to)].now;
     case "underway":
       return `Being handed over to ${TOOL_LABEL[state.to]}`;
     case "arrived":

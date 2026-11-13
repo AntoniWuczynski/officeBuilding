@@ -54,7 +54,7 @@ describe("resetSentence", () => {
 describe("usedUpSentence", () => {
   it("names the subscription of the tool", () => {
     expect(usedUpSentence("claude-code", "five-hour", SOON, NOW)).toBe("The Claude subscription is used up. The 5-hour limit resets at 16:53.");
-    expect(usedUpSentence("codex", null, null, NOW)).toBe("The ChatGPT plan is used up. The reset time is not known.");
+    expect(usedUpSentence("codex", null, null, NOW)).toBe("Codex's usage limit is reached. The reset time is not known.");
   });
 });
 
@@ -68,7 +68,10 @@ describe("offerWhySentence", () => {
     [{ kind: "failed", reason: "Codex did not start" }, "The last handover did not work: Codex did not start."],
   ];
   it.each(cases)("%j", (why, text) => {
-    expect(offerWhySentence(why)).toBe(text);
+    expect(offerWhySentence(why, "claude-code")).toBe(text);
+  });
+  it("names a goal or a subagent for a Codex desk", () => {
+    expect(offerWhySentence({ kind: "work-unknown" }, "codex")).toBe("The building cannot tell whether it has a goal or a subagent running, so it was not handed over by itself.");
   });
 });
 
@@ -86,6 +89,12 @@ describe("endsSentence", () => {
     expect(endsSentence({ kind: "clear" }, "claude-code")).toBe("This ends the Claude Code session at this desk.");
     expect(endsSentence({ kind: "unknown" }, "claude-code")).toBe("This ends the Claude Code session at this desk, and with it any workflow or background work it is running.");
     expect(endsSentence({ kind: "running", tasks: [] }, "claude-code")).toContain("any workflow or background work");
+  });
+  it("names the goal and subagent words for a Codex desk", () => {
+    const codexHead = "This ends the Codex session at this desk, and with it ";
+    expect(endsSentence({ kind: "running", tasks: [task("goal", "Finish the migration")] }, "codex")).toBe(`${codexHead}the goal “Finish the migration”.`);
+    expect(endsSentence({ kind: "running", tasks: [task("goal"), task("subagent"), task("subagent")] }, "codex")).toBe(`${codexHead}1 goal and 2 background subagents.`);
+    expect(endsSentence({ kind: "unknown" }, "codex")).toBe(`${codexHead}any goal or subagent it is running.`);
   });
   const head = "This ends the Claude Code session at this desk, and with it ";
   const cases: readonly [readonly BackgroundTask[], string][] = [
@@ -108,6 +117,18 @@ describe("confirmSentence", () => {
   it("joins the end, the conversation and the brief", () => {
     expect(confirmSentence(offered({ kind: "automatic-off" }))).toBe(
       "This ends the Claude Code session at this desk. Its conversation stays on disk and can be resumed from the sign-out sheet. Codex starts in the same folder and is told to read a brief: the visible conversation with tool output cut short, and the state of the folder.",
+    );
+  });
+});
+
+describe("a Codex desk's sentences", () => {
+  it("reads the Codex limit in the strip and the card", () => {
+    const arrived: DeskHandoverState = { kind: "arrived", from: "codex", at: at(13, 14, 2), window: null, resetAt: null };
+    expect(stripLine(arrived, NOW).text).toBe("Handed over from Codex at 14:02, when Codex's usage limit was reached. The reset time is not known.");
+    const state: DeskHandoverState = { kind: "offered", to: "claude-code", why: { kind: "work-unknown" }, work: { kind: "unknown" }, window: null, resetAt: null };
+    expect(cardLine(state, NOW)).toBe("Codex's usage limit is reached.");
+    expect(stripLine(state, NOW).text).toBe(
+      "Codex's usage limit is reached. The reset time is not known. The building cannot tell whether it has a goal or a subagent running, so it was not handed over by itself.",
     );
   });
 });
