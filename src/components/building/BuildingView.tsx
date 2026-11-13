@@ -1,6 +1,8 @@
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import type { OfficeSnapshot, Project, ToolUsage } from "../../types";
+import type { OfficeSnapshot, Project, Session, ToolUsage } from "../../types";
+import type { ViewMode } from "../../state/useViewMode";
+import { PLACE } from "../../state/placeWords";
 import {
   floorLight,
   matchesQuery,
@@ -10,7 +12,7 @@ import {
 } from "../../state/selectors";
 import { BUILDING_CAMERA } from "../../lib/iso";
 import { STOREY, storeyWidth } from "../../lib/layout";
-import { useBuildingName } from "../../state/useBuildingName";
+import { DEFAULT_BUILDING_NAME, useBuildingName } from "../../state/useBuildingName";
 import { usePresence } from "../../state/usePresence";
 import { Stage } from "../../scene/Stage";
 import { AddFloorDialog } from "./AddFloorDialog";
@@ -33,10 +35,22 @@ interface Props {
   readonly onAddFloor: (path: string) => Promise<Project>;
   readonly onDemolishFloor: (projectId: string) => Promise<void>;
   readonly loadUsage: (refresh: boolean) => Promise<readonly ToolUsage[]>;
+  /** The Office/Islands switch, shown in the top bar when given. */
+  readonly viewSwitch?: React.ReactNode;
+  /** Draw the floors as a building (default) or as islands; everything around the drawing stays the same. */
+  readonly mode?: ViewMode;
+  /** Islands only: open one agent's terminal or conversation from the island panel. */
+  readonly onOpenSession?: (session: Session) => void;
 }
 
+// The island map pulls in three.js (a 596 kB chunk, 152 kB gzipped): load it only when Islands is chosen.
+const Archipelago = lazy(() => import("../../archipelago/Archipelago").then((m) => ({ default: m.Archipelago })));
+
+/** The roof sign's default reads as the place you are looking at; a name of your own shows in both. */
+const ISLANDS_DEFAULT_NAME = "The Islands";
+
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, viewSwitch, mode = "office", onOpenSession }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
@@ -62,6 +76,9 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   const tally = sessionCounts(snapshot.sessions);
   const needsYou = floors.filter((f) => f.light === "red" || f.light === "yellow");
   const width = storeyWidth(Math.max(0, ...floors.map((f) => f.sessions.length)));
+  const islands = mode === "islands";
+  const shownName = islands && buildingName === DEFAULT_BUILDING_NAME ? ISLANDS_DEFAULT_NAME : buildingName;
+  const place = islands ? "island" : "floor";
 
   const originOf = (el: HTMLElement | null): ScreenOrigin => {
     const view = viewRef.current?.getBoundingClientRect();
@@ -73,13 +90,13 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   return (
     <div ref={viewRef} className="view building-view">
       <header className="topbar" data-tauri-drag-region>
-        <span className="topbar-sign">{buildingName}</span>
+        <span className="topbar-sign">{shownName}</span>
         <label className="search">
-          <span className="sr-only">Search floors</span>
+          <span className="sr-only">Search {place}s</span>
           <input
             type="search"
             value={query}
-            placeholder="Search floors"
+            placeholder={`Search ${place}s`}
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
@@ -89,6 +106,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           </b>{" "}
           active
         </span>
+        {viewSwitch}
         {needsYou.length > 0 ? (
           <span className="needs-you">
             <span>Needs you:</span>
@@ -111,18 +129,36 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
 
       {floors.length === 0 ? (
         <p className="scene-note" role="status">
-          No projects yet. When an agent starts work in a repo, its floor appears here, or add a floor from the roof.
+          {islands
+            ? "No projects yet. When an agent starts work in a repo, its island appears here, or add an island from the list."
+            : "No projects yet. When an agent starts work in a repo, its floor appears here, or add a floor from the roof."}
         </p>
       ) : query.trim() !== "" && matching === 0 ? (
         <p className="scene-note" role="status">
-          No floors match “{query.trim()}”.{" "}
+          No {place}s match “{query.trim()}”.{" "}
           <button type="button" className="link" onClick={() => setQuery("")}>
             Clear search
           </button>
         </p>
       ) : null}
 
-      <div className="building-body">
+      <div className={islands ? "building-body is-islands" : "building-body"}>
+        {islands ? (
+          <Suspense fallback={null}>
+            <Archipelago
+              snapshot={snapshot}
+              entries={standing.list}
+              onGone={standing.done}
+              name={shownName}
+              animate={animate}
+              onRename={(next) => renameBuilding(next.trim() === ISLANDS_DEFAULT_NAME ? DEFAULT_BUILDING_NAME : next)}
+              onEnter={(projectId) => onEnter(projectId, originOf(viewRef.current))}
+              onOpenSession={(s) => onOpenSession?.(s)}
+              onAddFloor={() => setAdding(true)}
+              onDemolish={setDemolishing}
+            />
+          </Suspense>
+        ) : (
         <Stage
           camera={BUILDING_CAMERA}
           width={width}
@@ -145,6 +181,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             onGone={standing.done}
           />
         </Stage>
+        )}
         <UsageSigns loadUsage={loadUsage} />
       </div>
 
@@ -154,6 +191,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           onPickFolder={onPickFolder}
           onCancel={() => setAdding(false)}
           onAdd={(path) => onAddFloor(path).then(() => setAdding(false))}
+          words={PLACE[mode]}
         />
       ) : null}
 
@@ -163,6 +201,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           agents={doomed.sessions.length}
           onCancel={() => setDemolishing(null)}
           onDemolish={() => onDemolishFloor(doomed.project.id).then(() => setDemolishing(null))}
+          words={PLACE[mode]}
         />
       )}
     </div>

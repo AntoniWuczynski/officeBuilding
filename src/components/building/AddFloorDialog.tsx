@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { message } from "../../lib/errors";
+import { PLACE } from "../../state/placeWords";
+import type { PlaceWords } from "../../state/placeWords";
 
 interface Props {
   readonly canPickFolder: boolean;
   readonly onPickFolder: () => Promise<string | null>;
   readonly onAdd: (path: string) => Promise<void>;
   readonly onCancel: () => void;
+  readonly words?: PlaceWords;
 }
 
 /** Add a floor: the repo folder a project lives in. */
-export function AddFloorDialog({ canPickFolder, onPickFolder, onAdd, onCancel }: Props): React.ReactElement {
+export function AddFloorDialog({ canPickFolder, onPickFolder, onAdd, onCancel, words = PLACE.office }: Props): React.ReactElement {
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,10 +36,8 @@ export function AddFloorDialog({ canPickFolder, onPickFolder, onAdd, onCancel }:
         });
       }}
     >
-      <h2 id="add-floor-title">Add a floor</h2>
-      <p className="panel-hint">
-        A floor is a project folder. Agents that start work there take a desk on it; until then its lights stay off.
-      </p>
+      <h2 id="add-floor-title">{words.addTitle}</h2>
+      <p className="panel-hint">{words.addHint}</p>
       <label className="field">
         <span>Folder</span>
         <div className="other-row">
@@ -69,7 +70,7 @@ export function AddFloorDialog({ canPickFolder, onPickFolder, onAdd, onCancel }:
       </label>
       {error === null ? null : (
         <p className="form-error" role="alert">
-          Could not add the floor: {error}.
+          {words.addFailed}: {error}.
         </p>
       )}
       <div className="dialog-actions">
@@ -77,7 +78,7 @@ export function AddFloorDialog({ canPickFolder, onPickFolder, onAdd, onCancel }:
           Cancel
         </button>
         <button type="submit" className="btn btn-primary" data-testid="add-floor-submit" disabled={busy || path.trim() === ""}>
-          {busy ? "Adding" : "Add floor"}
+          {busy ? "Adding" : words.addAction}
         </button>
       </div>
     </form>

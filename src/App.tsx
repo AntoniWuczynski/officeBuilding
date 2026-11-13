@@ -6,6 +6,9 @@ import type { Session } from "./types";
 import { TOOL_LABEL, sessionById } from "./state/selectors";
 import { useNow } from "./state/useNow";
 import { useOffice } from "./state/useOffice";
+import { ViewSwitch } from "./components/ViewSwitch";
+import { PLACE } from "./state/placeWords";
+import { useViewMode } from "./state/useViewMode";
 import { BuildingView } from "./components/building/BuildingView";
 import type { ScreenOrigin } from "./components/building/BuildingView";
 import { FloorView } from "./components/floor/FloorView";
@@ -28,6 +31,8 @@ const TOAST_MS = 4500;
 /** Root view-state machine: building ↔ floor, plus the floor's panels and toasts. */
 export function App({ api }: Props): React.ReactElement {
   const { state, retry } = useOffice(api);
+  const [viewMode, setViewMode] = useViewMode();
+  const words = PLACE[viewMode];
   const now = useNow();
   const [view, setView] = useState<View>({ kind: "building" });
   const [origin, setOrigin] = useState<ScreenOrigin>({ x: 0, y: 0 });
@@ -131,19 +136,19 @@ export function App({ api }: Props): React.ReactElement {
     (path: string) => {
       const known = new Set(snapshot?.projects.map((p) => p.id) ?? []);
       return api.addFloor(path).then((project) => {
-        toast("ok", known.has(project.id) ? `${project.name} already has a floor.` : `Added the ${project.name} floor.`);
+        toast("ok", words.addedToast(project.name, known.has(project.id)));
         return project;
       });
     },
-    [api, snapshot, toast],
+    [api, snapshot, toast, words],
   );
 
   const demolishFloor = useCallback(
     (projectId: string) => {
       const name = snapshot?.projects.find((p) => p.id === projectId)?.name;
-      return api.demolishFloor(projectId).then(() => toast("ok", name === undefined ? "Demolished the floor." : `Demolished the ${name} floor.`));
+      return api.demolishFloor(projectId).then(() => toast("ok", words.removeToast(name)));
     },
-    [api, snapshot, toast],
+    [api, snapshot, toast, words],
   );
 
   const answer = useCallback(
@@ -213,6 +218,13 @@ export function App({ api }: Props): React.ReactElement {
               onAddFloor={addFloor}
               onDemolishFloor={demolishFloor}
               loadUsage={loadUsage}
+              mode={viewMode}
+              viewSwitch={<ViewSwitch mode={viewMode} onChange={setViewMode} />}
+              onOpenSession={(s) => {
+                // A session in its own terminal window is raised where it is, as clicking its desk does; others open on their floor.
+                if (s.control !== "raise-window") enter(s.projectId, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+                openSession(s);
+              }}
             />
           </motion.div>
         ) : (
@@ -234,6 +246,7 @@ export function App({ api }: Props): React.ReactElement {
               onOpenSession={openSession}
               onCloseTerminal={() => setOpenSessionId(null)}
               onBack={leave}
+              backLabel={words.back}
               loadHireOptions={loadHireOptions}
               onHire={hire}
               onAnswer={answer}
@@ -254,7 +267,7 @@ export function App({ api }: Props): React.ReactElement {
     <MotionConfig reducedMotion="user">
       <TerminalApiContext value={api}>
       <ConversationApiContext value={api}>
-        <div className="app">
+        <div className={viewMode === "islands" && project === undefined ? "app is-islands" : "app"}>
           {body}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>

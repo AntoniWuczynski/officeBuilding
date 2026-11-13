@@ -1,0 +1,297 @@
+/*
+ * Island view. The map fills the whole area under the top bar and the list and usage signs float on the sea,
+ * as the nameplates and signs float on the sky beside the building. The chrome is the office's: paper plates,
+ * ink borders, sign type. Everything here is scoped to the island view so the office keeps its look.
+ */
+.building-body.is-islands {
+  position: relative;
+  overflow: hidden;
+  /* Keep the high z-indexes below inside this view, so toasts and dialogs still sit above it. */
+  isolation: isolate;
+}
+.arch {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.arch canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Floating chrome sits above the people and notes, which stack by screen depth (z-index up to the view height). */
+.arch-list,
+.arch-compass,
+.arch-hint,
+.arch-panel,
+.building-body.is-islands > .usage-signs {
+  z-index: 100001;
+}
+
+.arch-list {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  bottom: 16px;
+  width: 224px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.arch-list .roof-sign {
+  position: static;
+  transform: none;
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 20px;
+}
+.arch-list-row {
+  position: relative;
+}
+.arch-list .nameplate {
+  position: static;
+  transform: none;
+  width: 100%;
+  background: var(--paper);
+  border-color: var(--ink);
+}
+.arch-list .nameplate-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.arch-list .nameplate:hover,
+.arch-list-row[data-selected] .nameplate {
+  background: var(--paper-hover);
+}
+.arch-list-row[data-selected] .nameplate {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.arch-list .demolish-btn {
+  top: 50%;
+  right: 6px;
+  bottom: auto;
+  transform: translate(50%, -50%);
+}
+.arch-list-row:hover .demolish-btn,
+.arch-list .demolish-btn:focus-visible {
+  opacity: 1;
+}
+.arch-add {
+  padding: 8px 10px;
+  border: 2px dashed var(--ink);
+  background: transparent;
+  color: var(--ink);
+  font: 700 15px/1 var(--font-sign);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.arch-add:hover {
+  background: var(--paper);
+}
+.arch-pending {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--wait);
+  font: 700 12px/17px var(--font-num);
+  text-align: center;
+}
+/* Scoped: the office uses .is-dim on storeys and desks, where opacity would flatten their 3D. */
+.arch-list-row.is-dim {
+  opacity: 0.35;
+}
+
+/* Toasts sit where the island list is; in this view they show over the sea at the bottom instead. */
+.app.is-islands .toasts {
+  left: 50%;
+  top: auto;
+  bottom: 64px;
+  transform: translateX(-50%);
+  align-items: center;
+}
+
+/* The usage signs keep their own look and move to the right edge of the sea. */
+.building-body.is-islands > .usage-signs {
+  left: auto;
+  right: 16px;
+  top: 16px;
+  bottom: 16px;
+}
+
+/* Labels over the islands: the office nameplate shape. */
+.arch-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 3px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 700 15px/1 var(--font-sign);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.arch-label[data-selected] {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.arch-label i {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+}
+.arch-label span {
+  font: 700 14px/1 var(--font-num);
+  color: var(--ink-soft);
+}
+
+/* People are the app's cut-out puppets, placed by projection each frame (Archipelago.tsx). */
+.arch-person {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+/* No office chair on the grass: they sit on a crate. */
+.arch .pp-chair {
+  display: none;
+}
+
+/* A message in flight between two agents: a folded paper note. */
+.arch-note {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 15px;
+  margin: -8px 0 0 -11px;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  background: linear-gradient(135deg, transparent 49%, var(--ink) 49% 52%, transparent 52%) 0 0 / 50% 55% no-repeat,
+    linear-gradient(225deg, transparent 49%, var(--ink) 49% 52%, transparent 52%) 100% 0 / 50% 55% no-repeat, var(--paper);
+  pointer-events: none;
+  z-index: 100000;
+}
+
+/* The selected island's plate: paper and ink, like the floor screen's panels. */
+.arch-panel {
+  position: absolute;
+  top: 16px;
+  right: calc(clamp(190px, 17vw, 232px) + 32px);
+  width: 260px;
+  /* Room for the hint below: 16 top + 16 bottom + the hint (about 30 tall) + 32 clear = 94. */
+  max-height: calc(100% - 94px);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.arch-panel h2 {
+  margin: 0 0 2px;
+  font: 700 20px/1 var(--font-sign);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.arch-panel p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.arch-panel ul {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.arch-panel li button {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.arch-panel li button:hover {
+  background: var(--paper-hover);
+}
+.arch-panel li span {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.arch-open {
+  width: 100%;
+  flex: none;
+}
+
+/* Compass and hint: small paper plates, clear of the list. */
+.arch-compass {
+  position: absolute;
+  left: 256px;
+  top: 16px;
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  cursor: pointer;
+}
+/* Red half points north; the whole needle turns with the camera. */
+.arch-needle {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 6px;
+  height: 24px;
+  margin-left: -3px;
+  background: linear-gradient(var(--fault) 0 50%, var(--off) 50%);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  transform-origin: 50% 50%;
+}
+.arch-hint {
+  position: absolute;
+  left: 256px;
+  bottom: 16px;
+  margin: 0;
+  padding: 5px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.3;
+  pointer-events: none;
+}
