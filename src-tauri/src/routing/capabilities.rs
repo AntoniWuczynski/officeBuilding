@@ -16,8 +16,9 @@ pub enum Capability {
     ServerTools,
 }
 
-/// What a translated route can carry. Stage C widens this list as its translator learns more.
-const TRANSLATED: &[Capability] = &[Capability::Tools];
+/// What a translated route can carry (U1, U8, U10). Documents and tools the provider runs are
+/// not carried.
+const TRANSLATED: &[Capability] = &[Capability::Tools, Capability::Images];
 
 /// Whether a connection of `kind` can carry `capability`. A kind that speaks the Messages API carries everything.
 #[must_use]
@@ -70,8 +71,8 @@ mod tests {
             (ClaudeSubscription, [true; 4]),
             (AnthropicApiKey, [true; 4]),
             (OpenRouter, [true; 4]),
-            (OpenAiApiKey, [true, false, false, false]),
-            (ChatGptSignIn, [true, false, false, false]),
+            (OpenAiApiKey, [true, true, false, false]),
+            (ChatGptSignIn, [true, true, false, false]),
         ];
         for (kind, expected) in rows {
             for (capability, want) in all.into_iter().zip(expected) {

@@ -374,7 +374,7 @@ fn efforts_map_by_pair_or_pass_on_the_same_api() {
 fn fit_reports_the_first_check_that_fails() {
     type Edit = fn(&mut Entry);
     let none: Edit = |_| {};
-    let image = [Capability::Images];
+    let document = [Capability::Documents];
     #[rustfmt::skip]
     let rows: [(&str, &str, Edit, bool, Requirements, Fitted); 15] = [
         ("fits", "oai", none, true, req(OPUS, None, &[Capability::Tools]), Ok(rewrite("gpt-5.6-sol", None))),
@@ -387,11 +387,11 @@ fn fit_reports_the_first_check_that_fails() {
         ("no credential", "api", none, false, ask(OPUS), Err(Skip::NoCredential)),
         ("no credential before unmapped model", "api", none, false, ask("in-no-tier"), Err(Skip::NoCredential)),
         ("unmapped model", "api", none, true, ask("in-no-tier"), Err(unmapped("in-no-tier"))),
-        ("unmapped model before unsupported", "oai", none, true, req("in-no-tier", None, &image), Err(unmapped("in-no-tier"))),
+        ("unmapped model before unsupported", "oai", none, true, req("in-no-tier", None, &document), Err(unmapped("in-no-tier"))),
         ("no target", "api", |e| e.targets.haiku = None, true, ask(HAIKU), Err(no_target(TierId::Haiku))),
-        ("no target before unsupported", "oai", |e| e.targets.haiku = None, true, req(HAIKU, None, &image), Err(no_target(TierId::Haiku))),
-        ("effort unmapped before unsupported", "oai", none, true, req(OPUS, Some("max"), &image), Err(effort_unmapped(TierId::Opus, "max"))),
-        ("unsupported", "oai", none, true, req(OPUS, None, &[Capability::Tools, Capability::Documents, Capability::Images]), Err(unsupported(Capability::Images))),
+        ("no target before unsupported", "oai", |e| e.targets.haiku = None, true, req(HAIKU, None, &document), Err(no_target(TierId::Haiku))),
+        ("effort unmapped before unsupported", "oai", none, true, req(OPUS, Some("max"), &document), Err(effort_unmapped(TierId::Opus, "max"))),
+        ("unsupported", "oai", none, true, req(OPUS, None, &[Capability::Tools, Capability::Images, Capability::Documents]), Err(unsupported(Capability::Documents))),
     ];
     for (row, on, edit, credentialed, request, expected) in rows {
         let mut route = route("work");
@@ -456,7 +456,7 @@ fn a_request_the_active_entry_cannot_serve_is_refused() {
     let none: Edit = |_| {};
     #[rustfmt::skip]
     let rows: [(&str, Edit, Requirements, Skip); 6] = [
-        ("an image", none, req(OPUS, None, &[Capability::Images]), unsupported(Capability::Images)),
+        ("a document", none, req(OPUS, None, &[Capability::Documents]), unsupported(Capability::Documents)),
         ("an unmapped effort", none, req(OPUS, Some("max"), &[]), effort_unmapped(TierId::Opus, "max")),
         ("a model in no tier", none, ask("in-no-tier"), unmapped("in-no-tier")),
         ("a tier with no target", |c| entry(&mut c.route, "oai").targets.sonnet = None, ask("claude-sonnet-5-5"), no_target(TierId::Sonnet)),

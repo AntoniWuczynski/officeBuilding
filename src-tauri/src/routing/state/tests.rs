@@ -718,13 +718,13 @@ fn a_request_the_active_entry_cannot_serve_is_refused_without_a_move() {
     let id = rig.open("a", "work");
     rig.lease(&id, T0);
     rig.switch(&id, "oai", T0).expect("switch");
-    let image = req(OPUS, None, &[Capability::Images]);
+    let document = req(OPUS, None, &[Capability::Documents]);
     assert_eq!(
-        rig.begin(&id, image, T0 + 1),
+        rig.begin(&id, document, T0 + 1),
         Err(refused(
             "oai",
             Skip::Unsupported {
-                capability: Capability::Images
+                capability: Capability::Documents
             }
         ))
     );
