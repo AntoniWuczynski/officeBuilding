@@ -131,7 +131,15 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let http: Arc<dyn http::HttpClient> = Arc::new(http::UreqClient::new(Duration::from_secs(15)));
     let keychain: Arc<dyn secrets::SecretStore> =
         Arc::new(secrets::Keychain::new(app.config().identifier.clone()));
-    app.manage(Arc::new(routing::keys::Keys::new(Arc::clone(&keychain))));
+    let keys = Arc::new(routing::keys::Keys::new(Arc::clone(&keychain)));
+    app.manage(Arc::clone(&keys));
+    let router = routing::router::Router::new(
+        routing::records::ExhaustionFile::new(data.join("routing-exhaustion.json")),
+        keys,
+        Arc::new(routing::upstream::UreqUpstream::new()),
+        routing::upstream::Bases::default(),
+    );
+    app.manage(Arc::clone(&router));
     let linear = Arc::new(Linear::new(http, keychain, Arc::clone(&settings)));
     let linear_connector: Arc<dyn Connector> = linear.clone();
     let hub = Arc::new(Hub::new(vec![linear_connector], snapshot_pusher(app)));
@@ -156,6 +164,9 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 let manager_gone = office.as_ref().is_some_and(|o| o.manager_left(&e));
                 let failed = office.as_ref().and_then(|o| o.hire_failed(&e));
                 let shell_gone = office.as_ref().is_some_and(|o| o.shell_exited(&e));
+                if let Some(router) = handle.try_state::<Arc<routing::router::Router>>() {
+                    router.terminal_exited(&e.terminal_id);
+                }
                 let _ = handle.emit(pty::EXIT_EVENT, e);
                 if let Some(failed) = failed {
                     let _ = handle.emit(office::HIRE_FAILED_EVENT, failed);
@@ -179,7 +190,8 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             .with_connectors(Arc::clone(&hub))
             .with_settings(Arc::clone(&settings))
             .with_qa(Arc::clone(&qa_watch))
-            .with_manager(host),
+            .with_manager(host)
+            .with_routing(router),
     );
     if let (Some(server), Some(registry)) = (server, registry) {
         server.serve(
@@ -277,6 +289,9 @@ pub fn run() -> tauri::Result<()> {
             routing::commands::set_routing_key,
             routing::commands::floor_routing,
             routing::commands::set_floor_context,
+            routing::commands::desk_route,
+            routing::commands::retry_route,
+            routing::commands::switch_route,
         ])
         .run(tauri::generate_context!())
 }

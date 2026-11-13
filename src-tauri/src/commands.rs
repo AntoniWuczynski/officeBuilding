@@ -16,6 +16,7 @@ use crate::office::Office;
 use crate::process::{Runner, SystemRunner, browser_call};
 use crate::qa::watch::Watch;
 use crate::routing::keys::{self, Keys};
+use crate::routing::router::Router;
 use crate::settings::{Settings, SettingsPatch, SettingsStore};
 use crate::setup::{ItemKind, SetupView, Targets};
 use crate::structured::desks::Backlog;
@@ -324,6 +325,7 @@ pub fn update_settings(
     hub: HubState<'_>,
     watch: WatchState<'_>,
     keys: State<'_, Arc<Keys>>,
+    router: State<'_, Arc<Router>>,
     patch: SettingsPatch,
 ) -> Result<Settings, String> {
     let connectors_changed = patch.connectors.is_some();
@@ -337,14 +339,17 @@ pub fn update_settings(
         watch.recheck();
     }
     if let Some(before) = routing_before {
+        // Memory only, so a withdrawn opt-in bites before this command returns.
+        router.apply_preferences(&updated.routing);
         let gone = keys::gone(&before, &updated.routing);
-        if !gone.is_empty() {
-            let keys = Arc::clone(&keys);
-            // Not awaited: the task runs on its own, and a Keychain refusal there is dropped.
-            drop(tauri::async_runtime::spawn_blocking(move || {
-                keys.forget(&gone);
-            }));
-        }
+        let keys = Arc::clone(&keys);
+        let router = Arc::clone(&router);
+        // Not awaited: the task runs on its own, and a Keychain refusal there is dropped. The
+        // records file is written here, off the main thread.
+        drop(tauri::async_runtime::spawn_blocking(move || {
+            keys.forget(&gone);
+            router.flush();
+        }));
     }
     Ok(updated)
 }

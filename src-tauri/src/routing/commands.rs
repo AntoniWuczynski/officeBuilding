@@ -1,5 +1,5 @@
 //! Tauri commands: the Rust side of `RoutingApi` (src/api/RoutingApi.ts). Thin: every decision is
-//! in `keys` and `floors`.
+//! in `keys`, `floors`, `router` and the office's `routed`.
 #![expect(
     clippy::needless_pass_by_value,
     reason = "Tauri's command macro hands each command owned, deserialized arguments and `State` by value"
@@ -7,6 +7,7 @@
 
 use super::floors::{self, FloorRouting};
 use super::keys::{self, KeyStatus, Keys};
+use super::live::DeskRoute;
 use crate::office::Office;
 use crate::settings::SettingsStore;
 use std::sync::Arc;
@@ -79,4 +80,43 @@ pub fn set_floor_context(
         &routing,
         office.floor_context(&project_id)?,
     ))
+}
+
+/// The route of a desk. None: it is not routed. On a blocking thread: working out credentials may
+/// read the Keychain.
+#[tauri::command]
+pub async fn desk_route(
+    office: OfficeState<'_>,
+    session_id: String,
+) -> Result<Option<DeskRoute>, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.desk_route(&session_id))
+        .await
+        .map_err(|e| format!("the route could not be read: {e}"))
+}
+
+/// On a blocking thread, like `desk_route`.
+#[tauri::command]
+pub async fn retry_route(
+    office: OfficeState<'_>,
+    session_id: String,
+    connection_id: String,
+) -> Result<DeskRoute, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.retry_route(&session_id, &connection_id))
+        .await
+        .map_err(|e| format!("the retry did not finish: {e}"))?
+}
+
+/// On a blocking thread, like `desk_route`.
+#[tauri::command]
+pub async fn switch_route(
+    office: OfficeState<'_>,
+    session_id: String,
+    connection_id: String,
+) -> Result<DeskRoute, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.switch_route(&session_id, &connection_id))
+        .await
+        .map_err(|e| format!("the switch did not finish: {e}"))?
 }
