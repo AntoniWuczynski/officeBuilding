@@ -585,11 +585,12 @@ here.
       The handover is off until you do step 2.
       1. Open Settings with Cmd+,. Handover is the last group. "Hand desks
          over by themselves" is off, and "Claude Code to Codex: Codex starts
-         with" reads "Not chosen". Nothing is filled in for you. One line says
-         that Codex to Claude Code is not built yet. Read the two hints under
-         it. The second says that what was said at the desk goes to the other
-         vendor, including any secret a tool printed. Note anything about the
-         group's look that is off.
+         with" reads "Not chosen". Nothing is filled in for you. A second
+         choice, for Codex to Claude Code, sits under it since the second
+         stage (OB-311). Read the three hints under them. The second says that
+         what was said at the desk goes to the other vendor, including any
+         secret a tool printed. Note anything about the group's look that is
+         off.
       2. Choose what Codex starts with. Pick "A model I choose", then a model
          and an effort from Codex's own list, or pick "Codex's own configured
          default". Switch "Hand desks over by themselves" on. Quit the app and
@@ -684,6 +685,131 @@ here.
           limits count. Codex arrives as a new desk with a note, not in the
           same seat. The brief can carry a secret a tool printed to the other
           vendor. Nothing is handed back by itself. Say which you veto.
+
+- [ ] OB-311 — Check the handover from Codex to Claude Code (TODO OB-286, the
+      ruling is HUMAN_DECISIONS OB-283) in the installed app (`pnpm
+      app:install`). None of this has run anywhere. Every Codex fact the build
+      rests on is a replay to codex-cli 0.161.0 through a custom provider on a
+      throwaway home with no login (probe rounds six and seven). Nothing was
+      sent to OpenAI. Subagents at the limit and Codex's shared background
+      server were never probed. No agent may start a session, drive the Tauri
+      window, run `claude auth status` or use up a plan. Steps 1 to 3 cost
+      nothing. Steps 4 to 11 need a ChatGPT plan that is really used up, so do
+      them when that next happens. This direction is off until you do step 2.
+      1. Open Settings with Cmd+,. The Handover group now has two choices
+         under the switch. "Codex to Claude Code: Claude Code starts with"
+         reads "Not chosen", and nothing is filled in for you. The line that
+         said this direction was not built is gone. Read the three hints. The
+         first says what counts as background work in each tool. The third
+         says that the building often does not know when Codex's limit resets,
+         and that a goal you cleared still reads as set. Note anything about
+         the group's look that is off.
+      2. Choose what Claude Code starts with for Codex to Claude Code. Pick "A
+         model I choose", then a model and an effort from Claude Code's own
+         list, or pick "Claude Code's own configured default". That second
+         choice still passes a model, the one the hire dialog preselects (TODO
+         OB-322). Quit the app and open it again. Both directions still show
+         what you chose, and changing one has not changed the other.
+      3. `claude auth status` on the installed Claude Code (TODO OB-323). The
+         building reads its exit code and nothing else, and the build read
+         that in Anthropic's documentation and never ran it. In a terminal,
+         run `claude auth status` and then `echo $?`. It should print 0 while
+         you are signed in. Run `claude auth logout` and try again, and it
+         should print 1. Sign in again afterwards. The check passes for any
+         sign-in method, an API key included, so say if a receiver that would
+         bill a key should be refused.
+      4. A real used-up ChatGPT plan (TODO OB-327, OB-315). Hire a Codex agent
+         from the app, in one of its own terminals, with no `/goal` and no
+         subagents, and work at that desk until Codex says the limit is
+         reached. The worker should carry "used up" under its name tag, and
+         within about ten seconds the desk should be handed over. The Codex
+         worker walks out and a Claude Code worker walks in. Note whether the
+         strip shows a reset time or says "The reset time is not known." Then
+         open the session's rollout file and find the last `token_count` line
+         before the refusal. Note only whether `rate_limits` holds a window
+         whose `used_percent` reads 100 and whether that window has a
+         `resets_at`. Copy no account identifier out of the file. If the desk
+         shows nothing at all, the real record differs from the replayed one.
+         Then copy the last few lines Codex printed and note the time, and
+         nothing more is needed from you.
+      5. The one stop (TODO OB-312). In step 4, note whether Codex left within
+         5 seconds. It gets one SIGTERM and is never forced. Check with `ps`
+         that no `codex` process from that desk is left. Then check that
+         nothing of the session runs on in Codex's shared background server.
+         The sign-out sheet should list the old session with "Handed over to
+         Claude Code" and a time, Resume should reopen it with `codex resume`,
+         and `codex agents` should show no thread of it still working. If the
+         strip says that Codex did not stop, Claude Code was not started,
+         which is as designed.
+      6. Claude Code and the brief (TODO OB-319, OB-321). On the new Claude
+         Code desk, note whether Claude Code read the brief without asking you
+         for permission, in your usual permission mode. The file is in the
+         app's data folder under `handover/briefs`, and that path holds a
+         space. The desk should carry the old desk's title and "from Codex"
+         under its name tag. Open the brief yourself. It should hold your
+         prompts, the agent's replies and tool calls with output cut short. It
+         should hold no reasoning, no instructions file and no environment
+         text. If your prompts are missing, Codex wrote a history the building
+         does not know. Run `ls -l` on the brief, and it should be readable by
+         you only.
+      7. A Codex desk with a `/goal` at the limit (TODO OB-314). Set a goal at
+         a Codex desk and let the limit hit. The desk must not be handed over
+         by itself. Its strip should say that it has a goal running, with a
+         "Hand over to Claude Code" button. If the desk is handed over by
+         itself, that breaks the rule the build set for your ruling, so switch
+         the handover off and say so. Try it once more with a goal you cleared
+         with `/goal clear` before the limit. That desk is expected to be
+         offered too, because the building cannot see that the goal was
+         cleared.
+      8. The manual handover of that desk (TODO OB-312). Press "Hand over to
+         Claude Code". A row inside the panel names what is ended, the Codex
+         session and the goal with it. Press "End it and hand over". Note
+         whether Claude Code started, and whether the goal stayed stopped. If
+         Codex keeps working on the goal in its shared background server after
+         its terminal has gone, two agents are working in one folder, so stop
+         it by hand and say so. Then resume the Codex session from the
+         sign-out sheet once the limit has reset, and note whether `/goal
+         resume` works there.
+      9. Codex with subagents at the limit (TODO OB-313). This was never
+         probed, so anything you see is news. Let the limit hit while a Codex
+         desk's subagents are working. The desk should be offered and not
+         handed over by itself. Let it hit again at a desk whose subagents
+         have all finished. That desk should be handed over. Note what Codex
+         itself shows in both cases.
+      10. A routed floor. If routing is on, hand a Codex desk over on a routed
+          floor. The Claude Code receiver should be routed like any hire
+          there, with its route in the route strip. If a handover fails
+          because Codex did not stop, no route for the receiver should be left
+          behind in the route strip.
+      11. No way back by itself. Let a Claude Code desk be handed over to
+          Codex (HUMAN_TODO OB-285, step 4), then reach Codex's limit at that
+          new desk while the Claude limit has not reset. The desk should stay
+          put and say that both are used up. After the Claude limit resets it
+          should get the button and still not be handed back by itself.
+      12. Claude Code where it may not read (TODO OB-319, OB-320). Hand a
+          Codex desk over on a floor whose folder Claude Code has never been
+          trusted in. Note what Claude Code's first screen is, and whether
+          answering it lets the first prompt through. The building adds no
+          trust entry for you. If you use
+          `permissions.blockReadsOutsideWorkingDirectories`, note what Claude
+          Code says about the brief. No rule gets through that setting, so it
+          is expected to refuse or ask.
+      13. A question for a browser, not a check (TODO OB-304). The handover
+          now ends and starts each vendor's tool in both directions. Nobody
+          has read either vendor's terms for that. This is step 13 of OB-285
+          with the second direction added.
+      14. A question for you, not a check. HUMAN_DECISIONS OB-283 now lists
+          the calls the build made for this direction while you were away. The
+          ones most worth your eye are these. Only Codex's built-in OpenAI
+          provider counts, and the building does not tell a ChatGPT plan from
+          credits or an API key. A Codex desk with a standing goal is only
+          offered, and a cleared goal still reads as standing. Subagents are
+          seen only as a thread with a turn open. The reset is usually unknown
+          and the record is then held for five hours. How Codex is hired is
+          unchanged, so the question of its shared background server is open.
+          Claude Code is given leave to read the one brief through an
+          allowed-tools rule. `claude auth status` passes for any sign-in
+          method. Nothing is handed back by itself. Say which you veto.
 
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue

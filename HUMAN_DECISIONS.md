@@ -631,7 +631,7 @@ The calls most worth A Human's eye. None of these is A Human's:
 
 From the build brief, the rest of the dispatcher's fifteen calls:
 
-- There are two stages. The first builds the shared core and Claude Code to Codex. Codex to Claude Code is the second and is not built (TODO OB-286).
+- There are two stages. The first builds the shared core and Claude Code to Codex. Codex to Claude Code is the second, built afterwards (TODO OB-286, with its calls below).
 - The trigger is the tool's own record of a used-up allowance. A status alone, a hook alone, terminal text alone and the router are never the trigger. A throttle, an authentication failure, a server fault and anything unreadable or unknown hand nothing over.
 - Only sessions the building started are handed over or ended (TODO OB-288).
 - The workflow test fails safe. A desk counts as running background work unless documented signals rule it out. A signal that was only observed may make a desk count as running one, never as not running one.
@@ -675,7 +675,58 @@ From the dispatcher, after the review of Stage H1. Neither is A Human's:
 - The review's second round would have left almost no desk handed over by itself, because nearly every turn of a coding agent runs a shell command. A Human's ruling is that a desk not running a workflow is handed over by itself, so the dispatcher narrowed the rule. A turn that was refused counts as having started background work only if it called the Workflow tool, asked for a shell command or a subagent to run in the background, started a monitor or scheduled a wake-up. A foreground command does not count, and neither does a tool the building does not know. The cost is stated plainly. A foreground command that A Human sends to the background by hand, a teammate and background work started through a tool the building does not know are not seen, and an automatic handover would end them with the session. A workflow is always seen (TODO OB-308).
 - `git log` for the brief is now run with signature checks off. The review reported that fix and the code did not hold it (TODO OB-306).
 
-This is a follow-up to OB-210 and amends its fourth ruling, and that amendment is A Human's own. The API key routes and the router from OB-210 stay as built. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) now has a third exception. That it follows from this ruling for the automatic handover is the build's reading, listed first above. The rule from OB-040 that the building touches no login token holds here in full. The handover reads, stores and moves no login, and uses only the exit code of `codex login status`. The rule from OB-152 that the manager only orchestrates holds too, and the manager cannot reach the handover. One call is open for A Human, on the vendors' terms. Nobody has read OpenAI's, because its pages refused automated fetches, and Anthropic's legal page does not address two tools taking turns at one desk (TODO OB-304, beside OB-211). Stage H1 is built as TODO OB-284, with the checks for A Human in HUMAN_TODO OB-285 and the deferrals and open review findings in TODO OB-286 to OB-310.
+Stage H2 is the second stage, the direction Codex to Claude Code on the core Stage H1 built. It was built on 2026-11-13 (TODO OB-286) and tested with fakes only. None of its calls is A Human's. A Human ruled the handover and said nothing about how a Codex desk is read, ended or replaced. Every Codex fact the stage rests on is a replay to codex-cli 0.161.0 through a custom provider on a throwaway home with no login (probe rounds six and seven), and nothing was sent to OpenAI. Subagents at the limit and Codex's shared background server were never probed.
+
+The calls of Stage H2 most worth A Human's eye. None of these is A Human's:
+
+- Only Codex's built-in OpenAI provider counts, and the building does not tell a ChatGPT plan from workspace credits, a spend cap or an API key's quota. Codex writes the same record for all of them and the building does not read the sign-in to find out. All hand the desk over as "Codex's usage limit" (TODO OB-316, OB-318).
+- A Codex desk with a standing goal is only offered and is never handed over by itself. A goal cleared with `/goal clear` leaves no line in the rollout, so it still reads as standing and that desk waits for A Human (TODO OB-314).
+- Subagents are seen only as a thread of the desk with a turn still open in a rollout written in the last 12 hours. A spawn in the parent's rollout, Codex's subagent hooks and the app-server are not read (TODO OB-313).
+- The reset is usually unknown. It is known only when Codex recorded a full window with the refusal, and the record is otherwise held for five hours. After that a Claude Code desk can be handed once to a Codex that is still used up (TODO OB-315).
+- How Codex is hired is unchanged and `--no-daemon` is not passed. Whether a session the building ended lives on in Codex's shared background server is therefore not settled (TODO OB-312).
+- Claude Code is given leave to read the one brief through an allowed-tools rule on its command, `Read(//<the brief's path>)`. Nothing else is exposed, and `--add-dir` is not used (TODO OB-319).
+- `claude auth status` passes for any sign-in method, an API key included, so it does not prove a subscription (TODO OB-323).
+- Nothing is handed back by itself. A desk that arrived from Claude Code and then reaches Codex's limit stays where it is while the Claude record stands, and is only offered after that.
+
+From the build brief, the dispatcher's eleven calls for Stage H2:
+
+- The proof for a Codex desk is the `task_complete` record with `codex_error_info` `usage_limit_exceeded` on the desk's own thread, never a subagent's rollout. A later turn that completes without that error clears it. Any other error, a `turn_aborted`, an `error` event alone and an unreadable line hand nothing over.
+- Only the built-in OpenAI provider counts. A rollout that names a custom provider hands nothing over and shows nothing. The words say "Codex's usage limit" and never "ChatGPT plan".
+- The reset is taken from the rate-limit snapshot only if the design can say which window applies without guessing. The limit sentence is never parsed for a clock time.
+- The background-work test for Codex fails safe. An active goal blocks the automatic handover and gets the offer, and the confirmation names the goal. For subagents only what can be shown without guessing is used. A desk with no active goal and no sign of unfinished subagent work may be handed over by itself.
+- Ending the Codex session uses the same single polite stop as Stage H1, and only once the receiver is known to be startable. How the building hires Codex is not changed.
+- The receiver is the building's ordinary Claude Code hire in the old desk's folder, routing included. Leave to read the brief comes from a documented flag and exposes no more than the one brief where that is possible. The sign-in check uses a documented command's exit code only.
+- The brief is built from the Codex rollout and holds the visible conversation only. Reasoning never appears. The rules of Stage H1's brief are reused and not copied.
+- The Codex to Claude Code direction stops being "not built yet" in Settings. It uses the Claude Code model list, nothing is seeded, and the sentences of Stage H1 are reused with the tool names as data.
+- The bounds are Stage H1's. There is one automatic handover for each desk and limit, never to a tool recorded as used up, and no automatic return.
+- Tests use fakes only. Fixtures come from probe rounds six and seven and say that they are replays. No account identifier from a rollout is copied into a fixture, a brief, a log or the saved state.
+- The documents were left to the review's last pass, and files near the limit of 1000 lines must not grow.
+
+From the design of Stage H2, its fourteen calls. Each refines one of the eleven above:
+
+- A limit on one named model is not the proof. Codex itself then tells the user to switch to another model, so that desk hands nothing over and shows nothing.
+- The reset comes from the snapshot only when a window in it reads 100 per cent used, with a reset after the record's own time and within eight days of it. With two such windows the later reset is taken. Nothing is inferred about which window caused the refusal.
+- A Codex record is dated by Codex's own time and not by when the building read it. A record read again after a restart is therefore the same record, and one older than its hold is never recorded.
+- What blocks the automatic handover of a Codex desk is a goal whose last recorded status is anything but complete or paused, a goal whose status cannot be read, and a subagent thread with a turn still open.
+- A Codex desk counts only once its rollout's first line has been read and names the built-in provider and a top-level thread. Until then nothing is shown, not even that another desk reached the limit.
+- "Claude Code's own configured default" is the model the hire dialog preselects, at that model's default effort, because the building's Claude Code hire always passes a model (TODO OB-322). No permission mode is passed, and the receiver opens in the chat view when that is the Agents default.
+- Leave to read the brief is one read rule for one file. A brief path that holds a character with a meaning in a rule gets no rule, and Claude Code then asks once in its terminal.
+- The sign-in check is `claude auth status`, by its exit code only. What it prints is never read.
+- The stop is Stage H1's, unchanged. A route opened for the receiver is closed again when the old session does not stop.
+- A Human's words in the brief come from Codex's own record of what was typed, never from the items the model saw, because those also carry injected context that nobody typed at the desk (TODO OB-321).
+- The settings group lists Claude Code's models from the same source as the Claude Code model picker, in selects that preselect nothing. The picker component itself is not used, because its first option is a preselected default.
+- Two refusals that named a subscription are now the same for both tools. Every other Claude Code to Codex sentence reads as Stage H1 wrote it.
+- The automatic decision, the settle time, the bounds and the note on the new worker are Stage H1's.
+- The first read of a rollout is the whole file, because a goal can be set long before the limit (TODO OB-324).
+
+From the review of Stage H2. Two fixes changed behaviour:
+
+- A subagent whose rollout carries a modification time later than the scan's own clock now counts as recent, so it counts as busy and the desk is offered. Before the fix it was skipped.
+- A rollout that is a fork of another thread proves nothing. A refusal copied into a fork no longer reads as that desk's own, and the fork hands nothing over.
+- A third fix moved the Codex rollout fixtures into one shared test module and changed no behaviour.
+- One finding stays open. A rollout line that is not valid UTF-8 stops the reader there (TODO OB-329).
+
+This is a follow-up to OB-210 and amends its fourth ruling, and that amendment is A Human's own. The API key routes and the router from OB-210 stay as built. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) now has a third exception. That it follows from this ruling for the automatic handover is the build's reading, listed first above. Since Stage H2 the exception covers a session of either tool. The rule from OB-040 that the building touches no login token holds here in full. The handover reads, stores and moves no login, and uses only the exit code of `codex login status` or `claude auth status`. No account identifier from a Codex rollout reaches a brief, a log, a fixture, the saved state or the wire. The rule from OB-152 that the manager only orchestrates holds too, and the manager cannot reach the handover. One call is open for A Human, on the vendors' terms. Nobody has read OpenAI's, because its pages refused automated fetches, and Anthropic's legal page does not address two tools taking turns at one desk (TODO OB-304, beside OB-211). Stage H1 is built as TODO OB-284, with the checks for A Human in HUMAN_TODO OB-285 and the deferrals and open review findings in TODO OB-287 to OB-310. Stage H2 is built as TODO OB-286, with the checks for A Human in HUMAN_TODO OB-311 and the deferrals and the open review finding in TODO OB-312 to OB-329.
 
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 

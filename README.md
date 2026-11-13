@@ -48,8 +48,8 @@ sessions as an **office building**:
   the same model and effort. The app never stops a running agent itself, so to
   restart a hung one, exit it first (`/exit`) and resume it from the sheet.
   The three exceptions are the agents on a floor you demolish, a QA
-  reviewer the building started itself and a Claude Code session that is
-  handed over to Codex (below).
+  reviewer the building started itself and a session that is handed over to
+  the other tool (below).
 - **Decisions and TODOs come from each repo's own files**: open and settled calls
   from `FOUNDER_DECISIONS.md` (or `HUMAN_DECISIONS.md`) plus the agents'
   `DECISIONS.md` log, your actions from `FOUNDER_TODO.md` (or `HUMAN_TODO.md`),
@@ -285,36 +285,56 @@ sessions as an **office building**:
   Bedrock, Vertex and Foundry all can. Not routed at all are the QA reviewer,
   the manager, chat desks that have no terminal, the other tools and anything
   you started by hand.
-- **Handover from the Claude subscription to Codex.** When a Claude Code desk
-  that the building started shows that your Claude subscription is used up,
-  the building can end that session and start Codex in the same folder, on
-  your own Codex sign-in, with a brief of what was done so far. It is off
-  until you set it up in Settings, in the Handover group. Choose what Codex
-  starts with (its own configured default, or a model and effort you pick)
-  and switch "Hand desks over by themselves" on. Nothing is filled in for
-  you. A desk with nothing running in the background is then handed over by
-  itself, once for each limit. A desk that has a workflow, a helper, a shell
-  or anything else running in the background, or where the building cannot
-  tell, is never handed over by itself. It gets a "Hand over to Codex" button
-  in its panel, and using it ends that work. With the switch off, every
-  used-up desk gets the button. Codex arrives as a new desk marked "from
-  Claude Code", and the old session goes on the sign-out sheet, where it can
-  be resumed.
+- **Handover between the Claude subscription and Codex, in both directions.**
+  When a desk that the building started shows its own tool's record that the
+  allowance is used up, the building can end that session and start the other
+  tool in the same folder, on your own sign-in, with a brief of what was done
+  so far. For a Claude Code desk that record is the Claude subscription's
+  five-hour or weekly limit. For a Codex desk it is Codex's usage limit on its
+  own OpenAI provider. It is off until you set it up in Settings, in the
+  Handover group. Each direction needs its own choice of what the receiving
+  tool starts with (its own configured default, or a model and effort you
+  pick), and nothing is handed over in a direction you have not chosen. Then
+  switch "Hand desks over by themselves" on. Nothing is filled in for you. A
+  desk with nothing running in the background is then handed over by itself,
+  once for each limit. A desk with background work, or where the building
+  cannot tell, is never handed over by itself. It gets a "Hand over" button in
+  its panel, and using it ends that work. For Claude Code that work is a
+  workflow, a helper, a shell or a scheduled wake-up. For Codex it is a goal
+  that is neither paused nor complete, or a subagent with a turn still open.
+  With the switch off, every used-up desk gets the button. The receiving tool
+  arrives as a new desk marked with the tool it came from, and the old session
+  goes on the sign-out sheet, where it can be resumed.
 - **What a handover sends, and what it never does.** The brief is a file only
   you can read, in the app's data folder and never in your repo. It holds the
-  desk's visible conversation with tool output cut short, and a summary of
-  the folder's git state. Codex is told to read it, so what was said at the
+  desk's visible conversation with tool output cut short, and a summary of the
+  folder's git state. The receiving tool is told to read it, and Claude Code
+  is given leave to read that one file and no other. So what was said at the
   desk goes to the other vendor, including any secret a tool printed. Hidden
   reasoning is left out. No login is read, stored or moved. The building only
-  asks `codex login status` whether Codex is signed in. Only the tool's own
-  record of a used-up five-hour or weekly limit counts. A throttle, a sign-in
-  failure or a server fault hands nothing over. The old session is asked to
-  stop once and is never forced, and if it does not stop, Codex is not
-  started. A session you started by hand is never handed over, a floor's
-  manager cannot hand a desk over, and nothing is handed back by itself when
-  the limit resets. The other direction, Codex to Claude Code, is not built.
-  None of this has run in the installed app or met a real used-up
-  subscription yet.
+  asks `codex login status` or `claude auth status` whether the receiving tool
+  is signed in, and reads the exit code alone. Only the tool's own record of a
+  used-up allowance counts. A throttle, a sign-in failure or a server fault
+  hands nothing over. Codex's limit is read from the session's own history
+  file. The sentence Codex prints is never parsed, and none of Codex's
+  databases, its background server or its goal store is read. The old session
+  is asked to stop once and is never forced, and if it does not stop, the
+  other tool is not started. A session you started by hand is never handed
+  over, a floor's manager cannot hand a desk over, and nothing is handed back
+  by itself. A desk that came from Claude Code and then reaches Codex's limit
+  stays where it is.
+- **What the building cannot see at a Codex desk.** It does not tell a ChatGPT
+  plan from workspace credits, a spend cap or an API key's quota. All of them
+  read as "Codex's usage limit" and hand the desk over. A limit on one named
+  model, a desk on a custom provider and a Codex desk in the chat view hand
+  nothing over and show nothing. The building knows when the limit resets only
+  if Codex recorded a full window, and holds the record for five hours
+  otherwise. A goal you cleared still reads as set, so that desk waits for
+  you. Subagents are seen only as a thread with a turn still open. `claude
+  auth status` passes for any sign-in method, an API key included. None of the
+  handover has run in the installed app or met a real used-up allowance yet.
+  What is known about Codex comes from replaying a refusal to Codex 0.161.0 on
+  a throwaway home with no login, and nothing was sent to OpenAI.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -367,9 +387,9 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   what the same work would cost through the API, not what a subscription bills.
 - **Not yet:** answering a terminal agent's own question from the Decisions
   panel (answer it in the agent's terminal instead), the app's own MCP
-  server for assistant agents, in provider routing Sign in with ChatGPT,
-  which waits for OpenAI's answer on whether the app may use it, and handing
-  a Codex desk over to Claude Code. In the chat view: Antigravity, a read-only chat
+  server for assistant agents, and in provider routing Sign in with ChatGPT,
+  which waits for OpenAI's answer on whether the app may use it.
+  In the chat view: Antigravity, a read-only chat
   for sessions you started by hand, opening a link, images and attachments, a
   model and effort switcher, plans as cards, sub-agent threads, paging in older
   messages and word-by-word replies from Claude Code. See `TODO.md`. Calls from
@@ -482,9 +502,9 @@ src/
 src-tauri/
   src/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
-    discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly, a Claude Code transcript read as a conversation
+    discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly, a Claude Code transcript read as a conversation, a Codex rollout read for its usage limit, its goal and its conversation, the follower both readers share
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, the routed launch, the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation), and handing a used-up desk over (reading the proof, ending the old session, starting the receiver)
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, the routed launch, the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation), and handing a used-up desk over (reading the proof from either tool's own record, ending the old session, starting the receiver)
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     settings.rs, settings/ # the app's settings (settings.json in the app data dir)
@@ -496,7 +516,7 @@ src-tauri/
     manager/              # a floor's manager: its socket, tokens, the MCP server it talks to, the helper mode and the tool list
     delivery/             # notes and messages for desks: cleaning the text, deciding whether a desk can take one, the queue
     routing/              # provider routing, with its preferences, the selection policy, exhaustion records and their file, the failover state machine, connection keys, the router on the loopback address, the relays to Anthropic and OpenRouter, the experimental translation to OpenAI's Responses format, a reply read as evidence, the router's own answers and what a routed launch adds
-    handover/             # handing a used-up desk to the other tool: the used-up record and its file, the decision, the work log, the brief and its git summary, the receiver's first prompt and the view
+    handover/             # handing a used-up desk to the other tool: the used-up record and its file, the decision, the work log, the brief and its git summary, the receiver's sign-in check, first prompt and leave to read the brief, and the view
     secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
     http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
     poll.rs               # a background job on a timer that backs off, waits when told to and can be woken
