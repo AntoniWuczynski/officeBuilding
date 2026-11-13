@@ -5,6 +5,7 @@
 use crate::manager::wire::ManagerRecord;
 use crate::model::{AgentMessage, Decision, Link, Question, TodoItem};
 use crate::qa::record::QaRecord;
+use crate::routing::config::ContextId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -38,6 +39,9 @@ pub struct Records {
     /// Each floor's manager switches and log (absolute repo roots, like `pinned_floors`).
     #[serde(default)]
     pub managers: BTreeMap<String, ManagerRecord>,
+    /// Each floor's account context for routing (absolute repo roots, like `pinned_floors`).
+    #[serde(default)]
+    pub account_contexts: BTreeMap<String, ContextId>,
     /// Open calls no repo file holds (`AnswerVia::Store`): a manager's escalations on a floor with no decisions file.
     #[serde(default)]
     pub calls: Vec<Question>,
@@ -163,6 +167,7 @@ mod tests {
         assert!(store.records.qa.is_empty());
         assert!(store.records.managers.is_empty());
         assert!(store.records.calls.is_empty());
+        assert!(store.records.account_contexts.is_empty());
         store.save().expect("save");
         assert_eq!(
             Store::open(path.clone()).expect("reopen").records,

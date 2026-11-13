@@ -19,6 +19,7 @@ pub mod process;
 pub mod project_files;
 pub mod pty;
 pub mod qa;
+pub mod routing;
 pub mod secrets;
 pub mod settings;
 pub mod setup;
@@ -130,6 +131,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let http: Arc<dyn http::HttpClient> = Arc::new(http::UreqClient::new(Duration::from_secs(15)));
     let keychain: Arc<dyn secrets::SecretStore> =
         Arc::new(secrets::Keychain::new(app.config().identifier.clone()));
+    app.manage(Arc::new(routing::keys::Keys::new(Arc::clone(&keychain))));
     let linear = Arc::new(Linear::new(http, keychain, Arc::clone(&settings)));
     let linear_connector: Arc<dyn Connector> = linear.clone();
     let hub = Arc::new(Hub::new(vec![linear_connector], snapshot_pusher(app)));
@@ -271,6 +273,10 @@ pub fn run() -> tauri::Result<()> {
             commands::set_manager_hiring,
             commands::withdraw_manager_note,
             commands::withdraw_message,
+            routing::commands::routing_key_status,
+            routing::commands::set_routing_key,
+            routing::commands::floor_routing,
+            routing::commands::set_floor_context,
         ])
         .run(tauri::generate_context!())
 }

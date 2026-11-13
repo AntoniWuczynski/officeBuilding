@@ -15,6 +15,7 @@ use crate::model::{
 use crate::office::Office;
 use crate::process::{Runner, SystemRunner, browser_call};
 use crate::qa::watch::Watch;
+use crate::routing::keys::{self, Keys};
 use crate::settings::{Settings, SettingsPatch, SettingsStore};
 use crate::setup::{ItemKind, SetupView, Targets};
 use crate::structured::desks::Backlog;
@@ -315,22 +316,35 @@ pub fn get_settings(settings: State<'_, Arc<SettingsStore>>) -> Settings {
 }
 
 /// A changed agent label re-sorts the connectors' items, so it polls them again. Changed QA
-/// settings ask GitHub again at once.
+/// settings ask GitHub again at once. A routing connection that left takes its key with it, on a
+/// blocking thread that is not waited for: this runs on the main thread and the Keychain may block.
 #[tauri::command]
 pub fn update_settings(
     settings: State<'_, Arc<SettingsStore>>,
     hub: HubState<'_>,
     watch: WatchState<'_>,
+    keys: State<'_, Arc<Keys>>,
     patch: SettingsPatch,
 ) -> Result<Settings, String> {
     let connectors_changed = patch.connectors.is_some();
     let qa_changed = patch.qa.is_some();
+    let routing_before = patch.routing.is_some().then(|| settings.get().routing);
     let updated = settings.update(patch)?;
     if connectors_changed {
         hub.wake();
     }
     if qa_changed {
         watch.recheck();
+    }
+    if let Some(before) = routing_before {
+        let gone = keys::gone(&before, &updated.routing);
+        if !gone.is_empty() {
+            let keys = Arc::clone(&keys);
+            // Not awaited: the task runs on its own, and a Keychain refusal there is dropped.
+            drop(tauri::async_runtime::spawn_blocking(move || {
+                keys.forget(&gone);
+            }));
+        }
     }
     Ok(updated)
 }

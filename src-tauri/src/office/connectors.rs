@@ -1,9 +1,10 @@
 //! A floor's links to connectors: which outside tool feeds it, kept in the store, and the
-//! hub that caches each linked floor's items.
+//! hub that caches each linked floor's items. Also a floor's account context for routing.
 
 use super::{Inner, Office};
 use crate::connectors::{self, LinkedFloor, hub::Hub};
 use crate::model::{Connection, ConnectorKind, Link};
+use crate::routing::config::ContextId;
 use std::sync::Arc;
 
 impl Office {
@@ -121,6 +122,39 @@ impl Office {
             .collect()
     }
 
+    /// The account context this floor's routed desks use. None: it has none.
+    pub fn floor_context(&self, project_id: &str) -> Result<Option<ContextId>, String> {
+        let inner = self.lock();
+        let root = Self::root_key(&inner, project_id)?;
+        Ok(inner.store.records.account_contexts.get(&root).cloned())
+    }
+
+    /// Give a floor an account context, or take it away with None. Saved at once. Does not pin
+    /// the floor. The caller checks that the context is in Settings.
+    pub fn set_floor_context(
+        &self,
+        project_id: &str,
+        context: Option<ContextId>,
+    ) -> Result<(), String> {
+        let mut inner = self.lock();
+        let root = Self::root_key(&inner, project_id)?;
+        let contexts = &mut inner.store.records.account_contexts;
+        let before = match context {
+            Some(context) => contexts.insert(root.clone(), context),
+            None => contexts.remove(&root),
+        };
+        let saved = inner.store.save();
+        if saved.is_err() {
+            // The file still holds the old choice, so memory goes back to it.
+            let contexts = &mut inner.store.records.account_contexts;
+            match before {
+                Some(old) => contexts.insert(root, old),
+                None => contexts.remove(&root),
+            };
+        }
+        saved
+    }
+
     /// The key a floor's records are stored under: its absolute repo root.
     pub(super) fn root_key(inner: &Inner, project_id: &str) -> Result<String, String> {
         inner
@@ -139,6 +173,7 @@ mod tests {
     use crate::connectors::fake::{FakeConnector, issue, listing};
     use crate::connectors::{Connector, ConnectorError};
     use crate::model::{Party, Project};
+    use crate::routing::fixtures::ctx;
     use crate::store::Store;
     use std::fs;
     use std::path::PathBuf;
@@ -246,6 +281,87 @@ mod tests {
         assert_eq!(linked.len(), 1);
         assert_eq!(linked[0].project_id, floor.id);
         assert_eq!(linked[0].root, root_of(&dir));
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_floor_context_that_could_not_be_saved_is_not_kept() {
+        let (office, dir, floor) = floor_office("ctx-rollback");
+        office
+            .set_floor_context(&floor.id, Some(ctx("work")))
+            .expect("set");
+        // A directory where the temp file goes makes the next save fail.
+        fs::create_dir(dir.join("store.json.tmp")).expect("block");
+        assert!(
+            office
+                .set_floor_context(&floor.id, Some(ctx("home")))
+                .is_err()
+        );
+        assert_eq!(office.floor_context(&floor.id), Ok(Some(ctx("work"))));
+        assert!(office.set_floor_context(&floor.id, None).is_err());
+        assert_eq!(office.floor_context(&floor.id), Ok(Some(ctx("work"))));
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_floor_context_is_stored_under_the_root_and_none_removes_it() {
+        let (office, dir, floor) = floor_office("ctx-store");
+        assert_eq!(office.floor_context(&floor.id), Ok(None));
+        office
+            .set_floor_context(&floor.id, Some(ctx("work")))
+            .expect("set");
+        assert_eq!(office.floor_context(&floor.id), Ok(Some(ctx("work"))));
+        let text = fs::read_to_string(dir.join("store.json")).expect("read");
+        let saved: serde_json::Value = serde_json::from_str(&text).expect("json");
+        assert_eq!(saved["accountContexts"][root_of(&dir)], "work");
+        office.set_floor_context(&floor.id, None).expect("clear");
+        assert_eq!(office.floor_context(&floor.id), Ok(None));
+        let again = Store::open(dir.join("store.json")).expect("reopen");
+        assert!(again.records.account_contexts.is_empty());
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn an_unknown_floor_has_no_context_to_read_or_set() {
+        let (office, dir, _floor) = floor_office("ctx-unknown");
+        let refused = "p-nope is not a floor of this building".to_string();
+        assert_eq!(office.floor_context("p-nope"), Err(refused.clone()));
+        assert_eq!(
+            office.set_floor_context("p-nope", Some(ctx("work"))),
+            Err(refused)
+        );
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn two_floors_keep_two_contexts() {
+        let (office, dir, floor) = floor_office("ctx-two");
+        let other_repo = dir.join("home/code/other");
+        fs::create_dir_all(&other_repo).expect("mkdir");
+        let other = office
+            .add_floor(&other_repo.to_string_lossy())
+            .expect("add");
+        office
+            .set_floor_context(&floor.id, Some(ctx("work")))
+            .expect("set");
+        office
+            .set_floor_context(&other.id, Some(ctx("home")))
+            .expect("set");
+        assert_eq!(office.floor_context(&floor.id), Ok(Some(ctx("work"))));
+        assert_eq!(office.floor_context(&other.id), Ok(Some(ctx("home"))));
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn setting_a_context_does_not_pin_the_floor() {
+        let (office, dir, floor) = floor_office("ctx-pin");
+        office.lock().store.records.pinned_floors.clear();
+        office
+            .set_floor_context(&floor.id, Some(ctx("work")))
+            .expect("set");
+        let again = Store::open(dir.join("store.json")).expect("reopen");
+        assert!(again.records.pinned_floors.is_empty());
+        assert_eq!(again.records.account_contexts.len(), 1);
         fs::remove_dir_all(dir).expect("cleanup");
     }
 

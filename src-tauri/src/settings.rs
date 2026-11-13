@@ -12,6 +12,8 @@ use std::sync::Mutex;
 
 mod agents;
 pub use agents::AgentSettings;
+mod routing;
+pub use routing::RoutingSettings;
 
 pub const COOLDOWN_MAX_SECS: u32 = 600;
 pub const AGENT_LABEL_MAX: usize = 80;
@@ -42,6 +44,8 @@ pub struct Settings {
     pub qa: QaSettings,
     pub manager: ManagerSettings,
     pub agents: AgentSettings,
+    #[serde(deserialize_with = "routing::lenient")]
+    pub routing: RoutingSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,6 +314,8 @@ pub struct SettingsPatch {
     pub manager: Option<ManagerSettings>,
     #[serde(default)]
     pub agents: Option<AgentSettings>,
+    #[serde(default)]
+    pub routing: Option<RoutingSettings>,
 }
 
 impl Settings {
@@ -345,6 +351,9 @@ impl Settings {
         if let Some(agents) = patch.agents {
             self.agents = agents;
         }
+        if let Some(routing) = patch.routing {
+            self.routing = routing.checked(&self.routing)?;
+        }
         Ok(())
     }
 }
@@ -365,7 +374,14 @@ impl SettingsStore {
             Settings::default()
         };
         let mut settings = match fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| aside()),
+            Ok(text) => {
+                if routing::dropped(&text) {
+                    // The routing group loads as the default, and the next save would write
+                    // that over it. Keep what was there. Best effort.
+                    let _ = fs::copy(&path, path.with_file_name("settings.routing.invalid.json"));
+                }
+                serde_json::from_str(&text).unwrap_or_else(|_| aside())
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
             Err(_) => aside(),
         };
@@ -376,6 +392,7 @@ impl SettingsStore {
                 .unwrap_or_else(|| DEFAULT_AGENT_LABEL.to_string());
         settings.qa = settings.qa.clamped();
         settings.manager = settings.manager.clamped();
+        settings.routing = settings.routing.clamped();
         Self {
             path,
             current: Mutex::new(settings),
@@ -560,7 +577,8 @@ mod tests {
             "tool": "claude-code", "model": null, "effort": null },
             "manager": { "tool": "claude-code", "model": null, "effort": null,
             "maxDesks": 3, "spendCeilingUsd": 20 },
-            "agents": { "view": "terminal" } }"#,
+            "agents": { "view": "terminal" },
+            "routing": { "enabled": false, "contexts": [], "connections": [], "tiers": { "fable": [], "opus": [], "sonnet": [], "haiku": [] } } }"#,
         )
         .expect("json");
         assert_eq!(
