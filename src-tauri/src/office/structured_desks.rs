@@ -6,7 +6,7 @@ use crate::discovery::Discovered;
 use crate::model::{
     ControlMode, EndedSession, HireRequest, ModelOption, Project, Session, SessionState, Spend,
 };
-use crate::structured::desks::{Backlog, DeskInfo, Desks};
+use crate::structured::desks::{DeskInfo, Desks};
 use crate::structured::{self, Spawn};
 use std::path::Path;
 
@@ -110,6 +110,7 @@ impl Office {
             helpers: Vec::new(),
             pets: Vec::new(),
             worktree: false,
+            branch: None,
         })
     }
 
@@ -135,14 +136,6 @@ impl Office {
         Some(run())
     }
 
-    pub fn structured_backlog(&self, session_id: &str) -> Result<Backlog, String> {
-        self.structured.backlog(session_id)
-    }
-
-    pub fn structured_prompt(&self, session_id: &str, text: &str) -> Result<(), String> {
-        self.structured.prompt(session_id, text)
-    }
-
     pub fn structured_answer(
         &self,
         session_id: &str,
@@ -152,10 +145,6 @@ impl Office {
     ) -> Result<(), String> {
         self.structured
             .answer(session_id, approval_id, choice_id, values)
-    }
-
-    pub fn structured_cancel(&self, session_id: &str) -> Result<(), String> {
-        self.structured.cancel(session_id)
     }
 
     pub fn structured_stop(&self, session_id: &str) -> Result<(), String> {

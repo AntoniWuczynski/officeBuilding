@@ -1,0 +1,56 @@
+/* A TODO item's row: the tick and text, then where the item comes from. */
+.todo-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.todo-list li label {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
+}
+.todo-source {
+  flex: none;
+  margin-top: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 11px/1.5 var(--font-mono);
+  white-space: nowrap;
+}
+
+/* A Linear badge opens the issue. */
+button.todo-source.is-link {
+  cursor: pointer;
+}
+button.todo-source.is-link:hover,
+button.todo-source.is-link:focus-visible {
+  background: var(--ink);
+  color: var(--paper);
+}
+/* The question under a Linear item before it is marked Done. */
+.todo-confirm {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+/* The Linear row of the Info panel: the connect form and its buttons. */
+.linear-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.linear-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}

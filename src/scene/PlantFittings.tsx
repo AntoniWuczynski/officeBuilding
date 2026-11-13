@@ -15,13 +15,23 @@ export function toolboxTop(x: number, y: number, size: number): { readonly x: nu
   return { x: x + size + 24 + TOOLBOX.w / 2, y: y + 16 + TOOLBOX.d / 2, h: TOOLBOX.h };
 }
 
+const FUSEBOX = { w: 14, d: 8, h: 30 } as const;
+
+/** The middle of the fuse box's top: it stands on the toolbox's far side from the tank. */
+export function fuseBoxTop(x: number, y: number, size: number): { readonly x: number; readonly y: number; readonly h: number } {
+  const box = toolboxTop(x, y, size);
+  return { x: box.x + TOOLBOX.w / 2 + 12 + FUSEBOX.w / 2, y: box.y, h: FUSEBOX.h };
+}
+
 /** A tank with a toolbox beside it, standing on the floor at (x, y). */
 export function Tank({ x, y, z, size, height }: { readonly x: number; readonly y: number; readonly z: number; readonly size: number; readonly height: number }): React.ReactElement {
   const box = toolboxTop(x, y, size);
+  const fuse = fuseBoxTop(x, y, size);
   return (
     <>
       <IsoBox x={x} y={y} z={z} w={size} d={size} h={height} top="var(--tank-top)" front="var(--tank)" side="var(--tank-side)" className="plant-tank" />
       <IsoBox x={box.x - TOOLBOX.w / 2} y={box.y - TOOLBOX.d / 2} z={z} w={TOOLBOX.w} d={TOOLBOX.d} h={TOOLBOX.h} top="var(--signage)" front="var(--signage-edge)" side="var(--signage-edge)" className="plant-toolbox" />
+      <IsoBox x={fuse.x - FUSEBOX.w / 2} y={fuse.y - FUSEBOX.d / 2} z={z} w={FUSEBOX.w} d={FUSEBOX.d} h={FUSEBOX.h} top="var(--duct-top)" front="var(--duct)" side="var(--duct-side)" className="plant-fusebox" />
     </>
   );
 }

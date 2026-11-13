@@ -1,0 +1,25 @@
+{
+  "data": {
+    "teams": {
+      "nodes": [
+        {
+          "id": "0b0e0c1a-0000-4000-8000-000000000001",
+          "key": "ENG",
+          "name": "Engineering",
+          "projects": {
+            "nodes": [
+              { "id": "0b0e0c1a-0000-4000-8000-0000000000aa", "name": "Checkout" },
+              { "id": "0b0e0c1a-0000-4000-8000-0000000000ab", "name": "Orders ingest" }
+            ]
+          }
+        },
+        {
+          "id": "0b0e0c1a-0000-4000-8000-000000000002",
+          "key": "OPS",
+          "name": "Operations",
+          "projects": { "nodes": [] }
+        }
+      ]
+    }
+  }
+}

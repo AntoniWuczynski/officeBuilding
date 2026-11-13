@@ -1,0 +1,119 @@
+/* The Routing group of Settings: cards for contexts and connections. */
+.routing-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+}
+.routing-card .routing-card {
+  background: transparent;
+}
+.routing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.routing-connection > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.routing-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.routing-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--ink);
+}
+.routing-confirm p {
+  margin: 0;
+}
+.routing-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.routing-add .field {
+  flex: 1;
+  min-width: 0;
+}
+.routing-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.routing-models-title {
+  margin: 0;
+  font: 700 13px/1 var(--font-ui);
+}
+.routing-tier {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* The route strip in a routed desk's docked panel. */
+.route-strip {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #2e3138;
+  font: 12px/1.3 var(--font-ui);
+  color: var(--terminal-text);
+}
+.route-lamp {
+  width: 8px;
+  height: 8px;
+  background: var(--off);
+}
+.route-lamp[data-tone="ok"] {
+  background: var(--ok);
+}
+.route-lamp[data-tone="wait"] {
+  background: var(--wait);
+}
+.route-lamp[data-tone="fault"] {
+  background: var(--fault);
+}
+.route-error {
+  color: var(--wait);
+}
+.route-strip .dark-btn {
+  margin-left: auto;
+}
+.route-details {
+  flex: none;
+  max-height: 45%;
+  overflow: auto;
+  padding: 6px 12px;
+  border-bottom: 1px solid #2e3138;
+  font: 12px/1.4 var(--font-ui);
+  color: var(--terminal-text);
+}
+.route-details p {
+  margin: 4px 0;
+}
+.routing-list.route-entries {
+  margin: 8px 0;
+}
+.route-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.route-warning {
+  color: var(--wait);
+}

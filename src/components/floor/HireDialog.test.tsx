@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HireDialog } from "./HireDialog";
-import { makeHireOptions } from "../../api/mockHireOptions";
+import { makeHireOptions, withDefaultView } from "../../api/mockHireOptions";
 import type { HireRequest } from "../../api/DiscoveryApi";
 import type { ToolOptions } from "../../types";
 
-function open(options: readonly ToolOptions[] = makeHireOptions()): { onHire: ReturnType<typeof vi.fn<(r: HireRequest) => Promise<void>>> } {
+function open(options: readonly ToolOptions[] = makeHireOptions()): { onHire: ReturnType<typeof vi.fn<(r: HireRequest) => Promise<void>>>; unmount: () => void } {
   const onHire = vi.fn<(r: HireRequest) => Promise<void>>().mockResolvedValue(undefined);
-  render(<HireDialog projectName="arcade" loadOptions={() => Promise.resolve(options)} onHire={onHire} onCancel={() => {}} />);
-  return { onHire };
+  const { unmount } = render(<HireDialog projectName="arcade" loadOptions={() => Promise.resolve(options)} onHire={onHire} onCancel={() => {}} />);
+  return { onHire, unmount };
 }
 
 describe("HireDialog tools", () => {
@@ -63,7 +63,7 @@ describe("HireDialog ultracode", () => {
     await user.click(await screen.findByLabelText("Codex"));
     expect(screen.queryByRole("switch", { name: "Ultracode" })).not.toBeInTheDocument();
     await user.click(screen.getByTestId("hire-submit"));
-    expect(onHire).toHaveBeenCalledWith(expect.objectContaining({ tool: "codex", ultracode: false, structured: false }));
+    expect(onHire).toHaveBeenCalledWith(expect.objectContaining({ tool: "codex", ultracode: false, view: "terminal" }));
   });
 
   it("starts on when the tool's default is on", async () => {
@@ -73,16 +73,53 @@ describe("HireDialog ultracode", () => {
   });
 });
 
-describe("HireDialog structured desks", () => {
-  it("offers to run without a terminal only for tools that can, and sends the choice", async () => {
+describe("HireDialog chat view", () => {
+  const chatFirst = (): readonly ToolOptions[] => withDefaultView(makeHireOptions(), "chat");
+
+  it("starts off when the setting is Terminal and on when it is Chat", async () => {
+    const first = open();
+    expect(await screen.findByRole("switch", { name: "Chat view" })).not.toBeChecked();
+    first.unmount();
+    open(chatFirst());
+    expect(await screen.findByRole("switch", { name: "Chat view" })).toBeChecked();
+  });
+
+  it("sends chat for Codex and says it runs without a terminal", async () => {
     const user = userEvent.setup();
     const { onHire } = open();
-    await screen.findByLabelText("Claude Code");
-    expect(screen.queryByRole("switch", { name: "Without a terminal" })).toBeNull();
-    await user.click(screen.getByLabelText("Codex"));
-    await user.click(screen.getByRole("switch", { name: "Without a terminal" }));
+    await user.click(await screen.findByLabelText("Codex"));
+    expect(screen.queryByTestId("hire-view-hint")).toBeNull();
+    await user.click(screen.getByRole("switch", { name: "Chat view" }));
+    expect(screen.getByTestId("hire-view-hint")).toHaveTextContent("It runs without a terminal, and the view cannot be changed after the hire.");
     await user.type(screen.getByPlaceholderText("What should they work on?"), "port it");
     await user.click(screen.getByRole("button", { name: /hire/i }));
-    expect(onHire).toHaveBeenCalledWith(expect.objectContaining({ tool: "codex", structured: true }));
+    expect(onHire).toHaveBeenCalledWith(expect.objectContaining({ tool: "codex", view: "chat" }));
+  });
+
+  it("says Claude Code keeps its terminal", async () => {
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("switch", { name: "Chat view" }));
+    expect(screen.getByTestId("hire-view-hint")).toHaveTextContent("The desk keeps its terminal.");
+  });
+
+  it("greys the switch out for Antigravity with the reason", async () => {
+    const user = userEvent.setup();
+    open(chatFirst());
+    await user.click(await screen.findByLabelText("Antigravity"));
+    expect(screen.getByRole("switch", { name: "Chat view" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Chat view" })).not.toBeChecked();
+    expect(screen.getByTestId("hire-view-hint")).toHaveTextContent(
+      "Chat is not available: chat for Antigravity is not built yet, so it runs in the terminal.",
+    );
+  });
+
+  it("resets to the next tool's default when the tool changes", async () => {
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("switch", { name: "Chat view" }));
+    expect(screen.getByRole("switch", { name: "Chat view" })).toBeChecked();
+    await user.click(screen.getByLabelText("Codex"));
+    expect(screen.getByRole("switch", { name: "Chat view" })).not.toBeChecked();
   });
 });

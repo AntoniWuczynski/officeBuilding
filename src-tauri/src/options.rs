@@ -58,31 +58,23 @@ fn default_effort_option() -> EffortOption {
 }
 
 fn unavailable(tool: ToolKind) -> ToolOptions {
-    ToolOptions {
-        tool,
-        available: false,
-        models: Vec::new(),
-        default_model: String::new(),
-        ultracode: None,
-        structured: false,
-    }
+    ToolOptions::new(tool, false, Vec::new(), String::new(), None)
 }
 
 /// An installed tool whose models cannot be listed: one model, no flags passed.
 fn tool_default(tool: ToolKind) -> ToolOptions {
-    ToolOptions {
+    ToolOptions::new(
         tool,
-        available: true,
-        models: vec![ModelOption {
+        true,
+        vec![ModelOption {
             id: "default".into(),
             label: "Tool default".into(),
             efforts: vec![default_effort_option()],
             default_effort: "default".into(),
         }],
-        default_model: "default".into(),
-        ultracode: None,
-        structured: false,
-    }
+        "default".into(),
+        None,
+    )
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
@@ -321,14 +313,13 @@ fn build_claude(catalog: &Catalog, settings: &ClaudeSettings) -> ToolOptions {
             m.default_effort = e.clone();
         }
     }
-    ToolOptions {
-        tool: ToolKind::ClaudeCode,
-        available: true,
+    ToolOptions::new(
+        ToolKind::ClaudeCode,
+        true,
         models,
         default_model,
-        ultracode: Some(settings.ultracode),
-        structured: false,
-    }
+        Some(settings.ultracode),
+    )
 }
 
 fn claude_options(home: &Path) -> ToolOptions {
@@ -433,14 +424,13 @@ pub fn codex_options(cache: &Value, config: Option<&str>) -> Option<ToolOptions>
             m
         })
         .collect();
-    Some(ToolOptions {
-        tool: ToolKind::Codex,
-        available: true,
+    Some(ToolOptions::new(
+        ToolKind::Codex,
+        true,
         models,
         default_model,
-        ultracode: None,
-        structured: false,
-    })
+        None,
+    ))
 }
 
 // ---- Antigravity ----
@@ -568,14 +558,7 @@ fn build_antigravity(listing: Option<&str>, settings_model: Option<&str>) -> Too
             m.default_effort = id;
         }
     }
-    ToolOptions {
-        tool: ToolKind::Antigravity,
-        available: true,
-        models,
-        default_model,
-        ultracode: None,
-        structured: false,
-    }
+    ToolOptions::new(ToolKind::Antigravity, true, models, default_model, None)
 }
 
 fn antigravity_options(home: &Path) -> ToolOptions {

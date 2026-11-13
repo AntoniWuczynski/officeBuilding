@@ -1,18 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConnectorKind, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
   folderSchema,
   hireFailureSchema,
   hireOptionsSchema,
+  linearKeyStatusSchema,
+  linearTeamsSchema,
   parseWire,
   projectSchema,
   conversationBacklogSchema,
   conversationUpdateSchema,
   sessionSchema,
+  editorListSchema,
+  editorSchema,
+  settingsSchema,
   setupViewSchema,
   shellSchema,
   snapshotSchema,
@@ -43,7 +48,7 @@ function asError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
-async function call(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+export async function call(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   try {
     return await invoke<unknown>(cmd, args);
   } catch (err: unknown) {
@@ -72,6 +77,30 @@ function follow<T>(start: (deliver: (value: T) => void) => Promise<() => void>, 
 
 /** {@link DiscoveryApi} backed by the Rust side (src-tauri/src/commands.rs). */
 export class TauriApi implements DiscoveryApi {
+  async getSettings(): Promise<Settings> {
+    return parseWire(settingsSchema, "settings", await call("get_settings"));
+  }
+
+  async updateSettings(patch: SettingsPatch): Promise<Settings> {
+    return parseWire(settingsSchema, "settings", await call("update_settings", { patch }));
+  }
+
+  async editors(): Promise<EditorList> {
+    return parseWire(editorListSchema, "list of editors", await call("editors"));
+  }
+
+  async openInEditor(place: Place, editor: Editor | null): Promise<Editor> {
+    return parseWire(editorSchema, "editor", await call("open_in_editor", { place, editor }));
+  }
+
+  async setOpenDesk(sessionId: string | null): Promise<void> {
+    await call("set_open_desk", { sessionId });
+  }
+
+  async testAlert(): Promise<void> {
+    await call("test_alert");
+  }
+
   async getSnapshot(): Promise<OfficeSnapshot> {
     return parseWire(snapshotSchema, "snapshot", await call("get_snapshot"));
   }
@@ -134,6 +163,62 @@ export class TauriApi implements DiscoveryApi {
 
   async tickTodo(todoId: string): Promise<void> {
     await call("tick_todo", { todoId });
+  }
+
+  async linearKeyStatus(): Promise<LinearKeyStatus> {
+    return parseWire(linearKeyStatusSchema, "Linear key status", await call("linear_key_status"));
+  }
+
+  async setLinearKey(key: string | null): Promise<LinearKeyStatus> {
+    return parseWire(linearKeyStatusSchema, "Linear key status", await call("set_linear_key", { key }));
+  }
+
+  async linearTeams(): Promise<readonly LinearTeam[]> {
+    return parseWire(linearTeamsSchema, "list of Linear teams", await call("linear_teams"));
+  }
+
+  async connectFloor(projectId: string, link: FloorLink): Promise<void> {
+    await call("connect_floor", { projectId, link });
+  }
+
+  async disconnectFloor(projectId: string, connector: ConnectorKind): Promise<void> {
+    await call("disconnect_floor", { projectId, connector });
+  }
+
+  async recheckConnectors(): Promise<void> {
+    await call("recheck_connectors");
+  }
+
+  async setFloorQa(projectId: string, enabled: boolean): Promise<void> {
+    await call("set_floor_qa", { projectId, enabled });
+  }
+
+  async hireManager(projectId: string): Promise<void> {
+    await call("hire_manager", { projectId });
+  }
+
+  async setManagerPaused(projectId: string, paused: boolean): Promise<void> {
+    await call("set_manager_paused", { projectId, paused });
+  }
+
+  async setManagerHiring(projectId: string, allowed: boolean): Promise<void> {
+    await call("set_manager_hiring", { projectId, allowed });
+  }
+
+  async withdrawManagerNote(projectId: string, noteId: string): Promise<void> {
+    await call("withdraw_manager_note", { projectId, noteId });
+  }
+
+  async recheckQa(): Promise<void> {
+    await call("recheck_qa");
+  }
+
+  async openReview(projectId: string, number: number, head: string): Promise<void> {
+    await call("open_review", { projectId, number, head });
+  }
+
+  async openTodoLink(todoId: string): Promise<void> {
+    await call("open_todo_link", { todoId });
   }
 
   async sendAgentMessage(fromSessionId: string, toSessionId: string, text: string): Promise<void> {
@@ -280,6 +365,10 @@ export class TauriApi implements DiscoveryApi {
 
   async structuredCancel(sessionId: string): Promise<void> {
     await call("structured_cancel", { sessionId });
+  }
+
+  async withdrawMessage(messageId: string): Promise<void> {
+    await call("withdraw_message", { messageId });
   }
 
   async structuredStop(sessionId: string): Promise<void> {

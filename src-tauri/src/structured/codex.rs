@@ -20,6 +20,7 @@ mod ask;
 mod mapper;
 #[cfg(test)]
 mod tests;
+mod views;
 mod wire;
 
 use super::{Driver, Event, Sink, Spawn, Values};

@@ -39,26 +39,11 @@
 .conversation-notice {
   color: var(--wait);
 }
-.conversation-tool summary {
-  cursor: pointer;
-  font-family: "SF Mono", Menlo, Consolas, monospace;
-}
-.conversation-tool-status {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #9aa0a8;
-}
-.conversation-tool.is-failed .conversation-tool-status {
-  color: var(--signage);
-}
 .conversation pre {
   margin: 4px 0 0;
   padding: 6px 8px;
   max-height: 220px;
   overflow: auto;
-  background: #0f1114;
-  font: 12px/1.4 "SF Mono", Menlo, Consolas, monospace;
   white-space: pre-wrap;
 }
 .conversation-approval {

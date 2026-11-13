@@ -1,0 +1,12 @@
+{
+  "data": null,
+  "errors": [
+    {
+      "message": "Argument Validation Error",
+      "extensions": {
+        "type": "invalid input",
+        "userPresentableMessage": "The status does not belong to the issue's team."
+      }
+    }
+  ]
+}

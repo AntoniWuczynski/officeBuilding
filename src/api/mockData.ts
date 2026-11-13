@@ -1,8 +1,12 @@
-import type { Helper, OfficeSnapshot } from "../types";
+import type { Helper, LinearLink, OfficeSnapshot } from "../types";
+import { mockLinearTodos } from "./mockConnectors";
+import { makeHandoverView } from "./mockHandover";
+import { makeSeedManagers } from "./mockManager";
+import { makeSeedQa } from "./mockQa";
 
 /** `count` demo helpers (sub-agents) for one session, a few of them thinking. */
 function helpers(sessionId: string, count: number): Helper[] {
-  return Array.from({ length: count }, (_, i) => ({ id: `${sessionId}-h${i}`, state: i % 7 === 3 ? "thinking" : "running", worktree: i % 2 === 1 }));
+  return Array.from({ length: count }, (_, i) => ({ id: `${sessionId}-h${i}`, state: i % 7 === 3 ? "thinking" : "running", worktree: i % 2 === 1, branch: i % 2 === 1 ? `helper-${i}` : null }));
 }
 
 /**
@@ -20,12 +24,12 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "p-notes", name: "notes", path: "~/code/notes", sessionIds: [] },
     ],
     sessions: [
-      { id: "s-1", tool: "claude-code", projectId: "p-shop", title: "audit checkout", state: "running", control: "full", model: "claude-opus-5-5", effort: "high", lastActivityAt: "2026-09-28T15:40:00Z", pendingQuestionIds: [], spend: { usd: 1.82, tokens: 412_000, unpricedTokens: 0 }, helpers: helpers("s-1", 3), pets: [{ id: "pet-1", kind: "shell", label: "pnpm dev --port 5183" }, { id: "pet-2", kind: "monitor", label: "deploy errors" }], worktree: false },
-      { id: "s-2", tool: "codex", projectId: "p-shop", title: "orders ingest fix", state: "waiting-human", control: "full", model: "gpt-6-astra", effort: "xhigh", lastActivityAt: "2026-09-28T15:38:00Z", pendingQuestionIds: ["q-1"], spend: { usd: 0.44, tokens: 96_000, unpricedTokens: 0 }, helpers: [], pets: [{ id: "pet-3", kind: "browser", label: "node_repl" }, { id: "pet-4", kind: "process", label: "devserver" }], worktree: true },
-      { id: "s-3", tool: "opencode", projectId: "p-shop", title: "map-tiles mirror", state: "error", control: "raise-window", model: null, effort: null, lastActivityAt: "2026-09-28T15:20:00Z", pendingQuestionIds: ["q-2"], spend: { usd: 0.12, tokens: 22_000, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false },
-      { id: "s-4", tool: "claude-code", projectId: "p-office", title: "isometric floors", state: "thinking", control: "full", model: "claude-fable-5-1", effort: "max", lastActivityAt: "2026-09-28T15:41:00Z", pendingQuestionIds: [], spend: { usd: 2.05, tokens: 508_000, unpricedTokens: 0 }, helpers: helpers("s-4", 250), pets: [], worktree: false },
-      { id: "s-5", tool: "antigravity", projectId: "p-office", title: "character sprites", state: "idle", control: "read-only", model: null, effort: null, lastActivityAt: "2026-09-28T14:55:00Z", pendingQuestionIds: [], spend: { usd: 0.0, tokens: 0, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false },
-      { id: "s-6", tool: "codex", projectId: "p-arcade", title: "netcode prototype", state: "idle", control: "full", model: "gpt-5.6-terra", effort: "medium", lastActivityAt: "2026-09-28T13:10:00Z", pendingQuestionIds: [], spend: { usd: 3.7, tokens: 910_000, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false },
+      { id: "s-1", tool: "claude-code", projectId: "p-shop", title: "audit checkout", state: "running", control: "full", model: "claude-opus-5-5", effort: "high", lastActivityAt: "2026-09-28T15:40:00Z", pendingQuestionIds: [], spend: { usd: 1.82, tokens: 412_000, unpricedTokens: 0 }, helpers: helpers("s-1", 3), pets: [{ id: "pet-1", kind: "shell", label: "pnpm dev --port 5183" }, { id: "pet-2", kind: "monitor", label: "deploy errors" }], worktree: false, branch: null },
+      { id: "s-2", tool: "codex", projectId: "p-shop", title: "orders ingest fix", state: "waiting-human", control: "full", model: "gpt-6-astra", effort: "xhigh", lastActivityAt: "2026-09-28T15:38:00Z", pendingQuestionIds: ["q-1"], spend: { usd: 0.44, tokens: 96_000, unpricedTokens: 0 }, helpers: [], pets: [{ id: "pet-3", kind: "browser", label: "node_repl" }, { id: "pet-4", kind: "process", label: "devserver" }], worktree: true, branch: "fix/orders-ingest" },
+      { id: "s-3", tool: "opencode", projectId: "p-shop", title: "map-tiles mirror", state: "error", control: "raise-window", model: null, effort: null, lastActivityAt: "2026-09-28T15:20:00Z", pendingQuestionIds: ["q-2"], spend: { usd: 0.12, tokens: 22_000, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null },
+      { id: "s-4", tool: "claude-code", projectId: "p-office", title: "isometric floors", state: "thinking", control: "full", model: "claude-fable-5-1", effort: "max", lastActivityAt: "2026-09-28T15:41:00Z", pendingQuestionIds: [], spend: { usd: 2.05, tokens: 508_000, unpricedTokens: 0 }, helpers: helpers("s-4", 250), pets: [], worktree: false, branch: null },
+      { id: "s-5", tool: "antigravity", projectId: "p-office", title: "character sprites", state: "idle", control: "read-only", model: null, effort: null, lastActivityAt: "2026-09-28T14:55:00Z", pendingQuestionIds: [], spend: { usd: 0.0, tokens: 0, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null },
+      { id: "s-6", tool: "codex", projectId: "p-arcade", title: "netcode prototype", state: "idle", control: "full", model: "gpt-5.6-terra", effort: "medium", lastActivityAt: "2026-09-28T13:10:00Z", pendingQuestionIds: [], spend: { usd: 3.7, tokens: 910_000, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null },
     ],
     ended: [
       { id: "e-1", tool: "claude-code", projectId: "p-shop", title: "refund emails", endedAt: "2026-09-28T15:10:00Z", model: "claude-sonnet-5-5", effort: "medium" },
@@ -42,25 +46,34 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "d-3", projectId: "p-shop", title: "Checkout audit runs weekly", detail: "Scheduled every Monday; findings filed to TODO.md.", decidedAt: "2026-09-27T09:00:00Z", by: "ai" },
     ],
     todos: [
-      { id: "t-1", projectId: "p-office", text: "Evaluate the CCC HTTP API on the Mac", done: false, assignee: "human", sourceFile: null },
-      { id: "t-2", projectId: "p-office", text: "Generate the app icons", done: false, assignee: "human", sourceFile: null },
-      { id: "t-3", projectId: "p-office", text: "Scaffold the mock UI", done: true, assignee: "ai", sourceFile: null },
-      { id: "t-4", projectId: "p-office", text: "Wire tauri-plugin-pty for spawned sessions", done: false, assignee: "ai", sourceFile: null },
-      { id: "t-5", projectId: "p-shop", text: "Rotate the tile API key", done: false, assignee: "human", sourceFile: null },
-      { id: "t-6", projectId: "p-shop", text: "Refresh map-tiles visual baselines", done: true, assignee: "ai", sourceFile: null },
-      { id: "t-7", projectId: "p-shop", text: "Fix the orders ingest dedupe", done: false, assignee: "ai", sourceFile: null },
+      { id: "t-1", projectId: "p-office", text: "Evaluate the CCC HTTP API on the Mac", done: false, assignee: "human", source: { kind: "app" } },
+      { id: "t-2", projectId: "p-office", text: "Generate the app icons", done: false, assignee: "human", source: { kind: "app" } },
+      { id: "t-3", projectId: "p-office", text: "Scaffold the mock UI", done: true, assignee: "ai", source: { kind: "app" } },
+      { id: "t-4", projectId: "p-office", text: "Wire tauri-plugin-pty for spawned sessions", done: false, assignee: "ai", source: { kind: "app" } },
+      { id: "t-5", projectId: "p-shop", text: "Rotate the tile API key", done: false, assignee: "human", source: { kind: "app" } },
+      { id: "t-6", projectId: "p-shop", text: "Refresh map-tiles visual baselines", done: true, assignee: "ai", source: { kind: "app" } },
+      { id: "t-7", projectId: "p-shop", text: "Fix the orders ingest dedupe", done: false, assignee: "ai", source: { kind: "app" } },
     ],
     messages: [],
     setupProjectId: "p-setup",
     shells: [],
+    connections: [],
+    qa: makeSeedQa(),
+    managers: makeSeedManagers(),
+    chatDesks: [],
+    queued: [],
+    handover: makeHandoverView(),
   };
 }
 
 /** The seed plus the setup floor, as the browser build shows it (tests keep the plain seed). */
 export function makeDemoSnapshot(): OfficeSnapshot {
   const seed = makeSeedSnapshot();
+  const link: LinearLink = { kind: "linear", teamId: "team-eng", teamKey: "ENG", teamName: "Engineering", project: null, label: null };
   return {
     ...seed,
+    todos: [...seed.todos, ...mockLinearTodos("p-shop", link)],
+    connections: [{ projectId: "p-shop", link, fetchedAt: "2026-09-28T15:40:00Z", error: null, needsKey: false, truncated: false }],
     projects: [...seed.projects, { id: seed.setupProjectId, name: "Setup", path: "~/Library/Application Support/com.wuczynski.office-building/Setup", sessionIds: [] }],
   };
 }

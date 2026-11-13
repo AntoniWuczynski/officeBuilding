@@ -4,13 +4,17 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DiscoveryApi } from "../../api/DiscoveryApi";
-import type { Session, Shell } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, modelLine } from "../../state/selectors";
+import type { DeskHandoverState, DeskView, ManagerFloor, QueuedNote, Session, Shell } from "../../types";
+import { STATE_LABEL, TOOL_LABEL, checkoutLine, modelLine, notesFor, plural } from "../../state/selectors";
 import { CloseIcon } from "../icons";
 import { shellPaths } from "../../lib/shell";
 import { message } from "../../lib/errors";
 import { readPref, writePref } from "../../lib/prefs";
 import { Conversation } from "./Conversation";
+import { useDeskView } from "./useDeskView";
+import { OpenInEditor } from "../editor/OpenInEditor";
+import { HandoverStrip } from "../handover/HandoverStrip";
+import { RouteStrip } from "../routing/RouteStrip";
 
 export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal" | "subscribeFileDrops">;
 
@@ -22,7 +26,8 @@ export const TerminalApiContext = createContext<TerminalApi | null>(null);
 const THEME = { background: "#16181c", foreground: "#e8e6e1", cursor: "#e8e6e1", selectionBackground: "#3a3f48" };
 const FONT = '"SF Mono", Menlo, Consolas, monospace';
 
-const HEIGHT_KEY = "office-building:terminal-height";
+const TERMINAL_HEIGHT_KEY = "office-building:terminal-height";
+const CHAT_HEIGHT_KEY = "office-building:chat-height";
 const DEFAULT_HEIGHT = 260;
 const MIN_HEIGHT = 140;
 /** Room the floor keeps above a tall terminal, so its header stays reachable. */
@@ -30,27 +35,39 @@ const FLOOR_ROOM = 120;
 /** How far one arrow key moves the handle. */
 const KEY_STEP = 40;
 
-function storedHeight(): number {
-  const h = Number(readPref(HEIGHT_KEY));
-  return Number.isFinite(h) && h >= MIN_HEIGHT ? h : DEFAULT_HEIGHT;
+function storedHeight(key: string, fallback: number | null): number | null {
+  const h = Number(readPref(key));
+  return Number.isFinite(h) && h >= MIN_HEIGHT ? h : fallback;
 }
 
-/** The panel's height, set by dragging its top edge (or arrow keys on it) and remembered between opens. */
-function usePanelHeight(panel: React.RefObject<HTMLElement | null>): {
-  readonly height: number;
+/**
+ * The panel's height, set by dragging its top edge (or arrow keys on it) and remembered between opens
+ * under `key`. With nothing stored and no `fallback`, the height is null and the panel fills 60% of the
+ * floor until the first move, which starts from its measured height.
+ */
+function usePanelHeight(
+  panel: React.RefObject<HTMLElement | null>,
+  key: string,
+  fallback: number | null,
+): {
+  readonly height: number | null;
   readonly handle: React.HTMLAttributes<HTMLDivElement>;
 } {
-  const [height, setHeight] = useState(storedHeight);
-  useEffect(() => writePref(HEIGHT_KEY, String(height)), [height]);
+  const [height, setHeight] = useState(() => storedHeight(key, fallback));
+  useEffect(() => {
+    if (height !== null) writePref(key, String(height));
+  }, [key, height]);
   const clamp = (h: number): number => {
     const room = (panel.current?.parentElement?.clientHeight ?? window.innerHeight) - FLOOR_ROOM;
     return Math.round(Math.max(MIN_HEIGHT, Math.min(room, h)));
   };
+  const current = (): number => height ?? panel.current?.offsetHeight ?? DEFAULT_HEIGHT;
   const handle: React.HTMLAttributes<HTMLDivElement> = {
     onPointerDown: (e) => {
       e.preventDefault();
       const startY = e.clientY;
-      const move = (ev: PointerEvent): void => setHeight(clamp(height + startY - ev.clientY));
+      const start = current();
+      const move = (ev: PointerEvent): void => setHeight(clamp(start + startY - ev.clientY));
       const up = (): void => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
@@ -62,44 +79,61 @@ function usePanelHeight(panel: React.RefObject<HTMLElement | null>): {
       const step = e.key === "ArrowUp" ? KEY_STEP : e.key === "ArrowDown" ? -KEY_STEP : 0;
       if (step === 0) return;
       e.preventDefault();
-      setHeight(clamp(height + step));
+      setHeight(clamp(current() + step));
     },
   };
   return { height, handle };
 }
 
 /** An agent's session, or a plain shell the human opened (its floor's folder alongside). */
-type Props = { readonly onClose: () => void } & ({ readonly session: Session } | { readonly shell: Shell; readonly path: string });
+type Props = {
+  readonly onClose: () => void;
+  readonly manager?: ManagerFloor | undefined;
+  /** The session's id is in `snapshot.chatDesks`: its panel opens in the chat view. */
+  readonly chat?: boolean | undefined;
+  /** Your own messages waiting for this session. */
+  readonly queued?: readonly QueuedNote[] | undefined;
+  /** What this session's handover has to say, if anything. */
+  readonly handover?: DeskHandoverState | undefined;
+} & ({ readonly session: Session } | { readonly shell: Shell; readonly path: string });
 
 /**
  * A terminal docked under the floor. A plain shell is always live. A session's is:
  *  full        the agent's live in-app terminal (closing the panel leaves it running)
  *  structured  the conversation with an agent the app drives over its protocol
+ *  a Claude Code `full` desk also flips between its terminal and a chat drawn from its transcript
  *  read-only   transcript notice
  * raise-window sessions never open here: clicking them raises their own window.
  */
 export function TerminalPanel(props: Props): React.ReactElement {
-  const { onClose } = props;
+  const { onClose, manager, queued, handover } = props;
   const session = "session" in props ? props.session : null;
   // Opened on a live terminal, the panel stays on it: after `/clear` this id
   // turns read-only while the backend keeps it pointing at the same terminal.
   const [live] = useState(session?.control !== "read-only");
   const panel = useRef<HTMLElement>(null);
-  const { height, handle } = usePanelHeight(panel);
+  // Claude Code in one of the app's terminals can show either; its panel remembers the choice.
+  const flippable = session?.tool === "claude-code" && session.control === "full";
+  const [view, setView] = useDeskView(session?.id ?? "", props.chat === true ? "chat" : "terminal");
+  const showingChat = session?.control === "structured" || (flippable && view === "chat");
+  const terminalHeight = usePanelHeight(panel, TERMINAL_HEIGHT_KEY, DEFAULT_HEIGHT);
+  const chatHeight = usePanelHeight(panel, CHAT_HEIGHT_KEY, null);
+  const { height, handle } = showingChat ? chatHeight : terminalHeight;
   const id = session?.id ?? ("shell" in props ? props.shell.id : "");
   const title = session?.title ?? ("shell" in props ? `Shell ${props.shell.number}` : "");
   const details =
     session === null
       ? ["path" in props ? props.path : "", "Your shell"]
       : [TOOL_LABEL[session.tool], modelLine(session), STATE_LABEL[session.state]].filter((d) => d !== null);
+  const waiting = session === null ? 0 : notesFor(manager, session.id).length;
   return (
     <motion.section
       ref={panel}
       className="terminal"
-      style={{ height, maxHeight: `calc(100% - ${FLOOR_ROOM}px)` }}
+      style={{ height: height === null ? "60%" : height, maxHeight: `calc(100% - ${FLOOR_ROOM}px)` }}
       data-testid="terminal-panel"
       data-session={id}
-      aria-label={`${session?.control === "structured" ? "Conversation" : "Terminal"}: ${title}`}
+      aria-label={`${showingChat ? "Conversation" : "Terminal"}: ${title}`}
       initial={{ y: 40, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 40, opacity: 0 }}
@@ -110,7 +144,7 @@ export function TerminalPanel(props: Props): React.ReactElement {
         role="separator"
         aria-orientation="horizontal"
         aria-label="Resize terminal"
-        aria-valuenow={height}
+        aria-valuenow={height ?? panel.current?.offsetHeight ?? 0}
         tabIndex={0}
         data-testid="terminal-resize"
         {...handle}
@@ -121,13 +155,27 @@ export function TerminalPanel(props: Props): React.ReactElement {
           {details.map((d) => (
             <span key={d}>{d}</span>
           ))}
+          {session !== null && manager?.managed.includes(session.id) ? (
+            <span className="managed-mark managed-mark-dark" data-testid="terminal-managed">
+              managed
+            </span>
+          ) : null}
+          {waiting === 0 ? null : <span data-testid="terminal-notes">{plural(waiting, "note", "notes")} from the manager waiting</span>}
         </span>
-        <button type="button" className="icon-btn icon-btn-dark" aria-label="Close terminal" data-testid="terminal-close" onClick={onClose}>
-          <CloseIcon />
-        </button>
+        <span className="terminal-actions">
+          {flippable ? <ViewSwitch view={view} onChange={setView} /> : null}
+          {session === null ? null : (
+            <OpenInEditor place={{ kind: "session", sessionId: session.id }} what={`“${session.title}”`} opens={checkoutLine(session)} dark shortcut />
+          )}
+          <button type="button" className="icon-btn icon-btn-dark" aria-label="Close terminal" data-testid="terminal-close" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </span>
       </header>
-      {session?.control === "structured" ? (
-        <Conversation sessionId={session.id} />
+      {session !== null && handover !== undefined ? <HandoverStrip sessionId={session.id} state={handover} /> : null}
+      {flippable ? <RouteStrip sessionId={session.id} /> : null}
+      {session !== null && showingChat ? (
+        <Conversation sessionId={session.id} queued={queued} onFlip={flippable ? () => setView("terminal") : undefined} />
       ) : !live ? (
         <p className="terminal-note" data-testid="read-only-note">
           This session was started outside the app and has no window to raise. Showing its transcript read-only.
@@ -136,6 +184,19 @@ export function TerminalPanel(props: Props): React.ReactElement {
         <LiveTerminal sessionId={id} who={session === null ? "shell" : "agent"} />
       )}
     </motion.section>
+  );
+}
+
+/** The Chat and Terminal buttons in the head of a Claude Code desk's panel. */
+function ViewSwitch({ view, onChange }: { readonly view: DeskView; readonly onChange: (next: DeskView) => void }): React.ReactElement {
+  return (
+    <span className="view-switch" role="group" aria-label="View" data-testid="view-switch">
+      {(["chat", "terminal"] as const).map((v) => (
+        <button key={v} type="button" aria-pressed={view === v} onClick={() => onChange(v)}>
+          {v === "chat" ? "Chat" : "Terminal"}
+        </button>
+      ))}
+    </span>
   );
 }
 

@@ -1,7 +1,7 @@
 use super::*;
-use crate::model::{EffortOption, ModelOption};
+use crate::model::{DeskView, EffortOption, ModelOption, ToolOptions};
 
-fn office(tag: &str) -> (Office, PathBuf) {
+pub(super) fn office(tag: &str) -> (Office, PathBuf) {
     let dir = std::env::temp_dir().join(format!("ob-office-{}-{tag}", std::process::id()));
     std::fs::create_dir_all(dir.join("home")).expect("mkdir");
     let store = Store::open(dir.join("store.json")).expect("store");
@@ -81,6 +81,7 @@ fn session(id: &str, control: ControlMode) -> Session {
         helpers: Vec::new(),
         pets: Vec::new(),
         worktree: false,
+        branch: None,
     }
 }
 
@@ -410,7 +411,7 @@ fn hiring_onto_a_floor_whose_folder_is_gone_fails_clearly() {
         model: "claude-opus-5-5".to_string(),
         effort: "high".to_string(),
         ultracode: false,
-        structured: false,
+        view: DeskView::Terminal,
     };
     let err = office.spawn_session(&floor.id, &req).expect_err("gone");
     assert_eq!(
@@ -507,7 +508,7 @@ fn a_task_named_like_a_claude_command_is_refused() {
         model: "claude-opus-5-5".to_string(),
         effort: "high".to_string(),
         ultracode: false,
-        structured: false,
+        view: DeskView::Terminal,
     };
     assert_eq!(
         office.spawn_session(&floor.id, &req),
@@ -738,7 +739,7 @@ fn hire(tool: ToolKind, model: &str, effort: &str, ultracode: bool) -> HireReque
         model: model.to_string(),
         effort: effort.to_string(),
         ultracode,
-        structured: false,
+        view: DeskView::Terminal,
     }
 }
 
@@ -973,14 +974,8 @@ fn a_desk_whose_terminal_is_quiet_is_idle() {
 
 #[test]
 fn a_tool_that_is_not_installed_cannot_be_hired() {
-    let listed = |tool, available| ToolOptions {
-        tool,
-        available,
-        models: Vec::new(),
-        default_model: String::new(),
-        ultracode: None,
-        structured: false,
-    };
+    let listed =
+        |tool, available| ToolOptions::new(tool, available, Vec::new(), String::new(), None);
     let options = vec![
         listed(ToolKind::Codex, true),
         listed(ToolKind::Antigravity, false),

@@ -70,6 +70,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 mod process;
+pub mod rollout;
 pub(super) use process::cwd_of;
 use process::{list_codex_pids, probe, resolve_liveness_by_open_files, rolloutless_sessions};
 
@@ -326,6 +327,8 @@ pub struct CodexSource {
     keep_finished: Duration,
     cache: HashMap<PathBuf, (SystemTime, u64, Transcript)>,
     live_pids: HashMap<String, i32>,
+    /// Per top-level thread: its sub-agent threads with a turn open, rebuilt by every scan.
+    busy_subagents: HashMap<String, usize>,
     /// The running `codex` pids; tests swap in none, so a real session on the Mac stays out.
     pub(crate) list_pids: fn() -> Vec<i32>,
 }
@@ -338,6 +341,7 @@ impl CodexSource {
             keep_finished: Duration::from_hours(12),
             cache: HashMap::new(),
             live_pids: HashMap::new(),
+            busy_subagents: HashMap::new(),
             list_pids: list_codex_pids,
         }
     }
@@ -372,7 +376,8 @@ impl CodexSource {
 
         let mut parsed: Vec<(PathBuf, String, SystemTime, Transcript)> = Vec::new();
         let mut parent_of: HashMap<String, String> = HashMap::new();
-        let mut subagent_spend: Vec<(String, Spend)> = Vec::new();
+        // Per sub-agent: its spend, and whether it is busy (a turn open in a recent file).
+        let mut subagents: Vec<(String, Spend, bool)> = Vec::new();
         for path in paths {
             let Some(session_id) = path
                 .file_stem()
@@ -390,7 +395,9 @@ impl CodexSource {
             if transcript.is_subagent {
                 if let Some(parent) = transcript.parent_thread_id {
                     parent_of.insert(session_id.clone(), parent);
-                    subagent_spend.push((session_id, transcript.spend));
+                    let recent =
+                        now.duration_since(mtime).unwrap_or(Duration::ZERO) <= self.keep_finished;
+                    subagents.push((session_id, transcript.spend, transcript.turn_open && recent));
                 }
                 continue;
             }
@@ -401,19 +408,8 @@ impl CodexSource {
         }
 
         // A sub-agent's spend is its top-level thread's: walk up through nested sub-agents.
-        let mut spend_by_thread: HashMap<String, Spend> = HashMap::new();
-        for (id, spend) in subagent_spend {
-            let mut at = &id;
-            // Bounded, so a malformed parent cycle cannot hang the scan.
-            for _ in 0..parent_of.len() {
-                let Some(parent) = parent_of.get(at) else {
-                    break;
-                };
-                at = parent;
-            }
-            let total = spend_by_thread.entry(at.clone()).or_default();
-            *total = *total + spend;
-        }
+        let (spend_by_thread, busy) = roll_up(subagents, &parent_of);
+        self.busy_subagents = busy;
         for (_, id, _, transcript) in &mut parsed {
             if let Some(extra) = spend_by_thread.get(id) {
                 transcript.spend = transcript.spend + *extra;
@@ -499,6 +495,43 @@ fn session_uuid(file_stem: &str) -> Option<String> {
     let mut rev: Vec<&str> = groups;
     rev.reverse();
     Some(rev.join("-"))
+}
+
+/// Each sub-agent's spend and busy flag, added to the top-level thread that spawned it at any depth.
+fn roll_up(
+    subagents: Vec<(String, Spend, bool)>,
+    parent_of: &HashMap<String, String>,
+) -> (HashMap<String, Spend>, HashMap<String, usize>) {
+    let mut spend_by_thread: HashMap<String, Spend> = HashMap::new();
+    let mut busy_by_thread: HashMap<String, usize> = HashMap::new();
+    for (id, spend, busy) in subagents {
+        let mut at = &id;
+        // Bounded, so a malformed parent cycle cannot hang the scan.
+        for _ in 0..parent_of.len() {
+            let Some(parent) = parent_of.get(at) else {
+                break;
+            };
+            at = parent;
+        }
+        let total = spend_by_thread.entry(at.clone()).or_default();
+        *total = *total + spend;
+        if busy {
+            *busy_by_thread.entry(at.clone()).or_default() += 1;
+        }
+    }
+    (spend_by_thread, busy_by_thread)
+}
+
+impl super::Discovery {
+    /// How many sub-agent threads of the Codex session `session_id` had a turn in flight at the last scan.
+    #[must_use]
+    pub fn codex_subagents_busy(&self, session_id: &str) -> usize {
+        self.codex
+            .busy_subagents
+            .get(session_id)
+            .copied()
+            .unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -703,6 +736,70 @@ mod tests {
             found[0].transcript.spend.usd
         );
         assert_eq!(found[0].transcript.spend.tokens, 3_000_000);
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn busy_subagents_are_counted_per_top_level_thread() {
+        let dir = std::env::temp_dir().join(format!("ob-codex-busy-{}", std::process::id()));
+        let day = dir.join(".codex/sessions/2026/09/29");
+        fs::create_dir_all(&day).expect("temp dir");
+        let uuid = |n: u32| format!("deadbeef-0000-4000-8000-{n:012}");
+        let meta = |id: &str, parent: Option<&str>| match parent {
+            None => format!(
+                r#"{{"timestamp":"t","type":"session_meta","payload":{{"id":"{id}","session_id":"{id}","cwd":"/code/app","source":"cli"}}}}"#
+            ),
+            Some(p) => format!(
+                r#"{{"timestamp":"t","type":"session_meta","payload":{{"id":"{id}","session_id":"{id}","parent_thread_id":"{p}","cwd":"/code/app","source":{{"subagent":{{"other":"guardian"}}}}}}}}"#
+            ),
+        };
+        let open = r#"{"timestamp":"t","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#;
+        let done = r#"{"timestamp":"t","type":"event_msg","payload":{"type":"task_complete","turn_id":"t1"}}"#;
+        let (top, other, a, b, stale, nested, ahead) = (
+            uuid(1),
+            uuid(2),
+            uuid(3),
+            uuid(4),
+            uuid(5),
+            uuid(6),
+            uuid(7),
+        );
+        let now = SystemTime::now();
+        let old = now - Duration::from_hours(13);
+        for (id, parent, last, modified) in [
+            (&top, None, None, now),
+            (&other, None, None, now),
+            (&a, Some(top.as_str()), Some(open), now),
+            (&b, Some(top.as_str()), Some(done), now),
+            (&stale, Some(top.as_str()), Some(open), old),
+            (&nested, Some(a.as_str()), Some(open), now),
+            // written after the scan's clock was read
+            (
+                &ahead,
+                Some(top.as_str()),
+                Some(open),
+                now + Duration::from_secs(1),
+            ),
+        ] {
+            let path = day.join(format!("rollout-2026-09-29T10-00-00-{id}.jsonl"));
+            let text = [Some(meta(id, parent)), last.map(str::to_string)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join("\n");
+            fs::write(&path, format!("{text}\n")).expect("write");
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .and_then(|f| f.set_modified(modified))
+                .expect("mtime");
+        }
+
+        let mut discovery = crate::discovery::Discovery::new(dir.clone());
+        discovery.codex.scan_with(now, Vec::new());
+        assert_eq!(discovery.codex_subagents_busy(&top), 3);
+        assert_eq!(discovery.codex_subagents_busy(&other), 0);
+        assert_eq!(discovery.codex_subagents_busy("unknown"), 0);
         fs::remove_dir_all(&dir).expect("cleanup");
     }
 

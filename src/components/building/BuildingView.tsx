@@ -4,6 +4,7 @@ import type { OfficeSnapshot, Project, ToolUsage } from "../../types";
 import {
   floorLight,
   matchesQuery,
+  qaFor,
   questionsForProject,
   sessionCounts,
   sessionsForProject,
@@ -33,10 +34,12 @@ interface Props {
   readonly onAddFloor: (path: string) => Promise<Project>;
   readonly onDemolishFloor: (projectId: string) => Promise<void>;
   readonly loadUsage: (refresh: boolean) => Promise<readonly ToolUsage[]>;
+  /** The Add floor or Demolish plate is opening, so no other plate may stay open over it. */
+  readonly onOpenPlate: () => void;
 }
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, onOpenPlate }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
@@ -46,6 +49,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
 
   const floors: FloorModel[] = snapshot.projects.map((project) => {
     const sessions = sessionsForProject(snapshot, project.id);
+    const qa = qaFor(snapshot, project.id);
     return {
       project,
       sessions,
@@ -54,6 +58,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
       pending: questionsForProject(snapshot, project.id).length,
       dimmed: !matchesQuery(project, query),
       plant: project.id === snapshot.setupProjectId,
+      stamp: qa?.enabled === true ? qa.stamp : null,
     };
   });
   const standing = usePresence(floors, (f) => f.project.id, animate);
@@ -140,8 +145,14 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             name={buildingName}
             onRename={renameBuilding}
             onEnter={(projectId, el) => onEnter(projectId, originOf(el))}
-            onAddFloor={() => setAdding(true)}
-            onDemolish={setDemolishing}
+            onAddFloor={() => {
+              onOpenPlate();
+              setAdding(true);
+            }}
+            onDemolish={(projectId) => {
+              onOpenPlate();
+              setDemolishing(projectId);
+            }}
             onGone={standing.done}
           />
         </Stage>

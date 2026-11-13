@@ -5,7 +5,7 @@ use super::transcript::Transcript;
 use super::wire::{self, Inbound, ModelChoices, StopReason};
 use super::{ModelCall, model_call};
 use crate::model::SessionState;
-use crate::structured::{Approval, Choice, Entry, Event, FieldKind, ToolStatus, Values};
+use crate::structured::{Approval, Choice, Entry, Event, FieldKind, FileDiff, ToolStatus, Values};
 
 /// Feed agent lines into a transcript the way the reader does; returns the
 /// events and reply lines.
@@ -40,6 +40,7 @@ fn tool(status: ToolStatus, title: &str, detail: &str) -> Event {
         title: title.to_string(),
         status,
         detail: detail.to_string(),
+        diffs: Vec::new(),
     })
 }
 
@@ -310,12 +311,57 @@ fn a_diff_shows_only_the_changed_lines() {
     );
     assert_eq!(
         events,
-        vec![tool(
-            ToolStatus::Done,
-            "Edit a.txt",
-            "--- /ws/a.txt\n+++ /ws/a.txt\n-two\n+2"
-        )]
+        vec![Event::Entry(Entry::Tool {
+            id: "tool-call_1".to_string(),
+            title: "Edit a.txt".to_string(),
+            status: ToolStatus::Done,
+            detail: String::new(),
+            diffs: vec![FileDiff {
+                path: "/ws/a.txt".to_string(),
+                text: "-two\n+2".to_string(),
+            }],
+        })]
     );
+}
+
+#[test]
+fn text_stays_in_the_detail_and_a_diff_in_the_diffs_and_a_permission_shows_it_joined() {
+    let mut t = Transcript::default();
+    t.user("edit it");
+    let request = r#"{"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"ses_1","toolCall":{"toolCallId":"call_2","title":"Edit a.txt","kind":"edit","status":"pending","locations":[],"content":[{"type":"content","content":{"type":"text","text":"patching"}},{"type":"diff","path":"/ws/a.txt","oldText":"one\ntwo\n","newText":"one\n2\n"}]},"options":[{"optionId":"once","kind":"allow_once","name":"Allow once"}]}}"#;
+    let (events, _) = feed(&mut t, &[request]);
+    let Event::Entry(Entry::Tool { detail, diffs, .. }) = &events[0] else {
+        panic!("no tool entry: {events:?}");
+    };
+    assert_eq!(detail, "patching");
+    assert_eq!(
+        diffs,
+        &vec![FileDiff {
+            path: "/ws/a.txt".to_string(),
+            text: "-two\n+2".to_string(),
+        }]
+    );
+    // The text is the detail, so the approval reads as it did before diffs had a field.
+    let Event::Approval(a) = &events[1] else {
+        panic!("no approval: {events:?}");
+    };
+    assert_eq!(a.detail, "patching");
+    let (events, _) = feed(
+        &mut t,
+        &[&update(
+            r#"{"sessionUpdate":"tool_call","toolCallId":"call_3","title":"Edit b.txt","kind":"edit","status":"pending","content":[{"type":"diff","path":"/ws/b.txt","oldText":"x\n","newText":"y\n"}]}"#,
+        )],
+    );
+    assert!(matches!(&events[0], Event::Entry(Entry::Tool { diffs, .. }) if diffs.len() == 1));
+    let only_diff = request.replace("call_2", "call_4").replace(
+        r#"{"type":"content","content":{"type":"text","text":"patching"}},"#,
+        "",
+    );
+    let (events, _) = feed(&mut t, &[&only_diff]);
+    let Event::Approval(a) = &events[1] else {
+        panic!("no approval: {events:?}");
+    };
+    assert_eq!(a.detail, "/ws/a.txt\n-two\n+2");
 }
 
 #[test]
@@ -416,6 +462,8 @@ mod live {
         let launch = Launch {
             env,
             opts: Vec::new(),
+            flags: Vec::new(),
+            refuse_peer_messages: false,
         };
         let (tx, rx) = mpsc::channel();
         let driver = start(

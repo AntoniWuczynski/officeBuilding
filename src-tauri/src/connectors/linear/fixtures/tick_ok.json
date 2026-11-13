@@ -1,0 +1,8 @@
+{
+  "data": {
+    "issueUpdate": {
+      "success": true,
+      "issue": { "id": "0b0e0c1a-0000-4000-8000-000000000101", "state": { "type": "completed" } }
+    }
+  }
+}
