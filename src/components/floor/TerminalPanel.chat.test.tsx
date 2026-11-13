@@ -9,29 +9,6 @@ import { makeSeedSnapshot } from "../../api/mockData";
 import type { ConversationBacklog, QueuedNote, Session } from "../../types";
 import { CLAUDE_TERMINAL, STRUCTURED } from "../chat/fixtures";
 
-vi.mock("@xterm/xterm", () => ({
-  Terminal: class {
-    cols = 80;
-    rows = 24;
-    options = {};
-    loadAddon(): void {}
-    open(): void {}
-    write(): void {}
-    onData(): { dispose(): void } {
-      return { dispose: () => {} };
-    }
-    onResize(): { dispose(): void } {
-      return { dispose: () => {} };
-    }
-    focus(): void {}
-    dispose(): void {}
-  },
-}));
-vi.mock("@xterm/addon-fit", () => ({
-  FitAddon: class {
-    fit(): void {}
-  },
-}));
 
 const terminalApi: TerminalApi = {
   subscribeTerminal: () => () => {},

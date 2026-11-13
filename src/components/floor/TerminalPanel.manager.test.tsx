@@ -1,33 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { TerminalApiContext, TerminalPanel } from "./TerminalPanel";
 import type { TerminalApi } from "./TerminalPanel";
 import { makeSeedSnapshot } from "../../api/mockData";
 import type { ManagerFloor, Session } from "../../types";
 
-vi.mock("@xterm/xterm", () => ({
-  Terminal: class {
-    cols = 80;
-    rows = 24;
-    options = {};
-    loadAddon(): void {}
-    open(): void {}
-    write(): void {}
-    onData(): { dispose(): void } {
-      return { dispose: () => {} };
-    }
-    onResize(): { dispose(): void } {
-      return { dispose: () => {} };
-    }
-    focus(): void {}
-    dispose(): void {}
-  },
-}));
-vi.mock("@xterm/addon-fit", () => ({
-  FitAddon: class {
-    fit(): void {}
-  },
-}));
 
 const api: TerminalApi = {
   subscribeTerminal: () => () => {},
