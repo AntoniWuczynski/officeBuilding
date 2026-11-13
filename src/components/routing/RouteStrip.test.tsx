@@ -87,6 +87,14 @@ describe("RouteStrip", () => {
     expect(screen.getByTestId("route-details")).toHaveTextContent("Hidden reasoning is removed from every request it sends through OpenRouter");
   });
 
+  it("says an OpenAI route leaves hidden reasoning out", async () => {
+    const base = makeDeskRoute({ reasoning: "removed", requests: 1 });
+    const entry = { connection: "oai", name: "OpenAI key", kind: "openai-api-key" as const, state: { kind: "active" as const }, exhausted: [], problem: null };
+    show({ ...base, status: { ...base.status, active: "oai", entries: [entry] } });
+    await open();
+    expect(screen.getByTestId("route-details")).toHaveTextContent("Hidden reasoning is left out of every request sent to OpenAI");
+  });
+
   it("says a blocked route is blocked, and a silent one has had no request", async () => {
     const base = makeDeskRoute();
     show({ ...base, status: { ...base.status, blockedSince: 1700000000 }, recordsProblem: "the records file is unreadable" });

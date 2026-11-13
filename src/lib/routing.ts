@@ -49,7 +49,7 @@ export function kindTraits(kind: ConnectionKind): KindTraits {
 
 /** Whether the picker may offer `kind`, and if not, why (a sentence). */
 export function kindOffer(settings: RoutingSettings, kind: ConnectionKind): string | null {
-  if (kind === "chatgpt-sign-in") return "Sign in with ChatGPT is not available in this build.";
+  if (kind === "chatgpt-sign-in") return "Sign in with ChatGPT is not built yet. OpenAI has to accept the building for ChatGPT plan use first.";
   if (settings.connections.length >= CONNECTIONS_MAX) return `There can be at most ${CONNECTIONS_MAX} connections.`;
   if (kind === "claude-subscription" && settings.connections.some((c) => c.kind === kind)) {
     return "The Claude login on this Mac can belong to one context only.";

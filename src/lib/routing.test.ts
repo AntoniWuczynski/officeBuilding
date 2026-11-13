@@ -59,7 +59,7 @@ describe("kindOffer", () => {
   it("refuses a second subscription, the sign-in and a full list", () => {
     const s = sample();
     expect(kindOffer(s, "claude-subscription")).toBe("The Claude login on this Mac can belong to one context only.");
-    expect(kindOffer(s, "chatgpt-sign-in")).toBe("Sign in with ChatGPT is not available in this build.");
+    expect(kindOffer(s, "chatgpt-sign-in")).toBe("Sign in with ChatGPT is not built yet. OpenAI has to accept the building for ChatGPT plan use first.");
     expect(kindOffer(s, "openrouter")).toBeNull();
     expect(kindOffer(makeRoutingSettings(), "claude-subscription")).toBeNull();
     const full = { ...s, connections: Array.from({ length: CONNECTIONS_MAX }, (_, i) => ({ ...nth(s.connections, 1), id: `con-${i}` })) };

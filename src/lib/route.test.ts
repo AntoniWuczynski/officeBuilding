@@ -39,11 +39,9 @@ describe("skipSentence", () => {
   });
 
   it("words a missing credential by whether the build relays the kind", () => {
-    const kinds: readonly ConnectionKind[] = ["claude-subscription", "anthropic-api-key", "openrouter"];
+    const kinds: readonly ConnectionKind[] = ["claude-subscription", "anthropic-api-key", "openrouter", "openai-api-key"];
     for (const kind of kinds) expect(skipSentence(kind, { kind: "no-credential" })).toBe("no API key is saved for it");
-    for (const kind of ["openai-api-key", "chatgpt-sign-in"] as const) {
-      expect(skipSentence(kind, { kind: "no-credential" })).toBe("this build cannot use that kind of connection yet");
-    }
+    expect(skipSentence("chatgpt-sign-in", { kind: "no-credential" })).toBe("it needs Sign in with ChatGPT, which this build does not have yet");
   });
 });
 
@@ -69,9 +67,16 @@ describe("labels and sentences", () => {
   });
 
   it("says nothing about intact reasoning and something for the other two", () => {
-    expect(reasoningSentence("intact")).toBeNull();
-    expect(reasoningSentence("vendor-may-drop")).toContain("Anthropic leaves out whatever the new account or model cannot read");
-    expect(reasoningSentence("removed")).toContain("removed from every request it sends through OpenRouter");
+    const base = makeDeskRoute();
+    const onOpenAi = {
+      ...base,
+      reasoning: "removed" as const,
+      status: { ...base.status, active: "oai", entries: [{ ...ENTRY, connection: "oai", name: "OpenAI key", kind: "openai-api-key" as const, state: { kind: "active" as const } }] },
+    };
+    expect(reasoningSentence(makeDeskRoute({ reasoning: "intact" }))).toBeNull();
+    expect(reasoningSentence(makeDeskRoute({ reasoning: "vendor-may-drop" }))).toContain("Anthropic leaves out whatever the new account or model cannot read");
+    expect(reasoningSentence(makeDeskRoute({ reasoning: "removed" }))).toContain("removed from every request it sends through OpenRouter");
+    expect(reasoningSentence(onOpenAi)).toContain("Hidden reasoning is left out of every request sent to OpenAI");
   });
 
   it("describes entry states", () => {

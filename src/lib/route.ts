@@ -1,9 +1,9 @@
-import type { ConnectionKind, DeskRoute, ExhaustedScope, RouteBucket, RouteCapability, RouteEntry, RouteProblemKind, RouteReasoning, RouteSkip, RouteStatus, TierId } from "../types";
-import { TIERS } from "./routing";
+import type { ConnectionKind, DeskRoute, ExhaustedScope, RouteBucket, RouteCapability, RouteEntry, RouteProblemKind, RouteSkip, RouteStatus, TierId } from "../types";
+import { TIERS, kindTraits } from "./routing";
 
 // Every sentence the route strip shows. The skip sentences are the same words as `answers::skip_sentence` in the backend.
 
-const RELAYED: readonly ConnectionKind[] = ["claude-subscription", "anthropic-api-key", "openrouter"];
+const RELAYED: readonly ConnectionKind[] = ["claude-subscription", "anthropic-api-key", "openrouter", "openai-api-key"];
 
 const CAPABILITY: Record<RouteCapability, string> = {
   tools: "tools",
@@ -26,7 +26,7 @@ export function skipSentence(kind: ConnectionKind, skip: RouteSkip): string {
     case "experimental-not-allowed":
       return "it is an experimental route that is not switched on";
     case "no-credential":
-      return RELAYED.includes(kind) ? "no API key is saved for it" : "this build cannot use that kind of connection yet";
+      return RELAYED.includes(kind) ? "no API key is saved for it" : "it needs Sign in with ChatGPT, which this build does not have yet";
     case "unmapped-model":
       return `the model ${skip.model} is not listed under any tier in Settings`;
     case "no-target":
@@ -88,14 +88,19 @@ export function routeHeadline(route: DeskRoute): { readonly text: string; readon
   return { text: entry?.name ?? status.active, tone: troubled ? "wait" : "ok" };
 }
 
-export function reasoningSentence(reasoning: RouteReasoning): string | null {
-  switch (reasoning) {
+export function reasoningSentence(route: DeskRoute): string | null {
+  switch (route.reasoning) {
     case "intact":
       return null;
     case "vendor-may-drop":
       return "This desk has changed connection. Its earlier hidden reasoning is still sent, and Anthropic leaves out whatever the new account or model cannot read. The visible conversation and the tool results are sent in full.";
-    case "removed":
+    case "removed": {
+      const active = route.status.entries.find((e) => e.connection === route.status.active);
+      if (active !== undefined && kindTraits(active.kind).experimental) {
+        return "This desk is on an experimental translated route. Hidden reasoning is left out of every request sent to OpenAI, and OpenAI's own hidden reasoning is not kept from one request to the next. The visible conversation and the tool results are sent in full.";
+      }
       return "This desk has changed connection. Hidden reasoning is removed from every request it sends through OpenRouter. The visible conversation and the tool results are sent in full.";
+    }
   }
 }
 

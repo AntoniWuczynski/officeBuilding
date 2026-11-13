@@ -210,7 +210,7 @@ describe("RoutingGroup", () => {
 
   it("says a ChatGPT sign-in is unavailable", () => {
     show(seeded([connection("a", "chatgpt-sign-in")]));
-    expect(screen.getByText("Sign in with ChatGPT is not available in this build.", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText(/Sign in with ChatGPT is not built\. OpenAI has to accept the building/, { selector: "p" })).toBeInTheDocument();
   });
 
   it("saves a tier's model names", async () => {
@@ -257,6 +257,10 @@ describe("RoutingGroup", () => {
   it("shows the key and unsupported-kind hints on their kinds only", () => {
     show(seeded([connection("sub", "claude-subscription"), connection("api", "anthropic-api-key"), connection("oai", "openai-api-key")]));
     expect(screen.getAllByText("Use a key that belongs to one workspace. The building cannot send a workspace id.")).toHaveLength(1);
-    expect(screen.getAllByText("This build cannot use this kind of connection yet, so it is always passed over.")).toHaveLength(1);
+    expect(screen.queryByText(/This build cannot use this kind of connection yet/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/^It carries text, images, tool calls and tool results\./)).toHaveLength(1);
+    expect(screen.getAllByText(/^It refuses a request that needs documents/)).toHaveLength(1);
+    expect(screen.getAllByText("Use a key that belongs to one organisation and project. The building cannot name another.")).toHaveLength(1);
+    expect(screen.getAllByText(/^This route is experimental\. Each request is translated from Anthropic’s format to OpenAI’s/)).toHaveLength(1);
   });
 });

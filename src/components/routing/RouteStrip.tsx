@@ -76,7 +76,7 @@ export function RouteStrip({ sessionId }: { readonly sessionId: string }): React
   const { status } = route;
   const headline = routeHeadline(route);
   const now = Math.floor(Date.now() / 1000);
-  const notes = [servedSentence(status), switchSentence(status), reasoningSentence(route.reasoning)];
+  const notes = [servedSentence(status), switchSentence(status), reasoningSentence(route)];
 
   return (
     <>

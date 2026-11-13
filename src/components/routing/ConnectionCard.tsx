@@ -178,14 +178,27 @@ export function ConnectionCard({ connection, position, last, settings, onChange 
             onChange={(experimental) => onChange(patchConnection(settings, id, { experimental }))}
           />
           <p className="panel-hint">
-            Requests are translated for another provider’s API. Hidden reasoning is not carried over, and a request the translation cannot carry is refused.
+            This route is experimental. Each request is translated from Anthropic’s format to OpenAI’s, and the reply is translated back. It has never been run against a real OpenAI account.
           </p>
         </>
       ) : null}
       {traits.holdsKey ? <ApiKey id={id} /> : null}
       {connection.kind === "anthropic-api-key" ? <p className="panel-hint">Use a key that belongs to one workspace. The building cannot send a workspace id.</p> : null}
-      {connection.kind === "openai-api-key" ? <p className="panel-hint">This build cannot use this kind of connection yet, so it is always passed over.</p> : null}
-      {connection.kind === "chatgpt-sign-in" ? <p className="panel-hint">Sign in with ChatGPT is not available in this build.</p> : null}
+      {connection.kind === "openai-api-key" ? (
+        <>
+          <p className="panel-hint">It carries text, images, tool calls and tool results. Hidden reasoning is left out in both directions, and so are Anthropic’s cache marks and thinking settings.</p>
+          <p className="panel-hint">
+            It refuses a request that needs documents, tools the provider runs (web search, tool search), stop sequences, structured output or context management, and the refusal says which. A desk that has used a
+            document or a tool the provider runs is not moved here by itself.
+          </p>
+          <p className="panel-hint">Use a key that belongs to one organisation and project. The building cannot name another.</p>
+        </>
+      ) : null}
+      {connection.kind === "chatgpt-sign-in" ? (
+        <p className="panel-hint">
+          Sign in with ChatGPT is not built. OpenAI has to accept the building for ChatGPT plan use first, and the sign-in needs parts this build does not have. The compatibility matrix in the docs folder lists them.
+        </p>
+      ) : null}
       {traits.passesThrough ? null : (
         <div className="routing-models">
           <h5 className="routing-models-title">Models</h5>
