@@ -300,6 +300,83 @@ here.
           want it built, it needs one live probe of `agy acp` with you present
           (TODO OB-184).
 
+- [ ] OB-209 — Check the Routing group and a floor's account context (TODO
+      OB-208) in the installed app (`pnpm app:install`). This is the first
+      of three stages. It saves your choices and routes nothing, so no step
+      here sends a request to a provider or costs anything. No agent may
+      drive the Tauri window or write to the real Keychain, so none of this
+      has run against them.
+      1. Open Settings with Cmd+,. Routing is the last group. Its switch,
+         "Route Claude Code desks through the building", is off, and the
+         hint under it says that this build only saves these choices.
+      2. Add two account contexts, "Work" and "Personal". Rename one. Quit
+         the app and open it again. Both are still there.
+      3. In Work, add a Claude subscription connection. Its card says that
+         requests go to Anthropic untouched, and it has no key field and no
+         model rows. In Personal, the Kind picker now greys out Claude
+         subscription and says the Claude login on this Mac can belong to
+         one context only. Sign in with ChatGPT is greyed out too, with its
+         own sentence.
+      4. In Work, add an "Anthropic API key" connection, where API stands
+         for application programming interface. "May spend money" is off.
+         Type any made-up key of letters and digits and press Save. Nothing
+         checks it with Anthropic. Note whether macOS asks about the
+         Keychain. The status reads "An API key is saved in your Keychain.
+         It has not been checked with the provider." Quit, open the app
+         again and open that card. It still says saved.
+      5. Confirm the key is nowhere but the Keychain. It is not in
+         `settings.json` or `store.json` in the app's data folder. In
+         Keychain Access, the item's account starts with `routing-key.`
+         and names the connection's kind.
+      6. Reinstall the app (`pnpm app:install`) and open that card again.
+         Note whether macOS asks once for each connection that has a key.
+         The app is ad-hoc signed, so it may (TODO OB-230).
+      7. Press "Remove key". The status reads "No API key is saved for this
+         connection.", and the item is gone from Keychain Access.
+      8. Add an "OpenAI API key" connection. It has both switches, "May
+         spend money" and "Allow this experimental route". Type a model
+         name in a tier's first field. In that tier's efforts field type
+         `xhigh high` and leave the field. It says "Write each pair as
+         asked=sent, separated by commas." and saves nothing. Type
+         `xhigh=high` and it saves.
+      9. Under Model tiers, type a model name under Opus and the same name
+         under Sonnet. The second is refused with a line that starts "Could
+         not save that" and gives the reason, and the field goes back to
+         what was saved.
+      10. With two or more connections in a context, use Move up and Move
+          down. The numbers in the cards' headings follow, the buttons at
+          the ends are greyed out, and the order is still there after a
+          restart.
+      11. Save a key on a connection, then press "Remove connection". It
+          asks in a row inside the card and says the saved key is removed
+          too. After Remove, the key's item is gone from Keychain Access
+          (TODO OB-231).
+      12. Remove a context that has connections. The row names the context
+          and how many connections go with it.
+      13. Look at the whole group in the real window. The cards are paper
+          with an ink border and no shadow, a tier's two fields sit under
+          its label without spilling out of the plate, and at the smallest
+          window size the plate still scrolls to the end. Tab through a
+          card. Every field, switch and button can be reached, and a card
+          opens and closes from the keyboard.
+      14. Close Settings and open a floor's Info panel. There is an "Account
+          context" row with a picker that starts at "Not set" and the hint
+          "Desks on this floor start as they do today." Pick Work. While
+          routing is off, the row says it has no effect yet. Restart the
+          app. The floor still shows Work.
+      15. Remove the Work context in Settings, leave Personal, and open the
+          Info panel again. The picker is back at "Not set".
+      16. Switch routing on, give a floor a context and hire a Claude Code
+          desk there. It starts exactly as it did before, because nothing
+          is routed yet (TODO OB-215).
+      17. A question for you, not a check. HUMAN_DECISIONS OB-210 lists the
+          calls the build made while you were away. Read the ones marked as
+          most worth your eye and say which you veto.
+      18. A second question. HUMAN_DECISIONS OB-211 is open. It asks whether
+          the building may relay a desk's own Claude login to Anthropic,
+          given a sentence in Anthropic's terms that the build found after
+          you approved it.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`

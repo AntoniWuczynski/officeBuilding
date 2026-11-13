@@ -46,6 +46,8 @@ Evidence: `docs/research/harness-hub/`.
 
 Followed up on 2026-11-12 (OB-181). A Human ruled that a Claude Code desk gets a chat view as an ordinary Claude Code session in the app's own terminal, drawn from its transcript and the hook feed, with no `claude -p`. That widens the hybrid line above, since Claude Code has no structured protocol here. Everything else about the chat view is a call of the build, listed in OB-181.
 
+Amended on 2026-11-12 by A Human (OB-210). The line "never touches login tokens" now has one exception. A session's own login header may pass through the building's loopback router on its way to the same vendor. It is never stored, never logged and never sent to another vendor. Whether Anthropic's terms allow this for a Claude login is an open call (OB-211).
+
 ## OB-059 — How should the building tell me an agent has stopped, and where do the app's settings live? — DECIDED 2026-11-12: one app-level Settings panel, with the alert details left to the build
 
 Decided by A Human on 2026-11-12, before an unattended build of GitHub issue #1:
@@ -423,6 +425,94 @@ From the review, after the design:
 - The Chat and Terminal switch takes the look of the "Open in" button, with no new colour.
 
 This is a follow-up to OB-040 and amends one line of it, and that amendment is A Human's own. OB-040 ruled "terminal by default, plus a structured protocol where the harness has an official one". Claude Code now has a chat with no structured protocol, drawn from its terminal session. The rest of OB-040 stands. The building runs each tool's own unmodified CLI, never an agent loop of its own, and touches no login token. The issue raised two risks for a headless Claude Code driver, Anthropic's policy on third-party products and the usage limits. No such driver is built. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) is not amended. Stop interrupts a turn at A Human's click and ends nothing, and the manager cannot reach it. The build changed two things in OB-152 by its own call. The delivery path has a second queue, A Human's own, and the source test that guards the manager's files forbids four more names. Built as TODO OB-179, with the checks for A Human in HUMAN_TODO OB-180 and the deferrals in TODO OB-182 to OB-207.
+
+## OB-210 — How should a desk carry on when an allowance runs out, and what may cross the building on the way? — DECIDED 2026-11-12: a desk's own login may pass through the building's router to the same vendor and nowhere else, the first route is the Claude Code frontend, a new vendor carries on from the visible history, and the rest is left to the build
+
+GitHub issue #8 asks for provider routing with a bounded fallback. Each person orders their own inference connections, and a desk moves to the next permitted one when an allowance is confirmed to be used up. It is a follow-up to OB-040 and amends one line of it.
+
+Decided by A Human on 2026-11-12, before an unattended build of the issue. These four are new rulings for this issue:
+
+- The credential boundary is "Pass-through plus app sign-in". A session's own login header may cross the app's loopback router on its way to the same vendor. It is never stored, never logged and never sent to another vendor. Application programming interface (API) keys for paid connections live in the Keychain. The app may also hold a sign-in of its own that A Human consents to (Sign in with ChatGPT). That needs A Human to register the app with OpenAI first, so it is built dormant. No client identifier is invented or hardcoded, and nothing signs in until one is supplied.
+- The first route is the Claude Code frontend. Its chain may hold the Claude subscription (passed through as it is), an Anthropic API key or OpenRouter's Anthropic models as a paid fallback that is opted into, and an OpenAI API key reached through an experimental translation from Anthropic's Messages format to OpenAI's Responses format. Codex as a frontend, Gemini and Antigravity are not built. They appear in the compatibility matrix as unverified or unavailable, with the reason.
+- Live probes are allowed for Claude Code and Codex on this machine's current login. They are a few one-line requests that record header names only, never values or content.
+- Continuity across vendors carries on from the visible history. The next request goes to the new vendor with the full visible conversation and the tool results, hidden reasoning is dropped, and the desk shows that this happened. Handing a session over to the other command line tool is not built.
+
+Already decided in the issue itself, as the build brief records, and not reopened:
+
+- There are four tiers, Fable to Astra, Opus to Sol, Sonnet to Terra and Haiku to Luna, and A Human chooses the exact model identifiers.
+- Paid fallback is opted into for each connection.
+- Experimental adapters have a separate opt-in.
+- Work and personal account contexts are kept strictly apart.
+
+One earlier ruling is applied here. Commits stay local, and nothing is pushed until A Human approves (OB-059).
+
+Calls the build made while A Human was away. Only the lines above are A Human's. Everything below is a call of the build brief's dispatcher, of the design or of the review. Each stands until A Human says otherwise, and A Human can veto any of them.
+
+From the build brief, for the feature as a whole:
+
+- Routing is off until A Human switches it on. With routing off a desk launches exactly as it does today.
+- No model identifier, provider order or connection is seeded. A tier with no mapping for a connection is an error A Human sees, never a substitution.
+- The router lives inside the app process and listens on the loopback address only, with a secret for each session passed through the child's environment and never on a command line.
+- The issue asks for no new interface tests. The build wrote the ones the repo's coverage floor needs and no more.
+- Nothing is proven against a paid account. Every route lands as experimental or unverified in the matrix, and the feature lands as built but unchecked.
+- Only the dispatcher ran the live probes. A build agent never starts a session.
+
+From the build brief, after recon and the live probes:
+
+- The issue is built in three stages on one branch. Stage A is the preferences, the tier mappings, the selection policy, the failover state and its saved records, with the Routing group in Settings (TODO OB-208). Stage B is the listener, the relays to the same vendor, the routed launch, the live route commands and the status view (TODO OB-212). Stage C is the translation to OpenAI, the dormant Sign in with ChatGPT and the published matrix (TODO OB-214).
+- Work and personal contexts are typed data. Every connection belongs to exactly one context, every floor is assigned one by its repo root, and selection, exhaustion and recovery never cross.
+- Separate Claude and Codex logins for each context are not built, because discovery, usage, the hire options and the chat reader all read the real home folders (TODO OB-216).
+- Preferences live in the settings file as a group of their own. Exhaustion records live in a file of their own, because a settings file that does not parse is reset to defaults and that must never reopen an exhausted connection. API keys live in the Keychain, are entered in Settings and never appear in a snapshot, a log or a file.
+- The evidence that a Claude subscription is exhausted is one specific refusal, a 429 reply whose `anthropic-ratelimit-unified-status` header reads `rejected`. Anything else on a 429 is ambiguous and never counts as exhausted. No real exhaustion was captured, and Anthropic does not document the header.
+- For the stages not built yet: the listener uses no async stack and takes one request for each connection, a session is told apart by a route identifier and authenticated by a secret compared in constant time, a routed child never gets an Anthropic key or token in its environment, a blocked chain is answered locally with a Hypertext Transfer Protocol (HTTP) 400 reply that says why and never with a 429 or a 529, no other connection is tried once any part of a reply has been relayed, and only Claude Code terminal desks the app starts are routed. The quality assurance reviewer, the manager, structured desks and anything started outside the app are not.
+- No stop path is added (TODO OB-027), so a routed desk that outlives the app loses its model access. Stage B says so in the interface.
+- The subscription relay is a connection kind of its own, so it can be switched off or removed without touching the rest. That is how the build answered the open call in OB-211.
+
+From the design of Stage A. The first eight are the ones most worth A Human's eye:
+
+- There is at most one Claude subscription connection in the whole building. The pass-through uses this Mac's one Claude login, and two contexts sharing it would break the separation of work and personal.
+- A connection's kind and context cannot change once saved. It is removed and added again. A saved key must never reach another vendor or another context.
+- A floor with no context, or with a context that no longer exists, is not routed. There is no machine default, because a default nobody chose is the fallback across contexts that the issue forbids (TODO OB-217).
+- A session has one active connection, and exhaustion of it moves the whole session. A request never takes a detour to another connection, except while another request is running the one recovery check.
+- An exhaustion record is never cleared by time, by an ordinary success or by anything read from the usage display. Only a recovery check that succeeds clears it, and only its own record. One check is let through for each reset time the provider reported. The router never sends a check of its own, and never moves a session back because a provider looks available (TODO OB-223).
+- A running session keeps the copy of the chain it was opened with. A later change in Settings only narrows it, by a removed connection or a withdrawn opt-in, and never widens it (TODO OB-222).
+- Efforts are names, not a closed list. On a connection that speaks Anthropic's Messages format an effort with no pair passes through unchanged. On a translated connection an effort with no pair refuses the request.
+- A `routing` group in the settings file that does not parse, or breaks a rule, loads as off and empty, and the other groups are kept. Off and empty is the safe direction, since desks then launch as they do today.
+- Exhaustion is scoped to the connection and to the whole of it, one tier or one model name. A subscription refusal marks only the scope of the request that was refused.
+- The Keychain account of a key names the connection's kind and its identifier, so a leftover item can never be picked up by a connection of another kind.
+- A recovery check is one of the desk's own requests let through. The router never invents a request.
+- The router retries a passing failure at most once for each request, within 30 seconds of the first attempt, and never waits more than 5 seconds.
+- Saving a key does not check it with the vendor. Saved means present, not accepted (TODO OB-220).
+- The web side reaches routing through a seam of its own, `RoutingApi`, and a floor's context is read by its own app call and is not in the snapshot (TODO OB-225). Both follow from files that are at their line limit.
+- The Routing group's hint says plainly that this build only saves the choices and routes nothing.
+- Sign in with ChatGPT is a type that can never be tried, and the picker does not offer it.
+
+From the review, after the design:
+
+- When the `routing` group would load as off and empty, the settings file as it was is first copied to `settings.routing.invalid.json`, so the next save does not wipe what A Human had entered.
+- A recovery check that is under way is not written to the records file as done, so quitting in the middle leaves the check due after a restart.
+- A key cannot be saved for a connection that has just been removed. A Keychain refusal while a removed connection's key is deleted is still dropped (TODO OB-231).
+- A failed write of the records file is offered again on the next write, and is not counted as saved.
+- A probe's lease that has run out is treated as free everywhere, so a retry can start a new check.
+- A floor's context goes back to what it was when saving it fails.
+
+This is a follow-up to OB-040 and amends one line of it, and that amendment is A Human's own. OB-040 ruled that the building "never touches login tokens". A session's own login header may now pass through the building's router on its way to the same vendor. It is not stored, logged or sent anywhere else. The rest of OB-040 stands. The building runs each tool's own unmodified CLI and never an agent loop of its own. OB-011 and OB-152 say that nothing listens on a network port. That still holds after Stage A, which builds no listener, and the stage that builds one amends those words (TODO OB-212). A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) is not amended. One call is still open for A Human, on Anthropic's terms (OB-211). Stage A is built as TODO OB-208, with the checks for A Human in HUMAN_TODO OB-209 and the deferrals in TODO OB-212 to OB-232.
+
+## OB-211 — May the building relay a desk's own Claude login to Anthropic before Anthropic has confirmed it in writing?
+
+Raised by the build of GitHub issue #8 on 2026-11-12 (OB-210). A Human approved the pass-through before seeing the wording below.
+
+The build brief records that Anthropic's legal page says developers "may not collect, store, or intermediate Claude.ai credentials or session tokens". Whether a loopback relay inside the user's own app, forwarding the user's own unmodified client to Anthropic, falls under that sentence is not settled by the documentation.
+
+What the build did meanwhile. The subscription relay is a connection kind of its own, so it can be switched off or removed without touching the rest, and it is to be labelled in the compatibility matrix. Stage A holds only the preference. The relay itself comes with Stage B (TODO OB-212), and nothing is relayed until then.
+
+**Options.**
+
+- **Ask Anthropic first (recommended)** — keep the relay for A Human's own use on this Mac, labelled in the matrix, and get written confirmation from Anthropic before the building ships to anyone else with it.
+- **Keep it as built** — treat a loopback relay of the user's own unmodified client as outside that sentence, and ship it without asking. Cost: the reading is the build's own, and nobody at Anthropic has confirmed it.
+- **Remove the subscription relay** — drop the Claude subscription connection kind. A chain then starts at an API key, and the subscription is used only by desks that are not routed.
+
+**Recommendation.** Ask Anthropic first. The relay stays a separate kind either way, so the answer changes nothing else in the design.
 
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
