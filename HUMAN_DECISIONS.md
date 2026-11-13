@@ -594,6 +594,22 @@ What the build did meanwhile. The subscription relay is a connection kind of its
 
 **Recommendation.** Ask Anthropic first. The relay stays a separate kind either way, so the answer changes nothing else in the design.
 
+## OB-283 — How should a desk move between the Claude and Codex subscriptions when one runs out?
+
+Raised by A Human on 2026-11-13, after issue #8 was built (OB-210): "The whole goal was to seamlessly switch between Claude code and codex if one runs out of usage". A Human is logged in to Codex on this Mac with a ChatGPT plan.
+
+What was built does not do that. The only OpenAI connection that can serve a desk is an OpenAI API key, which is billed by use and is not the ChatGPT plan that Codex uses (TODO OB-214). Sign in with ChatGPT, the one documented way for an app to use that plan, is not built (TODO OB-260). Nothing built reads or uses the Codex login, and no request has gone to OpenAI.
+
+Why a running command-line interface (CLI) cannot simply be pointed at the other subscription. A Claude Code process carries only the Claude login and a Codex process only the ChatGPT one. To serve one from the other's plan the building would have to hold the other vendor's login itself. OpenAI offers that through Sign in with ChatGPT, for apps it has accepted. Anthropic offers nothing of the kind for a Claude subscription, so there is no supported way to serve a Codex desk from one.
+
+**Options.**
+
+- **Hand the desk over to the other CLI (recommended)** — when a desk's subscription is proven used up, the building starts the other vendor's own CLI at the same desk and folder, on its own login, with the visible conversation and the state of the work as its brief. It works in both directions today and touches no login. Cost: a different agent takes over, with its own tools and permissions, and subagents that were running are not carried. OB-210's fourth ruling left this out, so choosing it amends that ruling.
+- **Sign in with ChatGPT, when OpenAI allows it** — the Claude Code desk stays and is answered through the app's own consented sign-in, reusing the translation Stage C built. Needs OpenAI to accept the building as an open-source partner and to issue a client identifier. It covers Claude Code to the ChatGPT plan only.
+- **Reuse the Codex login already on the Mac** — read Codex's stored login and call the endpoint Codex itself calls. It needs nobody's permission and would work at once. Issue #8 rules out both halves ("Do not read or rewrite the user's existing CLI login files", "Do not use undocumented ChatGPT backend endpoints"), OpenAI's pages say not to call that endpoint, and the account carries the risk.
+
+**Recommendation.** Build the handover now and ask OpenAI about Sign in with ChatGPT alongside it. The router already proves when the Claude subscription is used up, which is the trigger a handover needs.
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.
