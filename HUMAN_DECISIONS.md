@@ -348,6 +348,8 @@ From the review, after the design:
 
 This amends one earlier ruling, and the amendment is A Human's own. OB-011 deferred every way for an agent to reach the building. A Human now allows one, the socket above, for managers the building itself starts. OB-011 otherwise stands, and the server for assistant agents (TODO OB-010) is still not built. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) is not amended, and the manager gets no exception. The build changed one thing in OB-124 by its own call, which is that the QA reviewer now refuses messages from other sessions. It also builds on OB-002, since an escalation goes into the repo's own decisions file or the app's store, and on OB-040, since the manager is Claude Code's own unmodified CLI in a terminal and the building touches no login token. Built as TODO OB-150, with the checks for A Human in HUMAN_TODO OB-151 and the deferrals in TODO OB-153 to OB-178.
 
+Noted on 2026-11-13 by the build of GitHub issue #8 (OB-210). The words "nothing listens on a network port" above were true of the whole app when they were written. They still hold for the manager's socket, which opens no port. The app now also has a listener of another kind, on the loopback address `127.0.0.1` only, from the first launch of a routed desk until the app exits. That a desk's login may cross a loopback router in the app is A Human's ruling of 2026-11-12. How the listener works is a call of the build, listed in OB-210, which A Human has not yet seen.
+
 ## OB-181 — How should a desk get a chat view, and how does Claude Code get one? — DECIDED 2026-11-12: a Claude Code chat desk is an ordinary Claude Code session in the app's own terminal, drawn from its transcript and typed into when idle, with no `claude -p`, and the rest left to the build
 
 GitHub issue #6 asks for a setting that switches a desk from the terminal to a chat of the building's own, the same for every tool. A Human asked for it on 2026-11-11. It is a follow-up to OB-040.
@@ -496,7 +498,45 @@ From the review, after the design:
 - A probe's lease that has run out is treated as free everywhere, so a retry can start a new check.
 - A floor's context goes back to what it was when saving it fails.
 
-This is a follow-up to OB-040 and amends one line of it, and that amendment is A Human's own. OB-040 ruled that the building "never touches login tokens". A session's own login header may now pass through the building's router on its way to the same vendor. It is not stored, logged or sent anywhere else. The rest of OB-040 stands. The building runs each tool's own unmodified CLI and never an agent loop of its own. OB-011 and OB-152 say that nothing listens on a network port. That still holds after Stage A, which builds no listener, and the stage that builds one amends those words (TODO OB-212). A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) is not amended. One call is still open for A Human, on Anthropic's terms (OB-211). Stage A is built as TODO OB-208, with the checks for A Human in HUMAN_TODO OB-209 and the deferrals in TODO OB-212 to OB-232.
+From the design of Stage B, built on 2026-11-13 (TODO OB-212). None of these is A Human's. The first is the one most worth A Human's eye, because it narrows how A Human's fourth ruling is applied:
+
+- Hidden reasoning is removed only on the way to OpenRouter. A Human ruled that across vendors the hidden reasoning is dropped. On the way to Anthropic's own API, whether by the Claude subscription or by an Anthropic key, the router removes nothing, because Anthropic's documentation says not to strip thinking blocks when the model or the account changes and says its API drops the ones it cannot read without an error. On the way to OpenRouter every hidden reasoning block is removed from every request, once the desk's history may hold another connection's reasoning. The desk's panel says which of the two happened (TODO OB-245, OB-246).
+- The listener starts at the first routed launch and then runs until the app exits. With no routed desk left it stays bound and refuses every request. It listens on the loopback address only.
+- Switching routing off stops new routed launches and cuts no running desk off. A routed desk keeps its route until its terminal exits.
+- Only the Messages call is relayed. A `HEAD` request to `/api/hello` is answered 200 with no body, and every other path is answered 404 by the router, token counting included (TODO OB-234, OB-235).
+- A route's status reaches the webview by a poll. The open desk's panel asks every 3 seconds, and at once after Retry or Switch. No event is added (TODO OB-225).
+- Every refusal the desk's user should read is an HTTP 400 in Anthropic's error envelope with a sentence that names the cause. That covers a blocked order, a request the active connection cannot take, an unknown route, a wrong or missing secret and a body the router cannot read. A 401 is not used, because Claude Code shows it as a failed login.
+- A request must carry `Content-Length`. A chunked or compressed body is refused (TODO OB-236).
+- A reply is committed when its first body bytes are written to the client. The router reads those bytes from the provider before it writes the reply's head, so a reply that dies before any body byte can still be answered locally. The router never reads the body of a successful reply (TODO OB-252).
+- The Anthropic key is sent as `x-api-key` and the OpenRouter key as a bearer token. Towards OpenRouter only an allow-list of request headers is sent. Towards Anthropic with a key, everything except the client's own credentials is sent.
+- A request to OpenRouter tells it to use no fallback provider and to drop no parameter. No provider order is pinned (TODO OB-244).
+- A redirect from a provider is never followed and never passed to the client, which gets a local 502.
+- An OpenAI API key connection is never counted as holding a credential in this stage, so it is always passed over (TODO OB-233).
+- The base address, the switch for the hint headers and the removal of three variables go on the launch command as an `env` prefix, so they win over the shell profile. The secret header goes in the terminal's own environment. The proxy exclusion goes in both (see the dispatcher's calls below).
+- A launch that should be routed and cannot be fails with the reason. It is never started unrouted instead.
+- The router checks that the client is still there before each attempt and on every write. It does not watch the client while a provider is silent (TODO OB-237).
+- The router owns a request's top-level effort only (TODO OB-239).
+- The caps are 32 live connections, 32 KiB and 96 headers for a request head, 64 MiB for a body and 64 KiB of an error reply read for evidence.
+- Retry is refused for a connection that is not in the desk's own order.
+- A record of an Anthropic spend cap has no reset time (TODO OB-241). OpenRouter's refusal for missing credits is not exhaustion (TODO OB-242).
+- The request-class hint headers are switched on and none is read (TODO OB-248).
+- A routed resume gets a new route with a fresh session. The saved exhaustion records still apply to it.
+- The router's calls to providers connect directly and ignore proxy settings, as the build brief fixed (TODO OB-251).
+- What a request needs is read conservatively for Stage C. A body the scan cannot follow is treated as needing tools, images, documents and tools the provider runs.
+
+From the review of Stage B:
+
+- A request body has 60 seconds in all to arrive, and the route and its secret are checked from the request head before any byte of the body is read.
+- After a refusal the router closes its sending side and reads and drops what the client still sends, for at most 2 seconds or 64 MiB, so the client gets the answer and not a reset connection.
+- The desk's panel skips a poll while the answer to the one before is still pending.
+
+From the dispatcher, after the review of Stage B. The review set two findings aside because the design had already decided them, and the dispatcher overruled the design on both:
+
+- The launch prefix also adds the loopback address to the proxy exclusion, on top of whatever the shell profile set. The design had left the exclusion to the profile. With a proxy for plain addresses and a profile that sets its own exclusion, the desk's request to the router would have gone to that proxy unencrypted, with the Claude login in it.
+- The route strip says "the five-hour limit" for the one window name the probes saw Claude Code itself translate, and shows no other provider name. The design had shown the provider's raw word.
+- A project's settings file can still take a routed desk off the router, and the dispatcher left that as it is (TODO OB-249). It is a choice for A Human, since closing it would override a gateway A Human configured.
+
+This is a follow-up to OB-040 and amends one line of it, and that amendment is A Human's own. OB-040 ruled that the building "never touches login tokens". A session's own login header may now pass through the building's router on its way to the same vendor. It is not stored, logged or sent anywhere else. The rest of OB-040 stands. The building runs each tool's own unmodified CLI and never an agent loop of its own. OB-011 and OB-152 said that nothing listens on a network port. Stage B builds a listener on the loopback address, which exists from the first launch of a routed desk until the app exits, and both entries now carry a note. That a login may cross a loopback router is A Human's ruling. How the listener works is the build's call. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) is not amended. One call is still open for A Human, on Anthropic's terms (OB-211). Stage A is built as TODO OB-208, with the checks for A Human in HUMAN_TODO OB-209 and the deferrals in TODO OB-212 to OB-232. Stage B is built as TODO OB-212, with its checks in steps 19 to 33 of HUMAN_TODO OB-209 and its deferrals in TODO OB-233 to OB-259.
 
 ## OB-211 — May the building relay a desk's own Claude login to Anthropic before Anthropic has confirmed it in writing?
 
@@ -504,7 +544,7 @@ Raised by the build of GitHub issue #8 on 2026-11-12 (OB-210). A Human approved 
 
 The build brief records that Anthropic's legal page says developers "may not collect, store, or intermediate Claude.ai credentials or session tokens". Whether a loopback relay inside the user's own app, forwarding the user's own unmodified client to Anthropic, falls under that sentence is not settled by the documentation.
 
-What the build did meanwhile. The subscription relay is a connection kind of its own, so it can be switched off or removed without touching the rest, and it is to be labelled in the compatibility matrix. Stage A holds only the preference. The relay itself comes with Stage B (TODO OB-212), and nothing is relayed until then.
+What the build did meanwhile. The subscription relay is a connection kind of its own, so it can be switched off or removed without touching the rest, and it is to be labelled in the compatibility matrix. The relay now exists. Stage B built it on 2026-11-13 (TODO OB-212). It relays only once A Human has switched routing on and put a Claude subscription connection in a context's order, and it has not yet run in the installed app. Taking that kind out of one list in the code, `upstream::relays`, switches the relay off and changes nothing else.
 
 **Options.**
 
@@ -522,6 +562,15 @@ Amended on 2026-11-12 by A Human (OB-152). A floor's manager, which the
 building itself starts, may reach the app over an owner-only Unix socket in
 the app's data folder. Nothing listens on a network port, and the server for
 assistant agents described below stays deferred.
+
+Noted on 2026-11-13 by the build of GitHub issue #8 (OB-210). "Nothing
+listens on a network port" no longer holds for the whole app. Once a routed
+desk has been launched, the app listens on the loopback address `127.0.0.1`
+only, on a port the system picks, until it exits. That listener carries a
+routed desk's own requests to its provider and is not a server for assistant
+agents, which stays deferred. That a desk's login may cross a loopback router
+is A Human's ruling of 2026-11-12 (OB-210). How the listener works is a call
+of the build, which A Human has not yet seen.
 
 The MCP server (OB-010 in TODO.md) lets assistant agents list
 floors and desks, read the decisions queue, answer calls and hire agents. It

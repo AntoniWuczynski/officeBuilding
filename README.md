@@ -127,7 +127,7 @@ sessions as an **office building**:
   paused. To send it home, type `/exit` in its terminal. Its tools reach the
   app through a helper that talks to an owner-only Unix socket in the app's
   data folder, with a random token for each launch held in memory, and
-  nothing listens on a network port.
+  that socket opens no network port.
 - **Hire an agent** from the empty desk: pick the tool (Claude Code, Codex,
   Antigravity, opencode or Cursor; tools not installed are greyed out), the
   model and an effort level the model supports, ultracode for Claude Code, and
@@ -236,19 +236,47 @@ sessions as an **office building**:
   one you hire, how many desks a manager may hire at once (3 unless you change
   it) and the spend ceiling for the desks it hired (20 US dollars unless you
   change it).
-- **Routing preferences, which route nothing yet.** Settings has a Routing
-  group for the first stage of provider routing, where a Claude Code desk is
-  meant to carry on through the next connection you allow when an allowance
-  runs out. This build only saves the choices. Nothing listens, nothing is
-  relayed and every desk starts exactly as before, with the switch on or off,
-  until the router itself is built. You can name account contexts (work and
-  personal, say), give each an ordered list of connections (the Claude
-  subscription, an Anthropic API key, OpenRouter or an OpenAI API key), allow
-  a billed connection to spend money, allow an experimental route, and type
-  the model names for the four tiers and for each connection. Nothing is
-  filled in for you. A connection's key has its own Save button and is kept
-  in the Keychain, not in `settings.json`, and it is not checked with the
-  provider. A floor takes its account context on its Info panel.
+- **Provider routing for Claude Code desks.** A routed desk carries on through
+  the next connection you allow when an allowance runs out. It is off until
+  you switch it on, and nothing in it has been checked against a real account
+  yet. Set it up in Settings, in the Routing group. Name an account context
+  (work and personal, say) and give it an ordered list of connections, which
+  may be the Claude subscription, an Anthropic API key or OpenRouter. An
+  OpenAI API key can be saved too, and this build cannot use it yet. Allow
+  each billed connection to spend money, type the model names your desks ask
+  for under the four tiers, and type each key connection's own model name for
+  each tier. Nothing is filled in for you. A key has its own Save button, is
+  kept in the Keychain, not in `settings.json`, and is not checked with the
+  provider. An Anthropic key has to belong to one workspace. Then pick the
+  context on a floor's Info panel and switch "Route Claude Code desks through
+  the building" on. From then on a Claude Code desk you hire or resume on that
+  floor, in one of the app's own terminals, sends its requests to a router
+  inside the app, which listens on `127.0.0.1` only and starts with the first
+  routed desk. On the Claude subscription the request and the desk's own login
+  go to Anthropic untouched and to no other host. A desk moves to the next
+  connection only when a connection reports that its allowance is used up, and
+  never to a billed connection you have not allowed or to another account
+  context. The desk's panel has a "Route:" strip. Its Details list the desk's
+  order, what is used up and when the provider says it resets, with a Retry
+  and a "Switch to this" button. When no connection can take a request, the
+  agent stops with a sentence that says why. Retry or switch, then tell it to
+  carry on. Desks that are already running are not changed when you switch
+  routing on or off.
+- **What a routed desk loses.** It needs the app. If Office Building quits
+  while a routed desk is running, the desk loses its model access, so start it
+  again from the sign-out sheet. The router carries the Messages call only, so
+  the context meter works from an estimate and any other feature that calls
+  Anthropic directly may not work. Claude Code switches Remote Control off on
+  a desk with a base address of its own. After a move to OpenRouter, hidden
+  reasoning is removed from what the desk sends there, and the visible
+  conversation and the tool results are sent in full. The router connects to
+  providers directly, so it does not work on a Mac that needs a proxy to reach
+  the internet. Your own configuration can take a desk off the router. A shell
+  profile that exports `ANTHROPIC_CUSTOM_HEADERS`, an `env`
+  block or an `apiKeyHelper` in Claude Code's settings, and the switches for
+  Bedrock, Vertex and Foundry all can. Not routed at all are the QA reviewer,
+  the manager, chat desks that have no terminal, the other tools and anything
+  you started by hand.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -301,8 +329,8 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   what the same work would cost through the API, not what a subscription bills.
 - **Not yet:** answering a terminal agent's own question from the Decisions
   panel (answer it in the agent's terminal instead), the app's own MCP
-  server for assistant agents, and provider routing itself, since the Routing
-  group saves preferences only and no request is routed. In the chat view: Antigravity, a read-only chat
+  server for assistant agents, and in provider routing the OpenAI route, Sign
+  in with ChatGPT and the compatibility matrix. In the chat view: Antigravity, a read-only chat
   for sessions you started by hand, opening a link, images and attachments, a
   model and effort switcher, plans as cards, sub-agent threads, paging in older
   messages and word-by-word replies from Claude Code. See `TODO.md`. Calls from
@@ -379,7 +407,7 @@ src/
     wire.ts               # zod schemas that validate every backend payload
     mockApi.ts            # in-memory implementation for the browser, plus the demo simulation
     mockData.ts           # seed office (projects, sessions, questions, …)
-    RoutingApi.ts         # the routing seam for a connection's key and a floor's account context, with Tauri and mock implementations
+    RoutingApi.ts         # the routing seam for a connection's key, a floor's account context and a desk's route, with Tauri and mock implementations
   state/
     selectors.ts          # floor lights, search, per-floor queues/TODOs/spend, labels
     useOffice.ts          # load + subscribe hook with loading / error / retry
@@ -392,6 +420,7 @@ src/
     animation.ts          # session state → employee pose, status colours
     looks.ts, time.ts     # stable per-agent looks, true relative times
     routing.ts            # every change the Routing group makes to the routing preferences, as pure functions
+    route.ts              # every sentence a routed desk's Route strip shows, as pure functions
   scene/                  # 3D primitives (IsoBox, Wall, Billboard, Stage) + people and pets
     cast/                 # the cut-out rig, its animation and parts.ts (generated by art/cast/cut.py)
   assets/cast/            # the cut-out parts, one folder per character, plus pets
@@ -404,7 +433,7 @@ src/
     qa/                   # the Info panel's Quality assurance row and the QA stamp
     manager/              # the Manager panel: hire, pause, the plan, waiting notes and the log
     chat/                 # the chat view's parts: Markdown, tool cards, diffs, the approval card and the message box
-    routing/              # the Routing group's context and connection cards, and the Info panel's Account context row
+    routing/              # the Routing group's context and connection cards, the Info panel's Account context row and the Route strip on a routed desk's panel
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
@@ -413,7 +442,7 @@ src-tauri/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
     discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly, a Claude Code transcript read as a conversation
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, and the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation)
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, the routed launch, and the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation)
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     settings.rs, settings/ # the app's settings (settings.json in the app data dir)
@@ -424,7 +453,7 @@ src-tauri/
     qa/                   # the QA desk: the pull request watch, the gh and git calls, the reviewer's brief, its findings, the review that is posted
     manager/              # a floor's manager: its socket, tokens, the MCP server it talks to, the helper mode and the tool list
     delivery/             # notes and messages for desks: cleaning the text, deciding whether a desk can take one, the queue
-    routing/              # the first stage of provider routing, with its preferences, the selection policy, exhaustion records and their file, the failover state machine and connection keys. No listener yet
+    routing/              # provider routing, with its preferences, the selection policy, exhaustion records and their file, the failover state machine, connection keys, the router on the loopback address, the relays to Anthropic and OpenRouter, a reply read as evidence, the router's own answers and what a routed launch adds
     secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
     http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
     poll.rs               # a background job on a timer that backs off, waits when told to and can be woken

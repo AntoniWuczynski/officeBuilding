@@ -301,14 +301,18 @@ here.
           (TODO OB-184).
 
 - [ ] OB-209 — Check the Routing group and a floor's account context (TODO
-      OB-208) in the installed app (`pnpm app:install`). This is the first
-      of three stages. It saves your choices and routes nothing, so no step
-      here sends a request to a provider or costs anything. No agent may
-      drive the Tauri window or write to the real Keychain, so none of this
-      has run against them.
+      OB-208), and then a routed desk (TODO OB-212), in the installed app
+      (`pnpm app:install`). Steps 1 to 18 are for the first of three
+      stages, which saves your choices. They send nothing to a provider and
+      cost nothing. Steps 19 to 33 are for the second stage, which routes.
+      They use your real Claude login, and the steps marked "Paid" spend
+      money on a real key. No agent may drive the Tauri window, write to
+      the real Keychain, start a routed desk or use a paid account, so none
+      of this has run against them.
       1. Open Settings with Cmd+,. Routing is the last group. Its switch,
-         "Route Claude Code desks through the building", is off, and the
-         hint under it says that this build only saves these choices.
+         "Route Claude Code desks through the building", is off. The hint
+         under it says what off and on do, and ends by saying that a routed
+         desk loses its model access if the building quits.
       2. Add two account contexts, "Work" and "Personal". Rename one. Quit
          the app and open it again. Both are still there.
       3. In Work, add a Claude subscription connection. Its card says that
@@ -366,9 +370,9 @@ here.
           app. The floor still shows Work.
       15. Remove the Work context in Settings, leave Personal, and open the
           Info panel again. The picker is back at "Not set".
-      16. Switch routing on, give a floor a context and hire a Claude Code
-          desk there. It starts exactly as it did before, because nothing
-          is routed yet (TODO OB-215).
+      16. Leave routing off, or pick a floor with no account context, and
+          hire a Claude Code desk there. It starts exactly as it did before,
+          and its panel has no "Route:" strip (TODO OB-215).
       17. A question for you, not a check. HUMAN_DECISIONS OB-210 lists the
           calls the build made while you were away. Read the ones marked as
           most worth your eye and say which you veto.
@@ -376,6 +380,106 @@ here.
           the building may relay a desk's own Claude login to Anthropic,
           given a sentence in Anthropic's terms that the build found after
           you approved it.
+      19. A routed desk. In Work, leave only the Claude subscription
+          connection in the order. Switch routing on, give a floor the Work
+          context and hire a Claude Code desk there. Open its panel. Under
+          the panel's head there is a strip with a small lamp that reads
+          "Route: No request yet". Give the agent a task that reads a file
+          and runs a command. The strip changes to the connection's name,
+          and the agent works as it does on a desk that is not routed.
+      20. Press Details on the strip. It lists the desk's order, and the
+          connection reads "Serving this desk". A line says what the last
+          request asked for and that it was sent as asked. The last line
+          warns that the desk loses its model access if Office Building
+          quits. The strip pushes the terminal down and covers nothing, and
+          Tab reaches Details. Flip the desk to the chat view. The strip is
+          there too.
+      21. Note anything a routed desk does differently from an unrouted one.
+          Look at the context meter, since token counts are now an estimate
+          (TODO OB-234). Look at the plan's usage meters and `/usage` (TODO
+          OB-256). Remote Control is off on a routed desk, as Claude Code
+          documents. Write down any feature that fails outright (TODO
+          OB-235).
+      22. The secret is not on show. Scroll to the top of the desk's
+          terminal. The launch line starts with `env -u ANTHROPIC_API_KEY`
+          and holds `ANTHROPIC_BASE_URL=http://127.0.0.1:` with a port. It
+          does not hold `ANTHROPIC_CUSTOM_HEADERS`. In another terminal, run
+          `ps -axo command | grep x-office-building-route`. It finds only
+          the `grep` itself.
+      23. The listener is local only. Run `lsof -nP -iTCP -sTCP:LISTEN |
+          grep 127.0.0.1` and find the app's line with the port from step
+          22. No line shows that port with `*:` in front. Then run `curl -i
+          -d '{}' http://127.0.0.1:<port>/s/x/v1/messages`. The answer is a
+          400 whose sentence starts "Office Building did not recognise this
+          desk".
+      24. Longer work (TODO OB-254). On a routed desk, run a task that
+          starts helpers, and one long enough to compact the conversation,
+          or type `/compact`. Both carry on. Route a second desk on another
+          floor whose context has a different order, and work on both at
+          once. Each strip shows its own route.
+      25. End a routed desk with `/exit` and resume it from the sign-out
+          sheet. It is routed again, and its strip starts at "No request
+          yet". If the floor has a manager that may hire, a desk the manager
+          hires there is routed too.
+      26. Switch routing off in Settings while a routed desk runs. The desk
+          carries on and keeps its strip. A desk hired after that is not
+          routed. Switch routing on again.
+      27. Paid. An Anthropic key (TODO OB-247). Under Model tiers, type the
+          model names your desks ask for. In Work, add an "Anthropic API
+          key" connection below the subscription with a real key that
+          belongs to one workspace, switch "May spend money" on and type its
+          model name for each tier. Hire a new routed desk, open Details and
+          press "Switch to this" on the key connection. The strip now names
+          it, and Details says "Switched from" the subscription to the key
+          "by you", with a sentence about hidden reasoning. Send one short
+          request. It is answered, and the usage shows in Anthropic's
+          Console. If it is refused, copy the sentence the agent's terminal
+          shows.
+      28. Paid. Withdraw the permission. With that desk still on the key
+          connection, switch "May spend money" off for it in Settings.
+          Details now reads "Not used" for it, with the reason. The next
+          request is answered in the agent's terminal with a sentence that
+          starts "Office Building:" and gives the reason. The agent stops at
+          once and does not keep retrying, and nothing is billed. Switching
+          the permission back on does not reach this desk, because a running
+          desk's order is never widened (TODO OB-222). Start a new desk.
+      29. Paid. OpenRouter (TODO OB-243, OB-244). Add an OpenRouter
+          connection with a real key, "May spend money" on and its model
+          names. On a new routed desk that has already had one answer from
+          the subscription, switch to it. Note whether OpenRouter accepts
+          the request at all, since the building tells it to use no fallback
+          provider and to drop no parameter. Details says hidden reasoning
+          is removed from every request sent through OpenRouter. Then switch
+          back to the subscription and send a request. Note whether it is
+          answered, refused or answered after a pause (TODO OB-246).
+      30. A real used-up allowance (TODO OB-213). This one cannot be staged.
+          The next time your Claude plan reaches its limit while a routed
+          desk works, with a paid connection below it in the order, note
+          what happens. The desk should move to the next connection by
+          itself, and Details should say "Moved from" the subscription
+          "because the allowance" was used up, with the time the provider
+          says it resets. If the desk does not move, copy what the agent's
+          terminal shows. The rule for this was read from a replayed reply,
+          never from a real one. Later, after the reset time, press Retry on
+          the subscription and note whether the desk can be switched back.
+      31. Quit the app while a routed desk is working (TODO OB-238). Check
+          with `ps` whether the desk's process is still there. If it is, it
+          can no longer reach a model. Open the app again and note how that
+          desk shows. It has no strip, because routes are not saved.
+          Starting it again from the sign-out sheet routes it afresh.
+      32. A question for you, not a check. HUMAN_DECISIONS OB-210 now lists
+          the calls the second stage made. One of them narrows how your
+          fourth ruling is applied. Hidden reasoning is removed only on the
+          way to OpenRouter, and is left in on the way to Anthropic's own
+          API, because Anthropic's documentation says not to strip it there.
+          Say whether that stands.
+      33. A second question. OB-011 and OB-152 used to say that nothing
+          listens on a network port. A listener on the loopback address now
+          exists once a routed desk has been launched, and both entries
+          carry a note. It follows from your pass-through ruling, and the
+          details are the build's. Say whether the note stands.
+          HUMAN_DECISIONS OB-211, on Anthropic's terms, is still open, and
+          the relay it asks about now exists.
 
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
