@@ -445,6 +445,7 @@ describe("MockApi floors", () => {
           connections: [],
           tiers: { fable: [], opus: [], sonnet: [], haiku: [] },
         },
+        handover: { automatic: false, claudeToCodex: null, codexToClaude: null },
       });
     });
 

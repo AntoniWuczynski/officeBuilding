@@ -1,4 +1,5 @@
 import type { Settings } from "../types";
+import { makeHandoverSettings } from "./mockHandover";
 import { makeManagerSettings } from "./mockManager";
 import { makeQaSettings } from "./mockQa";
 import { makeRoutingSettings } from "./mockRouting";
@@ -21,5 +22,6 @@ export function makeSettings(): Settings {
     manager: makeManagerSettings(),
     agents: { view: "terminal" },
     routing: makeRoutingSettings(),
+    handover: makeHandoverSettings(),
   };
 }

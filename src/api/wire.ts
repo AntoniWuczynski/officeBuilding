@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, QueuedNote, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
+import { handoverSettingsSchema, handoverViewSchema } from "./handoverWire";
 import { routingSettingsSchema } from "./routingWire";
 
 // Runtime schemas for everything the Rust backend sends. The `satisfies`
@@ -175,6 +176,7 @@ export const snapshotSchema = z.object({
   managers: z.array(managerFloorSchema),
   chatDesks: z.array(z.string()),
   queued: z.array(queuedNoteSchema),
+  handover: handoverViewSchema,
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [
@@ -348,6 +350,7 @@ export const settingsSchema = z.object({
   }),
   agents: z.object({ view: deskView }),
   routing: routingSettingsSchema,
+  handover: handoverSettingsSchema,
 }) satisfies z.ZodType<Settings>;
 
 /** Parse a backend payload, turning a shape mismatch into a readable error. */

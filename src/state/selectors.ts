@@ -1,4 +1,6 @@
 import type {
+  DeskHandover,
+  DeskHandoverState,
   Connection,
   Decision,
   Editor,
@@ -447,6 +449,16 @@ export const QUEUE_WORDS: Record<NoteHold, string> = {
 /** Your own messages waiting for one desk, oldest first. */
 export function queuedFor(snapshot: OfficeSnapshot, sessionId: string): readonly QueuedNote[] {
   return snapshot.queued.filter((n) => n.toSessionId === sessionId);
+}
+
+/** The handover entry of one desk's session, if it has one. */
+export function handoverOf(desks: readonly DeskHandover[], sessionId: string): DeskHandover | undefined {
+  return desks.find((d) => d.sessionId === sessionId);
+}
+
+/** What one desk's handover has to say, if anything. */
+export function handoverFor(snapshot: OfficeSnapshot, sessionId: string): DeskHandoverState | undefined {
+  return handoverOf(snapshot.handover.desks, sessionId)?.state;
 }
 
 /** The notes waiting for one desk. */

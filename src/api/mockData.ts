@@ -1,5 +1,6 @@
 import type { Helper, LinearLink, OfficeSnapshot } from "../types";
 import { mockLinearTodos } from "./mockConnectors";
+import { makeHandoverView } from "./mockHandover";
 import { makeSeedManagers } from "./mockManager";
 import { makeSeedQa } from "./mockQa";
 
@@ -61,6 +62,7 @@ export function makeSeedSnapshot(): OfficeSnapshot {
     managers: makeSeedManagers(),
     chatDesks: [],
     queued: [],
+    handover: makeHandoverView(),
   };
 }
 

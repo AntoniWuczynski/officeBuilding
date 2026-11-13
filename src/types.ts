@@ -376,6 +376,8 @@ export interface OfficeSnapshot {
   readonly chatDesks: readonly string[];
   /** Your own messages waiting for their desks, oldest first. */
   readonly queued: readonly QueuedNote[];
+  /** Used-up subscriptions and what each desk's handover has to say. */
+  readonly handover: HandoverView;
 }
 
 /** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */
@@ -697,6 +699,7 @@ export interface Settings {
   readonly manager: ManagerSettings;
   readonly agents: AgentSettings;
   readonly routing: RoutingSettings;
+  readonly handover: HandoverSettings;
 }
 
 /** A change to the settings: each group present replaces that group whole. */
@@ -770,4 +773,70 @@ export interface ManagerSettings {
   readonly maxDesks: number;
   /** Whole US dollars, 1 to 1000. */
   readonly spendCeilingUsd: number;
+}
+
+/** The two tools a desk can be handed between (`Tool` in handover/mod.rs). */
+export type HandoverTool = "claude-code" | "codex";
+/** A subscription window the building can name (`Window` in handover/mod.rs). */
+export type LimitWindow = "five-hour" | "seven-day";
+export type BackgroundTaskKind = "workflow" | "subagent" | "shell" | "scheduled" | "other";
+/** One piece of background work a desk has in flight (`Task` in handover/mod.rs). */
+export interface BackgroundTask {
+  readonly kind: BackgroundTaskKind;
+  readonly name: string | null;
+}
+/** What the building knows about a desk's background work (`Work` in handover/mod.rs). */
+export type DeskWork =
+  | { readonly kind: "clear" }
+  | { readonly kind: "running"; readonly tasks: readonly BackgroundTask[] }
+  | { readonly kind: "unknown" };
+/** Why a desk waits for you instead of being handed over by itself (`OfferWhy` in handover/view.rs). */
+export type OfferWhy =
+  | { readonly kind: "automatic-off" | "work-running" | "work-unknown" | "seen-elsewhere" | "not-at-the-time" }
+  | { readonly kind: "failed"; readonly reason: string };
+export type BlockWhy = "not-chosen" | "both-used-up" | "already-handed-over";
+/** What a desk's handover has to say (`DeskState` in handover/view.rs). Times are Unix seconds. */
+export type DeskHandoverState =
+  | {
+      readonly kind: "offered";
+      readonly to: HandoverTool;
+      readonly why: OfferWhy;
+      readonly work: DeskWork;
+      readonly window: LimitWindow | null;
+      readonly resetAt: number | null;
+    }
+  | {
+      readonly kind: "blocked";
+      readonly to: HandoverTool;
+      readonly why: BlockWhy;
+      readonly window: LimitWindow | null;
+      readonly resetAt: number | null;
+      readonly otherResetAt: number | null;
+    }
+  | { readonly kind: "underway"; readonly to: HandoverTool }
+  | { readonly kind: "arrived"; readonly from: HandoverTool; readonly at: number; readonly window: LimitWindow | null; readonly resetAt: number | null }
+  | { readonly kind: "left"; readonly to: HandoverTool; readonly at: number }
+  | { readonly kind: "failed"; readonly to: HandoverTool; readonly at: number; readonly reason: string };
+export interface DeskHandover {
+  readonly sessionId: string;
+  readonly state: DeskHandoverState;
+}
+/** A subscription recorded as used up and not yet reset (`UsedUpView` in handover/view.rs). */
+export interface UsedUpView {
+  readonly tool: HandoverTool;
+  readonly window: LimitWindow | null;
+  readonly resetAt: number | null;
+  readonly seenAt: number;
+}
+export interface HandoverView {
+  readonly usedUp: readonly UsedUpView[];
+  readonly desks: readonly DeskHandover[];
+}
+/** What the receiving tool starts with (`StartWith` in settings/handover.rs). */
+export type StartWith = { readonly kind: "tool-default" } | { readonly kind: "chosen"; readonly model: string; readonly effort: string };
+/** The Handover group (`HandoverSettings` in settings/handover.rs). */
+export interface HandoverSettings {
+  readonly automatic: boolean;
+  readonly claudeToCodex: StartWith | null;
+  readonly codexToClaude: StartWith | null;
 }
