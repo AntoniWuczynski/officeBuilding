@@ -141,6 +141,17 @@ pub(crate) fn settings() -> RoutingSettings {
     }
 }
 
+/// The Opus-tier target `settings()` maps for the `OpenAI` connection, found by its id.
+pub(crate) fn oai_target() -> TierTarget {
+    let oai = conn("oai");
+    settings()
+        .connections
+        .into_iter()
+        .find(|c| c.id == oai)
+        .and_then(|c| c.targets.opus)
+        .expect("the fixture maps the OpenAI connection's opus tier")
+}
+
 /// Every connection of `settings()` that needs a credential, as if each had one saved.
 pub(crate) fn credentials() -> BTreeSet<ConnectionId> {
     settings()

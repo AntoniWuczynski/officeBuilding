@@ -358,7 +358,14 @@ fn dispatch_answers_without_calling_upstream() {
 #[test]
 fn credentials_list_saved_keys_of_relayed_kinds_only() {
     let rig = Rig::new("credentials");
-    let opened = rig.open("work");
+    let mut s = settings();
+    let mut sign_in = s.connections[3].clone();
+    sign_in.id = conn("siwc");
+    sign_in.name = "siwc".to_owned();
+    sign_in.kind = ConnectionKind::ChatGptSignIn;
+    s.connections.push(sign_in);
+    s.contexts[0].chain.push(conn("siwc"));
+    let opened = rig.open_with(&s, "work");
     let routed = rig.router.routed(&opened.id).expect("routed");
     assert!(
         rig.router.credentials(&routed.chain).is_empty(),
@@ -366,15 +373,16 @@ fn credentials_list_saved_keys_of_relayed_kinds_only() {
     );
     rig.key("api", ConnectionKind::AnthropicApiKey);
     rig.key("oai", ConnectionKind::OpenAiApiKey);
+    rig.key("siwc", ConnectionKind::ChatGptSignIn);
     assert_eq!(
         rig.router.credentials(&routed.chain),
-        BTreeSet::from([conn("api")]),
-        "the subscription, a missing key and the openai key are never listed"
+        BTreeSet::from([conn("api"), conn("oai")]),
+        "the subscription, a missing key and Sign in with ChatGPT are never listed"
     );
     rig.key("router", ConnectionKind::OpenRouter);
     assert_eq!(
         rig.router.credentials(&routed.chain),
-        BTreeSet::from([conn("api"), conn("router")])
+        BTreeSet::from([conn("api"), conn("router"), conn("oai")])
     );
     rig.cleanup();
 }
@@ -475,9 +483,9 @@ fn the_desk_route_json_is_pinned_and_holds_no_secret() {
 
 #[test]
 fn reasoning_follows_the_connections_that_answered() {
-    let (sub, api, router) = (conn("sub"), conn("api"), conn("router"));
+    let (sub, api, router, oai) = (conn("sub"), conn("api"), conn("router"), conn("oai"));
     let set = |ids: &[&ConnectionId]| ids.iter().map(|c| (*c).clone()).collect::<BTreeSet<_>>();
-    let rows: [ReasoningRow; 10] = [
+    let rows: [ReasoningRow; 13] = [
         ("fresh", false, set(&[]), None, Reasoning::Intact),
         (
             "one answer, still there",
@@ -540,6 +548,27 @@ fn reasoning_follows_the_connections_that_answered() {
             false,
             set(&[&sub, &api]),
             None,
+            Reasoning::VendorMayDrop,
+        ),
+        (
+            "openai on a fresh desk",
+            false,
+            set(&[]),
+            Some((&oai, ConnectionKind::OpenAiApiKey)),
+            Reasoning::Removed,
+        ),
+        (
+            "openai after a move",
+            false,
+            set(&[&sub, &oai]),
+            Some((&oai, ConnectionKind::OpenAiApiKey)),
+            Reasoning::Removed,
+        ),
+        (
+            "anthropic active again after openai",
+            false,
+            set(&[&api, &oai]),
+            Some((&api, ConnectionKind::AnthropicApiKey)),
             Reasoning::VendorMayDrop,
         ),
     ];

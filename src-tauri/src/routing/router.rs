@@ -8,7 +8,7 @@
 mod relay;
 
 use super::answers;
-use super::config::{ConnectionId, ConnectionKind, ContextId};
+use super::config::{ConnectionId, ConnectionKind, ContextId, Targets, Tiers};
 use super::keys::{KeyStatus, Keys};
 use super::launch;
 use super::live::{DeskRoute, Reasoning};
@@ -41,17 +41,21 @@ pub struct Opened {
     pub header: Secret,
 }
 
-/// One entry of a session's order, copied when it was opened: enough to work out credentials
-/// and to word an answer without taking the route lock.
+/// One entry of a session's order, copied when it was opened: enough to work out credentials,
+/// to word an answer and to map a per-message effort (F12) without taking the route lock.
+/// Never updated, like the copy Stage A keeps (D10).
 struct Link {
     connection: ConnectionId,
     name: String,
     kind: ConnectionKind,
+    targets: Targets,
 }
 
 struct Routed {
     secret: Secret,
     chain: Vec<Link>,
+    /// The session's own copy of the tiers, taken when it was opened.
+    tiers: Tiers,
     /// It was started with the tool's resume command, so its history is not this route's own.
     resumed: bool,
     live: Mutex<Live>,
@@ -141,8 +145,10 @@ impl Router {
                 connection: entry.connection.clone(),
                 name: entry.name.clone(),
                 kind: entry.kind,
+                targets: entry.targets.clone(),
             })
             .collect();
+        let tiers = route.tiers.clone();
         self.with_state(|s| s.open(id.clone(), route));
         let header = launch::header_line(&secret);
         lock(&self.sessions).insert(
@@ -150,6 +156,7 @@ impl Router {
             Arc::new(Routed {
                 secret,
                 chain,
+                tiers,
                 resumed,
                 live: Mutex::new(Live::default()),
             }),

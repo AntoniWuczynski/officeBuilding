@@ -1,12 +1,15 @@
-//! What a provider's refusal proves: a reply that is not 2xx, of one connection kind, turned
-//! into Stage A's `Observation`. Pure. Only a shape a vendor documents (or, for the Claude
-//! subscription, the one the probe replayed) counts as exhaustion. A shape with no row here is
-//! ambiguous and falls back to the status alone, which never proves exhaustion.
+//! What a provider's refusal proves: a reply that is not 2xx, of one connection kind, or a
+//! failure inside a translated route's stream, turned into Stage A's `Observation`. Pure. Only a
+//! shape a vendor documents (or, for the Claude subscription, the one the probe replayed) counts
+//! as exhaustion. A shape with no row here is ambiguous and falls back to the status alone, which
+//! never proves exhaustion. `Said` is the one place a provider's own words reach a sentence (F19).
 
 use super::body::Object;
 use super::config::ConnectionKind;
 use super::observe::{Breadth, Exhaustion, Observation};
+use super::translate::reply::Failure;
 use super::wire::{Header, only};
+use crate::delivery::text;
 use crate::http;
 use serde::Deserialize;
 
@@ -27,6 +30,29 @@ const RAMP_LIMIT: &str = "ramp_limit_exceeded";
 const OWN_LIMIT: &str = "You have reached your specified API usage limits";
 const OWN_WORKSPACE_LIMIT: &str = "You have reached your specified workspace API usage limits";
 
+/// U4, <https://developers.openai.com/api/docs/guides/error-codes>: "429 - Credit balance
+/// exhausted", "Organization spend limit reached", "Project spend limit reached", "Organization
+/// usage limit reached". "Retrying billing, spend, or quota errors won't restore API access."
+const OPENAI_USED_UP: [&str; 4] = [
+    "credit_balance_exhausted",
+    "organization_spend_limit_exceeded",
+    "project_spend_limit_exceeded",
+    "organization_usage_limit_exceeded",
+];
+/// U4: "429 - Slow down", type `rate_limit_error`, code `slow_down`.
+const OPENAI_SLOW_DOWN: &str = "slow_down";
+/// U2, <https://developers.openai.com/api/reference/resources/responses/streaming-events>:
+/// `response.error.code` lists `rate_limit_exceeded` and `server_error`.
+const OPENAI_RATE_LIMITED: &str = "rate_limit_exceeded";
+const OPENAI_SERVER_ERROR: &str = "server_error";
+/// U4: "503 - Model temporarily overloaded", type `service_unavailable_error`, code
+/// `server_is_overloaded`.
+const OPENAI_OVERLOADED: &str = "server_is_overloaded";
+
+/// The longest provider code `Said` keeps, and the most of a provider message it keeps (F19).
+const SAID_CODE_MAX: usize = 64;
+const SAID_MESSAGE_MAX: usize = 300;
+
 /// What a reply that is not 2xx proves. `body` is what the relay read of it (at most 64 KiB).
 /// Only documented shapes count as exhaustion. Everything else moves nothing.
 #[must_use]
@@ -36,7 +62,9 @@ pub fn observe(kind: ConnectionKind, status: u16, headers: &[Header], body: &[u8
         ConnectionKind::ClaudeSubscription => subscription(status, headers),
         ConnectionKind::AnthropicApiKey => anthropic_key(status, body, retry_after),
         ConnectionKind::OpenRouter => openrouter(status, body, retry_after),
-        ConnectionKind::OpenAiApiKey | ConnectionKind::ChatGptSignIn => None,
+        ConnectionKind::OpenAiApiKey => openai_key(status, body, retry_after),
+        // Never leased in this build, and its codes are not built (section 12).
+        ConnectionKind::ChatGptSignIn => None,
     };
     proven.unwrap_or_else(|| by_status(status, retry_after))
 }
@@ -175,6 +203,119 @@ fn openrouter(status: u16, body: &[u8], retry_after: Option<u64>) -> Option<Obse
 fn unix_seconds(instant: &str) -> Option<u64> {
     let parsed = chrono::DateTime::parse_from_rfc3339(instant).ok()?;
     u64::try_from(parsed.timestamp()).ok()
+}
+
+/// U4 names the members `error.code`, `error.type` and `error.message` but prints no whole body,
+/// so only `error.code` and `error.message` are read, and a body that does not fit proves nothing.
+#[derive(Deserialize)]
+struct OpenAiReply {
+    error: Object<OpenAiError>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiError {
+    #[serde(default)]
+    code: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+fn openai_error(body: &[u8]) -> Option<OpenAiError> {
+    let Object(OpenAiReply {
+        error: Object(error),
+    }) = serde_json::from_slice(body).ok()?;
+    Some(error)
+}
+
+/// Only a 429 with one of U4's four billing codes proves a used-up allowance. Not rows, on
+/// purpose: `error.type` `insufficient_quota` with another code (U4 calls the type "broader" and
+/// says to inspect the code), a 429 with no code, and `x-ratelimit-*` headers.
+fn openai_key(status: u16, body: &[u8], retry_after: Option<u64>) -> Option<Observation> {
+    let error = openai_error(body)?;
+    match (status, error.code.as_deref()?) {
+        // U6: a spend limit "resets with the next monthly cycle", and the reply gives no time.
+        (429, code) if OPENAI_USED_UP.contains(&code) => Some(whole(None)),
+        (429, OPENAI_SLOW_DOWN) => Some(Observation::Throttled { retry_after }),
+        _ => None,
+    }
+}
+
+/// What a failure inside a translated route's stream proves. Only `kind`'s own documented codes
+/// count. U5: "An error after streaming begins can arrive as a stream event", so only the `error`
+/// event can prove a used-up allowance. U2 gives `response.failed` a closed list of codes that
+/// holds no billing code, so one there is undocumented and moves nothing (F14).
+#[must_use]
+pub fn stream(kind: ConnectionKind, failure: &Failure) -> Observation {
+    let (code, may_prove) = match failure {
+        Failure::Error { code, .. } => (code.as_deref(), kind == ConnectionKind::OpenAiApiKey),
+        Failure::Failed { code, .. } => (code.as_deref(), false),
+        // F17: a reason this route has no stop reason for.
+        Failure::Incomplete { .. } => return Observation::Rejected,
+        // The outcome is unknown, so it is never asked again (Stage A, 6.3).
+        Failure::Unreadable => return Observation::Dropped,
+    };
+    match code {
+        Some(code) if may_prove && OPENAI_USED_UP.contains(&code) => whole(None),
+        Some(OPENAI_SLOW_DOWN | OPENAI_RATE_LIMITED) => {
+            Observation::Throttled { retry_after: None }
+        }
+        None | Some(OPENAI_SERVER_ERROR | OPENAI_OVERLOADED) => {
+            Observation::Faulted { retry_after: None }
+        }
+        // Not retried, and its code is shown to the desk.
+        Some(_) => Observation::Rejected,
+    }
+}
+
+/// A provider's own code and message, cleaned for a sentence (F19). Never stored, never logged.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Said {
+    pub code: Option<String>,
+    pub message: Option<String>,
+}
+
+impl Said {
+    /// `code` kept only when it is 1 to 64 characters of ASCII letters, digits, `_`, `-` or `.`.
+    /// `message` cut to its first 300 characters, then put on one line. None when nothing is left.
+    #[must_use]
+    pub fn new(code: Option<&str>, message: Option<&str>) -> Self {
+        let code = code
+            .and_then(|c| crate::routing::translate::token(c, SAID_CODE_MAX, b"_-."))
+            .map(str::to_owned);
+        let message = message.and_then(|m| {
+            let cut: String = m.chars().take(SAID_MESSAGE_MAX).collect();
+            text::line(&cut, SAID_MESSAGE_MAX).ok()
+        });
+        Self { code, message }
+    }
+
+    /// From a stream failure. `Incomplete`'s reason takes the place of the code. `Unreadable`
+    /// says nothing.
+    #[must_use]
+    pub fn of(failure: &Failure) -> Self {
+        match failure {
+            Failure::Failed { code, message } | Failure::Error { code, message } => {
+                Self::new(code.as_deref(), message.as_deref())
+            }
+            Failure::Incomplete { reason } => Self::new(reason.as_deref(), None),
+            Failure::Unreadable => Self::default(),
+        }
+    }
+}
+
+/// From a reply that is not 2xx: `OpenAI`'s `error.code` and `error.message` (U4). Empty for
+/// another kind or a body that does not fit.
+#[must_use]
+pub fn said(kind: ConnectionKind, body: &[u8]) -> Said {
+    match kind {
+        ConnectionKind::OpenAiApiKey => openai_error(body)
+            .map(|e| Said::new(e.code.as_deref(), e.message.as_deref()))
+            .unwrap_or_default(),
+        ConnectionKind::ClaudeSubscription
+        | ConnectionKind::AnthropicApiKey
+        | ConnectionKind::OpenRouter
+        | ConnectionKind::ChatGptSignIn => Said::default(),
+    }
 }
 
 #[cfg(test)]

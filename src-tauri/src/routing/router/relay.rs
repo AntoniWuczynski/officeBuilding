@@ -4,7 +4,11 @@
 //! The commit boundary: a 2xx is committed when its first body bytes are written. From then on
 //! Stage A answers every failure with `Cut`, and the reply ends without its terminator. The
 //! clean terminator is written only after a clean upstream end of a 2xx, or after a held refusal
-//! was passed on whole (`send_body`, its one call site for both).
+//! was passed on whole (`send_body`, its one call site for both). A translated route's attempt is
+//! `translated.rs`: its commit is the first translated byte (F1), and its refusals are answered in
+//! Anthropic's envelope, never passed on as the provider's bytes (F2).
+
+mod translated;
 
 use super::{Routed, Router, now};
 use crate::manager::auth::same;
@@ -17,12 +21,13 @@ use crate::routing::observe::Observation;
 use crate::routing::policy::{RouteError, Skip, Target};
 use crate::routing::serve::Handler;
 use crate::routing::state::{Lease, LocalFault, RouteId, Verdict};
+use crate::routing::translate::sse::read_some;
 use crate::routing::upstream::{self, LOCAL_HEADER, Reply, SendError};
 use crate::routing::wire::{self, Header, Method, Request};
 use crate::sync::lock;
 use std::borrow::Cow;
 use std::collections::BTreeSet;
-use std::io::{ErrorKind, Read};
+use std::io::Read;
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::thread;
@@ -144,6 +149,12 @@ enum Outcome {
     Unsent(Why),
     /// It broke after the request may have left, with nothing relayed.
     Lost,
+    /// The request was refused here, after its lease was cut. Nothing was sent (F3).
+    Refused(Answer),
+    /// A translated route's reply could not be passed on, and none of it reached the client.
+    Failed { seen: Observation, answer: Answer },
+    /// Translated bytes reached the client, then the provider reported a failure.
+    Stopped(Observation),
 }
 
 impl Outcome {
@@ -161,6 +172,9 @@ impl Outcome {
             Self::ClientLeft => (Observation::Cancelled, true),
             Self::Unsent(_) => (Observation::NotSent, false),
             Self::Lost => (Observation::Dropped, false),
+            Self::Refused(_) => (Observation::Cancelled, false),
+            Self::Failed { seen, .. } => (seen.clone(), false),
+            Self::Stopped(seen) => (seen.clone(), true),
         }
     }
 }
@@ -169,16 +183,6 @@ impl Outcome {
 enum Broke {
     Upstream,
     Client,
-}
-
-/// One read, retried when it was interrupted.
-fn read_some(from: &mut dyn Read, buf: &mut [u8]) -> std::io::Result<usize> {
-    loop {
-        match from.read(buf) {
-            Err(e) if e.kind() == ErrorKind::Interrupted => {}
-            read => return read,
-        }
-    }
 }
 
 /// `first` as a chunk, then `rest` read by read, one chunk per read, then the clean terminator.
@@ -311,6 +315,11 @@ impl Router {
                 }
             );
             let verdict = open.settle(&seen, relayed);
+            // F3: settled as `Cancelled`, so the verdict is `Done`, and the refusal is the answer.
+            if let Outcome::Refused(answer) = outcome {
+                let _unsent = answer.write(stream);
+                return;
+            }
             let name = routed
                 .link(&connection)
                 .map_or(connection.as_str(), |link| link.name.as_str());
@@ -332,6 +341,8 @@ impl Router {
                         pass_on(stream, status, &headers, &read, rest);
                         return;
                     }
+                    // F2: a translated route's refusal, in Anthropic's envelope.
+                    Outcome::Failed { answer, .. } => answer,
                     // Stage A gives `Relay` only for a reply. Never seen, but answered truthfully.
                     _ => answers::unreachable(name),
                 },
@@ -339,7 +350,10 @@ impl Router {
                     Outcome::Unsent(Why::NoKey) => answers::no_key(name),
                     _ => answers::unreachable(name),
                 },
-                Verdict::Local(LocalFault::Interrupted) => answers::interrupted(name),
+                Verdict::Local(LocalFault::Interrupted) => match outcome {
+                    Outcome::Failed { answer, .. } => answer,
+                    _ => answers::interrupted(name),
+                },
             };
             let _unsent = answer.write(stream);
             return;
@@ -356,6 +370,9 @@ impl Router {
         lease: &Lease,
         stream: &mut TcpStream,
     ) -> Outcome {
+        if lease.kind.translated() {
+            return self.attempt_translated(routed, request, facts, lease, stream);
+        }
         let kind = lease.kind;
         let Some(url) = upstream::url(&self.bases, kind, request.query.as_deref()) else {
             return Outcome::Unsent(Why::NoRelay);
@@ -473,3 +490,7 @@ fn refusal(routed: &Routed, error: &RouteError) -> Answer {
 mod guard_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod translated_guard_tests;
+#[cfg(test)]
+mod translated_tests;

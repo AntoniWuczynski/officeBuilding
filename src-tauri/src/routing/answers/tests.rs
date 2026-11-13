@@ -1,10 +1,14 @@
 use super::{
-    Answer, blocked, busy, interrupted, no_key, other_path, redirect, refused, skip_sentence,
-    transport, unknown_desk, unreachable, unreadable,
+    Answer, blocked, busy, cannot_carry, interrupted, no_key, other_path, provider_refused,
+    redirect, refused, skip_sentence, stream_stopped, transport, unknown_desk, unreachable,
+    unreadable,
 };
 use crate::routing::capabilities::Capability;
 use crate::routing::config::{ConnectionKind, TierId};
+use crate::routing::evidence::Said;
+use crate::routing::observe::{Breadth, Exhaustion, Observation};
 use crate::routing::policy::Skip;
+use crate::routing::translate::Carry;
 use crate::routing::wire::Refusal;
 use serde::Deserialize;
 
@@ -180,7 +184,331 @@ fn every() -> Vec<(&'static str, Answer, u16, &'static str, String)> {
             message.to_owned(),
         ));
     }
+    for (carry, reason) in carries() {
+        rows.push((
+            "cannot_carry",
+            cannot_carry("oai", &carry),
+            400,
+            invalid,
+            format!(
+                "Office Building: oai cannot take this request, because {reason}. Nothing was sent, and the desk stays on oai."
+            ),
+        ));
+    }
+    rows.push((
+        "stream_stopped",
+        stream_stopped("oai", &Said::default()),
+        502,
+        "api_error",
+        "The reply from oai stopped before its end. Office Building did not ask again.".to_owned(),
+    ));
+    rows.push((
+        "stream_stopped with a code",
+        stream_stopped("oai", &said(Some("server_error"), Some("not shown"))),
+        502,
+        "api_error",
+        "The reply from oai stopped before its end (server_error). Office Building did not ask again.".to_owned(),
+    ));
     rows
+}
+
+/// Every `Carry`, with its reason.
+fn carries() -> Vec<(Carry, &'static str)> {
+    vec![
+        (
+            Carry::NotStreamed,
+            "this route answers as a stream only, and the request did not ask for one",
+        ),
+        (
+            Carry::Prewarm,
+            "it only asks Anthropic to warm its prompt cache (max_tokens 0), which this route has no counterpart for",
+        ),
+        (
+            Carry::ContextManagement,
+            "this route cannot carry context management (context_management: Extra inputs are not permitted)",
+        ),
+        (
+            Carry::StopSequences,
+            "this route cannot carry stop sequences",
+        ),
+        (
+            Carry::Member {
+                name: "temperature".to_owned(),
+            },
+            "this route does not carry the request setting temperature",
+        ),
+        (
+            Carry::OutputSetting,
+            "this route carries no output setting but the effort",
+        ),
+        (
+            Carry::Block {
+                kind: "document".to_owned(),
+            },
+            "this route cannot carry a document block",
+        ),
+        (
+            Carry::ImageSource,
+            "this route carries an image only as base64 data or a web address",
+        ),
+        (
+            Carry::Tool,
+            "this route carries plain function tools only: no strict schema, no deferred loading and no tool the provider runs",
+        ),
+        (
+            Carry::ToolChoice,
+            "this route does not know that tool choice",
+        ),
+        (
+            Carry::CallId,
+            "a tool call in the conversation has an id OpenAI does not take (1 to 64 characters)",
+        ),
+        (
+            Carry::Unknown,
+            "it holds something the translation does not know, and nothing is sent that cannot be carried whole",
+        ),
+    ]
+}
+
+fn said(code: Option<&str>, message: Option<&str>) -> Said {
+    Said {
+        code: code.map(str::to_owned),
+        message: message.map(str::to_owned),
+    }
+}
+
+#[test]
+fn the_context_management_refusal_has_the_words_claude_code_looks_for() {
+    let answer = cannot_carry("oai", &Carry::ContextManagement);
+    assert_eq!(answer.status, 400);
+    assert!(
+        answer
+            .message
+            .contains("context_management: Extra inputs are not permitted")
+    );
+}
+
+/// Name, the status, what was seen, what the provider said, and the answer's status, type,
+/// message and `retry_after`.
+type ProviderRow = (
+    &'static str,
+    Option<u16>,
+    Observation,
+    Said,
+    u16,
+    &'static str,
+    &'static str,
+    Option<u64>,
+);
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one row per observation and shape, with its whole sentence"
+)]
+fn provider_refused_table() {
+    let used_up = Observation::Exhausted(Exhaustion {
+        breadth: Breadth::Whole,
+        reset_at: None,
+        window: None,
+    });
+    let invalid = "invalid_request_error";
+    let full = || said(Some("some_code"), Some("Model x does not exist."));
+    let rows: Vec<ProviderRow> = vec![
+        (
+            "used up, with a code",
+            Some(429),
+            used_up.clone(),
+            said(Some("credit_balance_exhausted"), Some("not shown")),
+            400,
+            invalid,
+            "Office Building: oai reports that its allowance is used up (credit_balance_exhausted). Nothing was passed on. Open the desk in Office Building to retry a connection or switch to another.",
+            None,
+        ),
+        (
+            "used up in a stream, nothing said",
+            None,
+            used_up,
+            Said::default(),
+            400,
+            invalid,
+            "Office Building: oai reports that its allowance is used up. Nothing was passed on. Open the desk in Office Building to retry a connection or switch to another.",
+            None,
+        ),
+        (
+            "throttled with a wait",
+            Some(429),
+            Observation::Throttled {
+                retry_after: Some(6),
+            },
+            said(Some("slow_down"), Some("not shown")),
+            429,
+            "rate_limit_error",
+            "oai is limiting requests for now (slow_down). Office Building passed nothing on.",
+            Some(6),
+        ),
+        (
+            "throttled in a stream",
+            None,
+            Observation::Throttled { retry_after: None },
+            Said::default(),
+            429,
+            "rate_limit_error",
+            "oai is limiting requests for now. Office Building passed nothing on.",
+            None,
+        ),
+        (
+            "faulted 503",
+            Some(503),
+            Observation::Faulted {
+                retry_after: Some(2),
+            },
+            said(Some("server_is_overloaded"), None),
+            503,
+            "api_error",
+            "oai failed or is overloaded (server_is_overloaded). Office Building passed nothing on.",
+            Some(2),
+        ),
+        (
+            "faulted in a stream",
+            None,
+            Observation::Faulted { retry_after: None },
+            Said::default(),
+            500,
+            "api_error",
+            "oai failed or is overloaded. Office Building passed nothing on.",
+            None,
+        ),
+        (
+            "faulted 529 is never passed on as 529",
+            Some(529),
+            Observation::Faulted { retry_after: None },
+            Said::default(),
+            500,
+            "api_error",
+            "oai failed or is overloaded. Office Building passed nothing on.",
+            None,
+        ),
+        (
+            "unauthorised",
+            Some(401),
+            Observation::Unauthorised,
+            full(),
+            400,
+            invalid,
+            "Office Building: oai refused the API key saved for it (HTTP 401). Check the key in Settings, under Routing. Nothing was passed on.",
+            None,
+        ),
+        (
+            "forbidden with everything",
+            Some(403),
+            Observation::Forbidden,
+            full(),
+            400,
+            invalid,
+            "Office Building: oai says the account may not do this (HTTP 403, some_code): Model x does not exist.. Nothing was passed on.",
+            None,
+        ),
+        (
+            "forbidden with nothing",
+            Some(403),
+            Observation::Forbidden,
+            Said::default(),
+            400,
+            invalid,
+            "Office Building: oai says the account may not do this (HTTP 403). Nothing was passed on.",
+            None,
+        ),
+        (
+            "rejected with everything",
+            Some(400),
+            Observation::Rejected,
+            full(),
+            400,
+            invalid,
+            "Office Building: oai refused this request (HTTP 400, some_code): Model x does not exist.. Nothing was passed on, and the desk stays on oai.",
+            None,
+        ),
+        (
+            "rejected in a stream, a code only",
+            None,
+            Observation::Rejected,
+            said(Some("invalid_prompt"), None),
+            400,
+            invalid,
+            "Office Building: oai refused this request (in its reply, invalid_prompt). Nothing was passed on, and the desk stays on oai.",
+            None,
+        ),
+        (
+            "rejected, a message only",
+            Some(404),
+            Observation::Rejected,
+            said(None, Some("No such thing")),
+            400,
+            invalid,
+            "Office Building: oai refused this request (HTTP 404): No such thing. Nothing was passed on, and the desk stays on oai.",
+            None,
+        ),
+    ];
+    let dropped = "oai sent a reply Office Building could not read as a Responses stream, so nothing was passed on. It was not asked again.";
+    let unreadable = [
+        Observation::Dropped,
+        Observation::Completed,
+        Observation::NotSent,
+        Observation::Cancelled,
+    ]
+    .into_iter()
+    .map(|seen| {
+        (
+            "unreadable",
+            None,
+            seen,
+            full(),
+            502,
+            "api_error",
+            dropped,
+            None,
+        )
+    });
+    for (name, status, seen, said, code, kind, message, retry_after) in
+        rows.into_iter().chain(unreadable)
+    {
+        let answer = provider_refused("oai", status, &seen, &said);
+        assert_eq!(
+            (answer.status, answer.kind, answer.message.as_str()),
+            (code, kind, message),
+            "{name} {seen:?}"
+        );
+        assert_eq!(answer.retry_after, retry_after, "{name}");
+        assert_eq!(parsed(&answer).error.message, message, "{name}");
+        assert_ne!(answer.status, 529, "{name}");
+        if answer.status == 429 {
+            assert!(
+                matches!(seen, Observation::Throttled { .. }),
+                "{name}: a 429 only for a provider's own throttle"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_quote_in_a_name_or_a_provider_message_survives_the_round_trip() {
+    let name = "Zoë's \"work\" key";
+    let message = r#"Tool "x\y" is not allowed."#;
+    let answer = provider_refused(
+        name,
+        Some(400),
+        &Observation::Rejected,
+        &said(Some("bad_tool"), Some(message)),
+    );
+    assert_eq!(
+        parsed(&answer).error.message,
+        format!(
+            "Office Building: {name} refused this request (HTTP 400, bad_tool): {message}. Nothing was passed on, and the desk stays on {name}."
+        )
+    );
+    let answer = cannot_carry(name, &Carry::Tool);
+    assert!(parsed(&answer).error.message.contains(name));
 }
 
 #[test]
@@ -239,6 +567,7 @@ fn an_odd_name_survives_the_round_trip() {
 )]
 fn skip_sentence_table() {
     let model = "claude-invented-9".to_owned();
+    // The relayed kinds, then Sign in with ChatGPT, which this build cannot use.
     let rows: Vec<(Skip, &str, &str)> = vec![
         (
             Skip::Removed,
@@ -258,7 +587,7 @@ fn skip_sentence_table() {
         (
             Skip::NoCredential,
             "no API key is saved for it",
-            "this build cannot use that kind of connection yet",
+            "it needs Sign in with ChatGPT, which this build does not have yet",
         ),
         (
             Skip::UnmappedModel { model },
@@ -338,15 +667,16 @@ fn skip_sentence_table() {
         ConnectionKind::ClaudeSubscription,
         ConnectionKind::AnthropicApiKey,
         ConnectionKind::OpenRouter,
+        ConnectionKind::OpenAiApiKey,
     ];
-    for (skip, for_relayed, for_openai) in rows {
+    for (skip, for_relayed, for_sign_in) in rows {
         for kind in relayed {
             assert_eq!(skip_sentence(kind, &skip), for_relayed, "{skip:?} {kind:?}");
         }
         assert_eq!(
-            skip_sentence(ConnectionKind::OpenAiApiKey, &skip),
-            for_openai,
-            "{skip:?} openai"
+            skip_sentence(ConnectionKind::ChatGptSignIn, &skip),
+            for_sign_in,
+            "{skip:?} sign-in"
         );
     }
 }

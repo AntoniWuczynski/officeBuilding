@@ -1,7 +1,9 @@
 //! Provider routing: which connection a desk's requests may use, and what happens when one runs out.
 //! Stage A holds the types and rules. Stage B adds the loopback router (`router`, `serve`,
 //! `wire`), the same-vendor relays (`upstream`, `body`, `evidence`, `answers`), the routed launch
-//! (`launch`, with `office/routed.rs`) and the live route calls (`live`, `commands`).
+//! (`launch`, with `office/routed.rs`) and the live route calls (`live`, `commands`). Stage C
+//! adds the experimental translation from Messages to `OpenAI` Responses (`translate`), served
+//! by the router through `router/relay/translated.rs` with an `OpenAI` API key.
 //!
 //! # How the router calls the state machine (`state::RouteState`)
 //!
@@ -58,5 +60,6 @@ pub mod router;
 pub mod serve;
 pub mod state;
 pub mod status;
+pub mod translate;
 pub mod upstream;
 pub mod wire;

@@ -224,7 +224,7 @@ fn scan(body: &[u8]) -> BTreeSet<Capability> {
 
 /// A JSON object's members in the order they arrived. A value is the bytes it arrived as,
 /// or bytes the router wrote. A repeated key is refused.
-struct Members<'a>(Vec<(String, Cow<'a, RawValue>)>);
+pub(crate) struct Members<'a>(Vec<(String, Cow<'a, RawValue>)>);
 
 impl<'de: 'a, 'a> Deserialize<'de> for Members<'a> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -260,6 +260,12 @@ impl Serialize for Members<'_> {
 }
 
 impl<'a> Members<'a> {
+    /// Every member in the order it arrived. A value read from a body is `Cow::Borrowed`, so a
+    /// reader can keep borrowing it for as long as the body lives.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&str, &Cow<'a, RawValue>)> {
+        self.0.iter().map(|(name, value)| (name.as_str(), value))
+    }
+
     fn parse(raw: &'a RawValue) -> Result<Self, Unreadable> {
         serde_json::from_str(raw.get()).map_err(|_| Unreadable)
     }
@@ -391,10 +397,11 @@ fn without_thinking(message: &RawValue) -> Result<Kept, Unreadable> {
     Ok(Kept::Edited(raw(&members)?))
 }
 
+/// The block-type probe: a block's `type` and nothing else.
 #[derive(Deserialize)]
-struct Typed<'a> {
+pub(crate) struct Typed<'a> {
     #[serde(borrow, rename = "type")]
-    kind: Cow<'a, str>,
+    pub(crate) kind: Cow<'a, str>,
 }
 
 fn is_thinking(block: &RawValue) -> bool {

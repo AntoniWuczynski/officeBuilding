@@ -4,12 +4,14 @@
 
 use super::tests::{
     ANTHROPIC_KEY, Gates, Got, LOGIN, OPENROUTER_KEY, Rig, Setup, Who, all_exhausted, body_of,
-    canned, client_headers, has, ok, rejected, row, send, wait_for, who,
+    canned, client_headers, has, oai_used_up, ok, rejected, row, send, wait_for, who,
 };
 use crate::routing::answers;
 use crate::routing::body;
 use crate::routing::config::{ConnectionKind, TierTarget};
+use crate::routing::evidence;
 use crate::routing::fixtures::{conn, ctx};
+use crate::routing::observe::Observation;
 use crate::routing::policy::Skip;
 use crate::routing::records::ExhaustionFile;
 use crate::routing::router::Router;
@@ -261,14 +263,22 @@ fn a_blocked_chain_answers_400_and_stops() {
         Ok(all_exhausted(s))
     });
     let last = rig.ask(&body_of("one"));
-    assert_eq!(last.status, 402, "the chain ends on the last real refusal");
-    assert_eq!(last.header("x-row"), Some("last"));
-    assert_eq!(rig.sent().len(), 3);
+    // F2: the chain ends on OpenAI's refusal, put into Anthropic's envelope.
+    let Step::Bytes(refusal) = &oai_used_up().body[0] else {
+        panic!("bytes")
+    };
+    let kind = ConnectionKind::OpenAiApiKey;
+    let seen = evidence::observe(kind, 429, &[], refusal);
+    assert!(matches!(seen, Observation::Exhausted(_)));
+    let said = evidence::said(kind, refusal);
+    let refused = answers::provider_refused("oai", Some(429), &seen, &said);
+    assert_eq!((last.status, last.body), (400, refused.body()));
+    assert_eq!(rig.sent().len(), 4);
     let expected = answers::blocked(&[
         ("sub", ConnectionKind::ClaudeSubscription, &Skip::Exhausted),
         ("api", ConnectionKind::AnthropicApiKey, &Skip::Exhausted),
         ("router", ConnectionKind::OpenRouter, &Skip::Exhausted),
-        ("oai", ConnectionKind::OpenAiApiKey, &Skip::NoCredential),
+        ("oai", ConnectionKind::OpenAiApiKey, &Skip::Exhausted),
     ]);
     let blocked = rig.ask(&body_of("two"));
     assert_eq!(blocked.status, 400);
@@ -289,7 +299,7 @@ fn a_blocked_chain_answers_400_and_stops() {
         .expect("opens")
         .expect("routed");
     assert_eq!(send(rig.port(), &second, &body_of("x"), &[]).status, 400);
-    assert_eq!(rig.sent().len(), 3, "no upstream call once blocked");
+    assert_eq!(rig.sent().len(), 4, "no upstream call once blocked");
 
     let fresh = Arc::new(FakeUpstream::new(|_| Ok(ok())));
     let upstream: Arc<dyn Upstream> = Arc::<FakeUpstream>::clone(&fresh);
@@ -321,7 +331,7 @@ fn a_key_removed_after_admission_is_answered_without_a_call() {
                 refusal.body.insert(0, held.step());
                 refusal
             }
-            Who::Api | Who::Router => ok(),
+            Who::Api | Who::Router | Who::OpenAi => ok(),
         })
     });
     let pending = rig.ask_later(&body_of("one"));
@@ -340,6 +350,7 @@ fn a_key_removed_after_admission_is_answered_without_a_call() {
 fn money_and_experiments_need_their_opt_in() {
     let mut setup = Setup::chain(&["sub", "api", "oai"]);
     setup.settings.connections[1].paid = false;
+    setup.settings.connections[3].experimental = false;
     let rig = Rig::with("opt-in", setup, |sent| {
         Ok(if who(sent) == Who::Sub {
             rejected()
@@ -357,14 +368,13 @@ fn money_and_experiments_need_their_opt_in() {
             ConnectionKind::AnthropicApiKey,
             &Skip::PaidNotAllowed,
         ),
-        ("oai", ConnectionKind::OpenAiApiKey, &Skip::NoCredential),
+        (
+            "oai",
+            ConnectionKind::OpenAiApiKey,
+            &Skip::ExperimentalNotAllowed,
+        ),
     ]);
     assert_eq!(blocked.body, expected.body());
-    assert!(
-        expected
-            .message
-            .contains("oai: this build cannot use that kind of connection yet")
-    );
     assert!(rig.sent().iter().all(|s| who(s) == Who::Sub));
     rig.cleanup();
 

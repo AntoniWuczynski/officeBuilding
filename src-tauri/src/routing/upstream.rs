@@ -2,7 +2,7 @@
 //!
 //! The host comes from the lease's kind through `url`, and the headers from `outbound`, and from
 //! nowhere else. The client's `authorization` reaches one host only: Anthropic's, for the Claude
-//! subscription.
+//! subscription. `OpenAI` gets no client header at all (F13).
 
 use super::config::ConnectionKind;
 use super::wire::Header;
@@ -14,6 +14,8 @@ use std::time::Duration;
 pub const ANTHROPIC: &str = "https://api.anthropic.com";
 /// T13: the Anthropic-format base of `OpenRouter`. T14: Messages is `POST /messages` under `/api/v1`.
 pub const OPENROUTER: &str = "https://openrouter.ai/api";
+/// U1: `POST https://api.openai.com/v1/responses`.
+pub const OPENAI: &str = "https://api.openai.com";
 /// The header that carries the route secret between a desk and the router. It never leaves the Mac.
 pub const LOCAL_HEADER: &str = "x-office-building-route";
 
@@ -35,11 +37,12 @@ const CREDENTIALS: &[&str] = &["authorization", "x-api-key", "cookie"];
 /// What a key connection asks for, so its error body can be read as evidence (E7).
 const IDENTITY: &str = "identity";
 
-/// The two hosts. `Default` is the two constants. Only tests build another.
+/// The three hosts. `Default` is the three constants. Only tests build another.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bases {
     pub anthropic: String,
     pub openrouter: String,
+    pub openai: String,
 }
 
 impl Default for Bases {
@@ -47,6 +50,7 @@ impl Default for Bases {
         Self {
             anthropic: ANTHROPIC.to_owned(),
             openrouter: OPENROUTER.to_owned(),
+            openai: OPENAI.to_owned(),
         }
     }
 }
@@ -58,13 +62,15 @@ pub const fn relays(kind: ConnectionKind) -> bool {
     match kind {
         ConnectionKind::ClaudeSubscription
         | ConnectionKind::AnthropicApiKey
-        | ConnectionKind::OpenRouter => true,
-        ConnectionKind::OpenAiApiKey | ConnectionKind::ChatGptSignIn => false,
+        | ConnectionKind::OpenRouter
+        | ConnectionKind::OpenAiApiKey => true,
+        ConnectionKind::ChatGptSignIn => false,
     }
 }
 
-/// The address a Messages call of `kind` is posted to: `<base>/v1/messages`, plus `?<query>` as
-/// the client sent it.
+/// The address a call of `kind` is posted to: `<base>/v1/messages`, plus `?<query>` as the
+/// client sent it, or for `OpenAI` `<base>/v1/responses` (U1) with no query: the client's query
+/// (`beta=true`) is Anthropic's.
 #[must_use]
 pub fn url(bases: &Bases, kind: ConnectionKind, query: Option<&str>) -> Option<String> {
     if !relays(kind) {
@@ -73,12 +79,21 @@ pub fn url(bases: &Bases, kind: ConnectionKind, query: Option<&str>) -> Option<S
     let base = match kind {
         ConnectionKind::ClaudeSubscription | ConnectionKind::AnthropicApiKey => &bases.anthropic,
         ConnectionKind::OpenRouter => &bases.openrouter,
-        ConnectionKind::OpenAiApiKey | ConnectionKind::ChatGptSignIn => return None,
+        ConnectionKind::OpenAiApiKey => return Some(format!("{}/v1/responses", bases.openai)),
+        ConnectionKind::ChatGptSignIn => return None,
     };
     Some(match query {
         Some(query) => format!("{base}/v1/messages?{query}"),
         None => format!("{base}/v1/messages"),
     })
+}
+
+/// The key as a bearer token (T13, U9).
+fn bearer(key: &Secret) -> Header {
+    header(
+        "authorization",
+        format!("Bearer {}", key.expose()).as_bytes(),
+    )
 }
 
 /// The headers that go upstream for a connection of `kind`. None: no relay for that kind, or a
@@ -126,14 +141,25 @@ pub fn outbound(
                         .iter()
                         .any(|prefix| name.starts_with(prefix))
             });
-            headers.push(header(
-                "authorization",
-                format!("Bearer {}", key.expose()).as_bytes(),
-            ));
+            headers.push(bearer(key));
             headers.push(header("accept-encoding", IDENTITY.as_bytes()));
             Some(headers)
         }
-        ConnectionKind::OpenAiApiKey | ConnectionKind::ChatGptSignIn => None,
+        // F13: four headers of the router's own and nothing of the client's, which is not read.
+        // An empty allow-list cannot leak a header nobody has seen yet.
+        ConnectionKind::OpenAiApiKey => {
+            let key = key?;
+            Some(vec![
+                // U1.
+                header("content-type", b"application/json"),
+                header("accept", b"text/event-stream"),
+                // U9.
+                bearer(key),
+                // E7: the router reads this reply.
+                header("accept-encoding", IDENTITY.as_bytes()),
+            ])
+        }
+        ConnectionKind::ChatGptSignIn => None,
     }
 }
 
@@ -146,6 +172,21 @@ pub fn returned(upstream: &[Header]) -> Vec<Header> {
         .filter(|header| !HOP.contains(&header.name.as_str()) && header.name != "content-length")
         .cloned()
         .collect()
+}
+
+/// What a translated 2xx reply's head carries: the stream's type (U14), `no-cache`, and the
+/// upstream's `x-request-id` when it sent exactly one (U9). Nothing else of the provider's
+/// crosses, and no `anthropic-*` header is invented.
+#[must_use]
+pub fn translated(upstream: &[Header]) -> Vec<Header> {
+    let mut headers = vec![
+        header("content-type", b"text/event-stream"),
+        header("cache-control", b"no-cache"),
+    ];
+    if let Some(id) = super::wire::only(upstream, "x-request-id") {
+        headers.push(header("x-request-id", id));
+    }
+    headers
 }
 
 fn header(name: &str, value: &[u8]) -> Header {
@@ -360,6 +401,22 @@ impl Upstream for FakeUpstream {
             }),
         })
     }
+}
+
+/// A 200 body that plays `steps` one per `read`, as a relay test builds one.
+#[cfg(test)]
+pub(crate) fn scripted_body(steps: Vec<Step>) -> Box<dyn Read + Send> {
+    let script = std::sync::Mutex::new(Some(steps));
+    let fake = FakeUpstream::new(move |_| {
+        Ok(Canned {
+            status: 200,
+            headers: Vec::new(),
+            body: crate::sync::lock(&script).take().unwrap_or_default(),
+        })
+    });
+    fake.post("http://upstream.test/", &[], b"")
+        .expect("scripted reply")
+        .body
 }
 
 /// Plays a script one step per `read`, and ends cleanly after the last.

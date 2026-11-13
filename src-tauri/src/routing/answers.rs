@@ -1,10 +1,15 @@
 //! The router's own answers: status, Anthropic's error envelope and every sentence. A blocked
 //! chain is a 400 `invalid_request_error`, never a 429 or 529: Claude Code stops at once on a 400
-//! and shows the sentence, and retries a 429 or 529 for minutes (T2).
+//! and shows the sentence, and retries a 429 or 529 for minutes (T2). On the translated route a
+//! message may also hold a provider's own code and one-line message, cleaned by `Said` (F19), and
+//! nothing else from outside.
 
 use super::capabilities::Capability;
 use super::config::{ConnectionKind, TierId};
+use super::evidence::Said;
+use super::observe::Observation;
 use super::policy::Skip;
+use super::translate::Carry;
 use super::upstream;
 use super::wire::{self, Refusal};
 use serde::Serialize;
@@ -15,7 +20,8 @@ const INVALID: &str = "invalid_request_error";
 const API: &str = "api_error";
 
 /// One local answer. The message holds no request content: only fixed words, connection names
-/// from Settings and model or effort names that passed `Requirements::new`.
+/// from Settings, model or effort names that passed `Requirements::new`, member or block-type
+/// names that passed `translate::label`, and a provider's code and message cleaned by `Said`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
     pub status: u16,
@@ -102,12 +108,135 @@ pub fn other_path() -> Answer {
 
 #[must_use]
 pub fn refused(name: &str, kind: ConnectionKind, skip: &Skip) -> Answer {
-    let reason = skip_sentence(kind, skip);
+    cannot_take(name, &skip_sentence(kind, skip))
+}
+
+/// A request the translated route cannot carry, refused after its lease was cut (F3).
+#[must_use]
+pub fn cannot_carry(name: &str, carry: &Carry) -> Answer {
+    let reason = match carry {
+        Carry::NotStreamed => {
+            "this route answers as a stream only, and the request did not ask for one".to_owned()
+        }
+        Carry::Prewarm => "it only asks Anthropic to warm its prompt cache (max_tokens 0), which this route has no counterpart for".to_owned(),
+        Carry::ContextManagement => "this route cannot carry context management (context_management: Extra inputs are not permitted)".to_owned(),
+        Carry::StopSequences => "this route cannot carry stop sequences".to_owned(),
+        Carry::Member { name } => format!("this route does not carry the request setting {name}"),
+        Carry::OutputSetting => "this route carries no output setting but the effort".to_owned(),
+        Carry::Block { kind } => format!("this route cannot carry a {kind} block"),
+        Carry::ImageSource => {
+            "this route carries an image only as base64 data or a web address".to_owned()
+        }
+        Carry::Tool => "this route carries plain function tools only: no strict schema, no deferred loading and no tool the provider runs".to_owned(),
+        Carry::ToolChoice => "this route does not know that tool choice".to_owned(),
+        Carry::CallId => "a tool call in the conversation has an id OpenAI does not take (1 to 64 characters)".to_owned(),
+        Carry::Unknown => "it holds something the translation does not know, and nothing is sent that cannot be carried whole".to_owned(),
+    };
+    cannot_take(name, &reason)
+}
+
+/// The frame `refused` and `cannot_carry` share.
+fn cannot_take(name: &str, reason: &str) -> Answer {
     Answer::new(
         400,
         INVALID,
         format!(
             "Office Building: {name} cannot take this request, because {reason}. Nothing was sent, and the desk stays on {name}."
+        ),
+    )
+}
+
+/// A translated route's refusal, in Anthropic's envelope, because the client cannot read the
+/// provider's own (F2). `status`: the provider's HTTP status, None for a failure inside a stream.
+/// No 401 (it would send A Human to the Claude login) and no 529.
+#[must_use]
+pub fn provider_refused(
+    name: &str,
+    status: Option<u16>,
+    seen: &Observation,
+    said: &Said,
+) -> Answer {
+    let code = wrapped(said.code.as_deref(), " (", ")");
+    let listed = wrapped(said.code.as_deref(), ", ", "");
+    let http = status.map_or_else(
+        || "in its reply".to_owned(),
+        |status| format!("HTTP {status}"),
+    );
+    let message = wrapped(said.message.as_deref(), ": ", "");
+    match seen {
+        Observation::Exhausted(_) => Answer::new(
+            400,
+            INVALID,
+            format!(
+                "Office Building: {name} reports that its allowance is used up{code}. Nothing was passed on. Open the desk in Office Building to retry a connection or switch to another."
+            ),
+        ),
+        Observation::Throttled { retry_after } => Answer {
+            retry_after: *retry_after,
+            ..Answer::new(
+                429,
+                "rate_limit_error",
+                format!(
+                    "{name} is limiting requests for now{code}. Office Building passed nothing on."
+                ),
+            )
+        },
+        Observation::Faulted { retry_after } => Answer {
+            retry_after: *retry_after,
+            ..Answer::new(
+                // No 529: Claude Code retries it for minutes (T2), and OpenAI documents none.
+                status
+                    .filter(|s| (500..=599).contains(s) && *s != 529)
+                    .unwrap_or(500),
+                API,
+                format!("{name} failed or is overloaded{code}. Office Building passed nothing on."),
+            )
+        },
+        Observation::Unauthorised => Answer::new(
+            400,
+            INVALID,
+            format!(
+                "Office Building: {name} refused the API key saved for it (HTTP 401). Check the key in Settings, under Routing. Nothing was passed on."
+            ),
+        ),
+        Observation::Forbidden => Answer::new(
+            400,
+            INVALID,
+            format!(
+                "Office Building: {name} says the account may not do this ({http}{listed}){message}. Nothing was passed on."
+            ),
+        ),
+        Observation::Rejected => Answer::new(
+            400,
+            INVALID,
+            format!(
+                "Office Building: {name} refused this request ({http}{listed}){message}. Nothing was passed on, and the desk stays on {name}."
+            ),
+        ),
+        // `Dropped`, and the rest, which cannot reach here.
+        Observation::Dropped
+        | Observation::Completed
+        | Observation::NotSent
+        | Observation::Cancelled => Answer::new(
+            502,
+            API,
+            format!(
+                "{name} sent a reply Office Building could not read as a Responses stream, so nothing was passed on. It was not asked again."
+            ),
+        ),
+    }
+}
+
+/// A translated reply that stopped after its first bytes reached the client. Only `body()` is
+/// used, as the data of the stream's `error` event.
+#[must_use]
+pub fn stream_stopped(name: &str, said: &Said) -> Answer {
+    let code = wrapped(said.code.as_deref(), " (", ")");
+    Answer::new(
+        502,
+        API,
+        format!(
+            "The reply from {name} stopped before its end{code}. Office Building did not ask again."
         ),
     )
 }
@@ -228,6 +357,11 @@ pub fn transport(refusal: Refusal) -> Option<Answer> {
     Some(Answer::new(status, kind, message))
 }
 
+/// `<before><value><after>`, or nothing.
+fn wrapped(value: Option<&str>, before: &str, after: &str) -> String {
+    value.map_or_else(String::new, |value| format!("{before}{value}{after}"))
+}
+
 /// Why a connection was skipped, as the clause after "because". Also used by `Router::switch`.
 #[must_use]
 pub fn skip_sentence(kind: ConnectionKind, skip: &Skip) -> String {
@@ -236,7 +370,9 @@ pub fn skip_sentence(kind: ConnectionKind, skip: &Skip) -> String {
         Skip::PaidNotAllowed => "it is billed for each request and may not spend money (Settings, Routing, \"May spend money\")".to_owned(),
         Skip::ExperimentalNotAllowed => "it is an experimental route that is not switched on".to_owned(),
         Skip::NoCredential if upstream::relays(kind) => "no API key is saved for it".to_owned(),
-        Skip::NoCredential => "this build cannot use that kind of connection yet".to_owned(),
+        Skip::NoCredential => {
+            "it needs Sign in with ChatGPT, which this build does not have yet".to_owned()
+        }
         Skip::UnmappedModel { model } => {
             format!("the model {model} is not listed under any tier in Settings")
         }

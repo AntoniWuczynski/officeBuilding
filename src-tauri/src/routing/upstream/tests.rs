@@ -1,6 +1,6 @@
 use super::{
-    ANTHROPIC, Bases, Canned, FakeUpstream, LOCAL_HEADER, OPENROUTER, SendError, Step, Upstream,
-    UreqUpstream, outbound, relays, returned, send_error, url,
+    ANTHROPIC, Bases, Canned, FakeUpstream, LOCAL_HEADER, OPENAI, OPENROUTER, SendError, Step,
+    Upstream, UreqUpstream, outbound, relays, returned, send_error, translated, url,
 };
 use crate::routing::config::ConnectionKind;
 use crate::routing::wire::Header;
@@ -74,6 +74,7 @@ fn relays_and_url_follow_the_kind() {
         Bases {
             anthropic: ANTHROPIC.to_owned(),
             openrouter: OPENROUTER.to_owned(),
+            openai: OPENAI.to_owned(),
         }
     );
     let rows = [
@@ -92,7 +93,11 @@ fn relays_and_url_follow_the_kind() {
             true,
             Some("https://openrouter.ai/api/v1/messages?beta=true"),
         ),
-        (ConnectionKind::OpenAiApiKey, false, None),
+        (
+            ConnectionKind::OpenAiApiKey,
+            true,
+            Some("https://api.openai.com/v1/responses"),
+        ),
         (ConnectionKind::ChatGptSignIn, false, None),
     ];
     for (kind, relayed, want) in rows {
@@ -107,13 +112,28 @@ fn relays_and_url_follow_the_kind() {
         url(&bases, ConnectionKind::OpenRouter, None).as_deref(),
         Some("https://openrouter.ai/api/v1/messages")
     );
+    // The client's query is Anthropic's: it never reaches OpenAI.
+    for query in [None, Some("beta=true"), Some("x=1&beta=true")] {
+        let got = url(&bases, ConnectionKind::OpenAiApiKey, query);
+        assert_eq!(
+            got.as_deref(),
+            Some("https://api.openai.com/v1/responses"),
+            "{query:?}"
+        );
+        assert!(!got.unwrap_or_default().contains("beta"), "{query:?}");
+    }
     let local = Bases {
         anthropic: "http://127.0.0.1:1".into(),
         openrouter: "http://127.0.0.1:2".into(),
+        openai: "http://127.0.0.1:3".into(),
     };
     assert_eq!(
         url(&local, ConnectionKind::AnthropicApiKey, None).as_deref(),
         Some("http://127.0.0.1:1/v1/messages")
+    );
+    assert_eq!(
+        url(&local, ConnectionKind::OpenAiApiKey, Some("beta=true")).as_deref(),
+        Some("http://127.0.0.1:3/v1/responses")
     );
 }
 
@@ -166,7 +186,15 @@ fn outbound_per_kind() {
         ),
         (ConnectionKind::AnthropicApiKey, Some(anthropic_key)),
         (ConnectionKind::OpenRouter, Some(openrouter)),
-        (ConnectionKind::OpenAiApiKey, None),
+        (
+            ConnectionKind::OpenAiApiKey,
+            Some(vec![
+                "content-type",
+                "accept",
+                "authorization",
+                "accept-encoding",
+            ]),
+        ),
         (ConnectionKind::ChatGptSignIn, None),
     ];
     for (kind, want) in rows {
@@ -197,6 +225,14 @@ fn the_hard_line() {
                 !sent.iter().any(|h| h.name == LOCAL_HEADER),
                 "{kind:?} sent the local header"
             );
+            // F13: the client is not read, so not one value of its own crosses to OpenAI. Its
+            // `content-type` happens to equal the router's own.
+            if kind == ConnectionKind::OpenAiApiKey {
+                assert_eq!(outbound(kind, &[], key).as_ref(), Some(&sent));
+                for h in client.iter().filter(|h| h.value != b"application/json") {
+                    assert!(!carries(&String::from_utf8_lossy(&h.value)), "{}", h.name);
+                }
+            }
             if kind == ConnectionKind::ClaudeSubscription {
                 for h in &sent {
                     assert!(
@@ -238,12 +274,37 @@ fn a_key_goes_only_to_its_own_kind_in_its_own_header() {
     assert!(value_of(&openrouter, "x-api-key").is_empty());
     assert_eq!(value_of(&openrouter, "accept-encoding"), ["identity"]);
 
-    for kind in [ConnectionKind::AnthropicApiKey, ConnectionKind::OpenRouter] {
+    let openai = outbound(ConnectionKind::OpenAiApiKey, &client, Some(&key)).unwrap();
+    let pairs: Vec<(&str, String)> = openai
+        .iter()
+        .map(|h| {
+            (
+                h.name.as_str(),
+                String::from_utf8_lossy(&h.value).into_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pairs,
+        [
+            ("content-type", "application/json".to_owned()),
+            ("accept", "text/event-stream".to_owned()),
+            ("authorization", format!("Bearer {KEY}")),
+            ("accept-encoding", "identity".to_owned()),
+        ]
+    );
+
+    for kind in [
+        ConnectionKind::AnthropicApiKey,
+        ConnectionKind::OpenRouter,
+        ConnectionKind::OpenAiApiKey,
+    ] {
         assert_eq!(outbound(kind, &client, None), None, "{kind:?} with no key");
     }
-    for kind in [ConnectionKind::OpenAiApiKey, ConnectionKind::ChatGptSignIn] {
-        assert_eq!(outbound(kind, &client, Some(&key)), None, "{kind:?}");
-    }
+    assert_eq!(
+        outbound(ConnectionKind::ChatGptSignIn, &client, Some(&key)),
+        None
+    );
     assert!(outbound(ConnectionKind::ClaudeSubscription, &client, None).is_some());
 }
 
@@ -275,6 +336,49 @@ fn returned_drops_hop_headers_and_the_length_only() {
             "anthropic-ratelimit-unified-status",
         ]
     );
+}
+
+/// Name, the request ids the provider sent, the head expected.
+type HeadRow<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a [&'a str]);
+
+#[test]
+fn a_translated_head_carries_three_headers_at_most() {
+    let base = ["content-type: text/event-stream", "cache-control: no-cache"];
+    let provider = [
+        ("content-type", "text/event-stream; charset=utf-8"),
+        ("openai-processing-ms", "12"),
+        ("x-ratelimit-remaining-requests", "9"),
+        ("set-cookie", "c=1"),
+    ];
+    let rows: [HeadRow; 3] = [
+        ("no request id", &[], &base),
+        (
+            "one",
+            &[("x-request-id", "req_test_1")],
+            &[
+                "content-type: text/event-stream",
+                "cache-control: no-cache",
+                "x-request-id: req_test_1",
+            ],
+        ),
+        (
+            "two",
+            &[("x-request-id", "req_a"), ("x-request-id", "req_b")],
+            &base,
+        ),
+    ];
+    for (name, ids, want) in rows {
+        let upstream: Vec<Header> = provider
+            .iter()
+            .chain(ids)
+            .map(|(n, v)| header(n, v))
+            .collect();
+        let got: Vec<String> = translated(&upstream)
+            .iter()
+            .map(|h| format!("{}: {}", h.name, String::from_utf8_lossy(&h.value)))
+            .collect();
+        assert_eq!(got, want, "{name}");
+    }
 }
 
 #[test]

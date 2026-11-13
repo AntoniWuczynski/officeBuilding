@@ -26,7 +26,9 @@ pub enum Reasoning {
     Intact,
     /// It moved, and its requests go to Anthropic whole: Anthropic leaves out what it cannot read.
     VendorMayDrop,
-    /// The router removes hidden reasoning from every request it sends for this desk.
+    /// The router removes hidden reasoning from every request it sends for this desk. On a
+    /// translated route none is sent and none is kept from a reply, whether or not the desk
+    /// ever changed connection.
     Removed,
 }
 
@@ -40,6 +42,7 @@ impl Reasoning {
         active: Option<(&ConnectionId, ConnectionKind)>,
     ) -> Self {
         match active {
+            Some((_, kind)) if kind.translated() => Self::Removed,
             Some((connection, ConnectionKind::OpenRouter))
                 if resumed || spoke.iter().any(|c| c != connection) =>
             {

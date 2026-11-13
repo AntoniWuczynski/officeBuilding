@@ -30,6 +30,7 @@ pub(super) const OPUS: &str = "claude-opus-5-5";
 pub(super) const LOGIN: &str = "Bearer test-login";
 pub(super) const ANTHROPIC_KEY: &str = "test-anthropic-key";
 pub(super) const OPENROUTER_KEY: &str = "test-openrouter-key";
+pub(super) const OPENAI_KEY: &str = "test-openai-key";
 
 /// What a fake call went to, told by its content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,10 +38,13 @@ pub(super) enum Who {
     Sub,
     Api,
     Router,
+    OpenAi,
 }
 
 pub(super) fn who(sent: &Sent) -> Who {
-    if sent.url.starts_with(OPENROUTER) {
+    if sent.url.starts_with(upstream::OPENAI) {
+        Who::OpenAi
+    } else if sent.url.starts_with(OPENROUTER) {
         Who::Router
     } else if sent.headers.iter().any(|h| h.name == "x-api-key") {
         Who::Api
@@ -112,7 +116,34 @@ pub(super) fn all_exhausted(sent: &Sent) -> Canned {
         Who::Sub => rejected(),
         Who::Api => spend_cap(),
         Who::Router => key_limit(),
+        Who::OpenAi => oai_used_up(),
     }
+}
+
+/// U1, U2: a 200 Responses stream of one text reply, written from the documentation with
+/// invented ids, never captured. The model is the fixture's Opus target for `oai`.
+pub(super) fn oai_text(text: &str) -> Canned {
+    let model = crate::routing::fixtures::oai_target().model;
+    let events = [
+        format!(r#"{{"type":"response.created","response":{{"id":"resp_inv1","model":"{model}"}}}}"#),
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"message"}}"#.into(),
+        r#"{"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text"}}"#.into(),
+        format!(r#"{{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"{text}"}}"#),
+        r#"{"type":"response.completed","response":{"usage":{"input_tokens":5,"output_tokens":2}}}"#.into(),
+    ];
+    let body = events.map(|e| format!("data: {e}\n\n")).concat();
+    let head = vec![("content-type", "text/event-stream".to_owned())];
+    canned(
+        200,
+        [head, vec![("x-request-id", "req_inv1".to_owned())]].concat(),
+        &body,
+    )
+}
+
+/// U4: a used-up prepaid balance. The message is invented.
+pub(super) fn oai_used_up() -> Canned {
+    let body = r#"{"error":{"code":"credit_balance_exhausted","message":"No credits.","type":"insufficient_quota"}}"#;
+    canned(429, vec![], body)
 }
 
 /// Gates the fake holds a body on. Dropping the senders lets every held read go on.
@@ -142,7 +173,7 @@ pub(super) fn wait_for(what: &str, done: impl Fn() -> bool) {
 /// A Messages body: Opus at high effort, `marker` as the one user message.
 pub(super) fn body_of(marker: &str) -> String {
     format!(
-        r#"{{"model":"{OPUS}","max_tokens":64,"messages":[{{"role":"user","content":"{marker}"}}],"output_config":{{"effort":"high"}}}}"#
+        r#"{{"model":"{OPUS}","max_tokens":64,"messages":[{{"role":"user","content":"{marker}"}}],"output_config":{{"effort":"high"}},"stream":true}}"#
     )
 }
 
@@ -203,7 +234,7 @@ impl Rig {
         for (id, kind, key) in [
             ("api", ConnectionKind::AnthropicApiKey, ANTHROPIC_KEY),
             ("router", ConnectionKind::OpenRouter, OPENROUTER_KEY),
-            ("oai", ConnectionKind::OpenAiApiKey, "test-openai-key"),
+            ("oai", ConnectionKind::OpenAiApiKey, OPENAI_KEY),
         ] {
             keys.set(kind, &conn(id), Some(key.to_owned()), || true)
                 .expect("key saved");
@@ -489,7 +520,7 @@ fn exhaustion_before_any_relayed_byte_moves_the_session_once() {
         Ok(match who(sent) {
             Who::Sub if has(sent, "first") => ok(),
             Who::Sub => rejected(),
-            Who::Api | Who::Router => canned(200, vec![], "from the key"),
+            Who::Api | Who::Router | Who::OpenAi => canned(200, vec![], "from the key"),
         })
     });
     assert_eq!(rig.ask(&body_of("first")).status, 200);
@@ -586,7 +617,7 @@ fn two_concurrent_refusals_advance_the_session_once() {
                 refusal.body.insert(0, held.step());
                 refusal
             }
-            Who::Api | Who::Router => ok(),
+            Who::Api | Who::Router | Who::OpenAi => ok(),
         })
     });
     let first = rig.ask_later(&body_of("a"));
@@ -643,7 +674,7 @@ fn openrouter_is_pinned_and_loses_foreign_reasoning_only() {
         Ok(match who(sent) {
             Who::Sub if has(sent, "one") => ok(),
             Who::Sub => rejected(),
-            Who::Api | Who::Router => ok(),
+            Who::Api | Who::Router | Who::OpenAi => ok(),
         })
     };
     let rig = Rig::new("or-after-sub", &["sub", "router"], script);
@@ -759,7 +790,7 @@ fn a_late_reply_finishes_on_the_connection_it_started_on() {
                 ],
             },
             Who::Sub => rejected(),
-            Who::Api | Who::Router => ok(),
+            Who::Api | Who::Router | Who::OpenAi => ok(),
         })
     });
     let slow = rig.ask_later(&body_of("slow"));
@@ -790,7 +821,7 @@ fn a_due_record_is_checked_once_and_cleared() {
                 headers: vec![],
                 body: vec![held.step(), Step::Bytes(b"checked".to_vec())],
             },
-            Who::Api | Who::Router => ok(),
+            Who::Api | Who::Router | Who::OpenAi => ok(),
         })
     });
     let check = rig.ask_later(&body_of("check"));
