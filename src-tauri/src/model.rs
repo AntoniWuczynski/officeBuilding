@@ -392,6 +392,8 @@ pub struct OfficeSnapshot {
     pub chat_desks: Vec<String>,
     /// A Human's own messages waiting for their desks, oldest first.
     pub queued: Vec<crate::manager::wire::QueuedNote>,
+    /// Used-up subscriptions and what each desk's handover has to say.
+    pub handover: crate::handover::view::HandoverView,
 }
 
 /// What a floor's QA desk is doing (`QaStatus` in types.ts).

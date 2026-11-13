@@ -12,6 +12,10 @@ use std::sync::Mutex;
 
 mod agents;
 pub use agents::AgentSettings;
+mod handover;
+pub use handover::{HandoverSettings, StartWith};
+mod manager;
+pub use manager::{ManagerSettings, ManagerTool};
 mod routing;
 pub use routing::RoutingSettings;
 
@@ -46,6 +50,8 @@ pub struct Settings {
     pub agents: AgentSettings,
     #[serde(deserialize_with = "routing::lenient")]
     pub routing: RoutingSettings,
+    #[serde(deserialize_with = "handover::lenient")]
+    pub handover: HandoverSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -235,69 +241,6 @@ impl QaSettings {
     }
 }
 
-/// The tools that can be a floor's manager.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ManagerTool {
-    #[default]
-    ClaudeCode,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct ManagerSettings {
-    pub tool: ManagerTool,
-    /// None: the tool's default model.
-    pub model: Option<String>,
-    /// None: the model's default effort.
-    pub effort: Option<String>,
-    /// Desks a manager may have hired at once: 1 to 10.
-    pub max_desks: u32,
-    /// Ceiling on the summed spend of the desks a manager hired, in whole US dollars: 1 to 1000.
-    pub spend_ceiling_usd: u32,
-}
-
-impl Default for ManagerSettings {
-    fn default() -> Self {
-        Self {
-            tool: ManagerTool::ClaudeCode,
-            model: None,
-            effort: None,
-            max_desks: 3,
-            spend_ceiling_usd: 20,
-        }
-    }
-}
-
-impl ManagerSettings {
-    /// The same settings with each name trimmed (empty becomes None), or why one is not valid.
-    fn checked(mut self) -> Result<Self, String> {
-        (self.model, self.effort) = checked_names(self.model, self.effort)?;
-        if !MANAGER_MAX_DESKS.contains(&self.max_desks) {
-            return Err(format!(
-                "desks at once must be {}",
-                between(&MANAGER_MAX_DESKS)
-            ));
-        }
-        if !MANAGER_SPEND_CEILING_USD.contains(&self.spend_ceiling_usd) {
-            return Err(format!(
-                "the spend ceiling must be {} dollars",
-                between(&MANAGER_SPEND_CEILING_USD)
-            ));
-        }
-        Ok(self)
-    }
-
-    /// Clamp the numbers into range and drop a name that is not valid, as a file may hold any.
-    fn clamped(mut self) -> Self {
-        self.max_desks = clamp(self.max_desks, &MANAGER_MAX_DESKS);
-        self.spend_ceiling_usd = clamp(self.spend_ceiling_usd, &MANAGER_SPEND_CEILING_USD);
-        self.model = clamped_name(self.model);
-        self.effort = clamped_name(self.effort);
-        self
-    }
-}
-
 /// A change from the Settings panel: each group present replaces that group whole.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -316,6 +259,8 @@ pub struct SettingsPatch {
     pub agents: Option<AgentSettings>,
     #[serde(default)]
     pub routing: Option<RoutingSettings>,
+    #[serde(default)]
+    pub handover: Option<HandoverSettings>,
 }
 
 impl Settings {
@@ -354,6 +299,9 @@ impl Settings {
         if let Some(routing) = patch.routing {
             self.routing = routing.checked(&self.routing)?;
         }
+        if let Some(handover) = patch.handover {
+            self.handover = handover.checked()?;
+        }
         Ok(())
     }
 }
@@ -380,6 +328,10 @@ impl SettingsStore {
                     // that over it. Keep what was there. Best effort.
                     let _ = fs::copy(&path, path.with_file_name("settings.routing.invalid.json"));
                 }
+                if handover::dropped(&text) {
+                    // The same for the handover group. Best effort.
+                    let _ = fs::copy(&path, path.with_file_name("settings.handover.invalid.json"));
+                }
                 serde_json::from_str(&text).unwrap_or_else(|_| aside())
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
@@ -393,6 +345,7 @@ impl SettingsStore {
         settings.qa = settings.qa.clamped();
         settings.manager = settings.manager.clamped();
         settings.routing = settings.routing.clamped();
+        settings.handover = settings.handover.clamped();
         Self {
             path,
             current: Mutex::new(settings),
@@ -578,7 +531,8 @@ mod tests {
             "manager": { "tool": "claude-code", "model": null, "effort": null,
             "maxDesks": 3, "spendCeilingUsd": 20 },
             "agents": { "view": "terminal" },
-            "routing": { "enabled": false, "contexts": [], "connections": [], "tiers": { "fable": [], "opus": [], "sonnet": [], "haiku": [] } } }"#,
+            "routing": { "enabled": false, "contexts": [], "connections": [], "tiers": { "fable": [], "opus": [], "sonnet": [], "haiku": [] } },
+            "handover": { "automatic": false, "claudeToCodex": null, "codexToClaude": null } }"#,
         )
         .expect("json");
         assert_eq!(
