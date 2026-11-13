@@ -616,6 +616,78 @@ export interface FloorRouting {
   readonly contexts: readonly { readonly id: string; readonly name: string }[];
 }
 
+/** What a request can need beyond text (`Capability` in routing/capabilities.rs). */
+export type RouteCapability = "tools" | "images" | "documents" | "server-tools";
+
+/** Why a connection may not be tried (`Skip` in routing/policy.rs). */
+export type RouteSkip =
+  | { readonly kind: "removed" }
+  | { readonly kind: "paid-not-allowed" }
+  | { readonly kind: "experimental-not-allowed" }
+  | { readonly kind: "no-credential" }
+  | { readonly kind: "unmapped-model"; readonly model: string }
+  | { readonly kind: "no-target"; readonly tier: TierId }
+  | { readonly kind: "effort-unmapped"; readonly tier: TierId; readonly effort: string }
+  | { readonly kind: "unsupported"; readonly capability: RouteCapability }
+  | { readonly kind: "exhausted" }
+  | { readonly kind: "tried" };
+
+/** The part of a connection's allowance a record covers (`Bucket` in routing/availability.rs). */
+export type RouteBucket = { readonly kind: "whole" } | { readonly kind: "tier"; readonly tier: TierId } | { readonly kind: "model"; readonly model: string };
+
+/** One saved observation that an allowance is used up (`ExhaustedScope` in routing/status.rs). Times are Unix seconds. */
+export interface ExhaustedScope {
+  readonly bucket: RouteBucket;
+  readonly window: string | null;
+  readonly observedAt: number;
+  readonly resetAt: number | null;
+  readonly checking: boolean;
+  readonly retryArmed: boolean;
+}
+
+export type RouteProblemKind = "throttled" | "faulted" | "unauthorised" | "forbidden" | "rejected" | "unreachable" | "interrupted";
+export type RouteEntryState = { readonly kind: "active" } | { readonly kind: "ready" } | { readonly kind: "unavailable"; readonly reason: RouteSkip };
+
+/** One connection of a desk's order (`EntryStatus` in routing/status.rs). */
+export interface RouteEntry {
+  readonly connection: string;
+  readonly name: string;
+  readonly kind: ConnectionKind;
+  readonly state: RouteEntryState;
+  readonly exhausted: readonly ExhaustedScope[];
+  readonly problem: { readonly kind: RouteProblemKind; readonly at: number } | null;
+}
+
+/** A routed session (`RouteStatus` in routing/status.rs). */
+export interface RouteStatus {
+  readonly context: string;
+  readonly generation: number;
+  readonly active: string | null;
+  readonly blockedSince: number | null;
+  readonly lastSwitch: { readonly from: string; readonly to: string; readonly reason: "exhausted" | "manual"; readonly at: number } | null;
+  readonly lastServed: {
+    readonly connection: string;
+    readonly requestedModel: string;
+    readonly requestedEffort: string | null;
+    /** Null: sent as requested. */
+    readonly model: string | null;
+    readonly effort: string | null;
+    readonly at: number;
+  } | null;
+  readonly entries: readonly RouteEntry[];
+}
+
+/** What became of hidden reasoning when the desk changed connection (`Reasoning` in routing/live.rs). */
+export type RouteReasoning = "intact" | "vendor-may-drop" | "removed";
+
+/** A routed desk's route (`DeskRoute` in routing/live.rs). */
+export interface DeskRoute {
+  readonly status: RouteStatus;
+  readonly reasoning: RouteReasoning;
+  readonly requests: number;
+  readonly recordsProblem: string | null;
+}
+
 /** The app's settings, kept by the backend. One field per group. */
 export interface Settings {
   readonly notifications: NotificationSettings;

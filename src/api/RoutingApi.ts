@@ -1,6 +1,6 @@
-import type { FloorRouting, RoutingKeyStatus } from "../types";
+import type { DeskRoute, FloorRouting, RoutingKeyStatus } from "../types";
 
-/** The routing calls of the backend (src-tauri/src/routing/commands.rs). Stage B adds the live route calls here. */
+/** The routing calls of the backend (src-tauri/src/routing/commands.rs). */
 export interface RoutingApi {
   /** What the building knows about a connection's API key. May read the Keychain. Never returns the key. */
   keyStatus(connectionId: string): Promise<RoutingKeyStatus>;
@@ -10,4 +10,10 @@ export interface RoutingApi {
   floorRouting(projectId: string): Promise<FloorRouting>;
   /** Give a floor an account context, or none with null. Resolves to the new view. */
   setFloorContext(projectId: string, contextId: string | null): Promise<FloorRouting>;
+  /** The route of a desk, or null when the desk is not routed. May read the Keychain. */
+  deskRoute(sessionId: string): Promise<DeskRoute | null>;
+  /** Let one request check a connection whose allowance was used up. Resolves to the new view. */
+  retryRoute(sessionId: string, connectionId: string): Promise<DeskRoute>;
+  /** Move a desk to another connection of its own order. Resolves to the new view. */
+  switchRoute(sessionId: string, connectionId: string): Promise<DeskRoute>;
 }

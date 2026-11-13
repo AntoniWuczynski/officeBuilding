@@ -75,6 +75,9 @@ describe("FloorContextRow", () => {
       keyStatus: (id) => mock.keyStatus(id),
       setKey: (id, key) => mock.setKey(id, key),
       floorRouting: (id) => mock.floorRouting(id),
+      deskRoute: (id) => mock.deskRoute(id),
+      retryRoute: (id, c) => mock.retryRoute(id, c),
+      switchRoute: (id, c) => mock.switchRoute(id, c),
       setFloorContext: () => Promise.reject(new Error("that account context is no longer in Settings")),
     };
     show(WITH_CONTEXTS, api);

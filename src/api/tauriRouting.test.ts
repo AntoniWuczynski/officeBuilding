@@ -3,7 +3,7 @@ import { addConnection, addContext } from "../lib/routing";
 import type { RoutingSettings } from "../types";
 import { nth } from "../test/nth";
 import { makeRoutingSettings } from "./mockRouting";
-import { routingSettingsSchema } from "./routingWire";
+import { deskRouteSchema, routingSettingsSchema } from "./routingWire";
 
 const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>();
 
@@ -78,5 +78,74 @@ describe("routingSettingsSchema", () => {
     const { haiku: _haiku, ...tiers } = base.tiers;
     expect(routingSettingsSchema.safeParse({ ...base, tiers }).success).toBe(false);
     expect(routingSettingsSchema.safeParse({ ...base, connections: [{ ...conn, targets: { ...conn.targets, haiku: { model: "m" } } }] }).success).toBe(false);
+  });
+});
+
+const ROUTE = {
+  status: {
+    context: "work",
+    generation: 2,
+    active: "api",
+    blockedSince: null,
+    lastSwitch: { from: "sub", to: "api", reason: "exhausted", at: 1700000100 },
+    lastServed: { connection: "api", requestedModel: "claude-opus-5-5", requestedEffort: "high", model: null, effort: "high", at: 1700000100 },
+    entries: [
+      {
+        connection: "sub",
+        name: "sub",
+        kind: "claude-subscription",
+        state: { kind: "unavailable", reason: { kind: "exhausted" } },
+        exhausted: [{ bucket: { kind: "tier", tier: "opus" }, window: "five_hour", observedAt: 1700000100, resetAt: 1700003600, checking: false, retryArmed: false }],
+        problem: null,
+      },
+      { connection: "api", name: "api", kind: "anthropic-api-key", state: { kind: "active" }, exhausted: [], problem: { kind: "throttled", at: 1700000090 } },
+    ],
+  },
+  reasoning: "vendor-may-drop",
+  requests: 7,
+  recordsProblem: null,
+};
+
+describe("TauriRouting live route calls", () => {
+  it("sends each command with its arguments and parses the route", async () => {
+    const api = new TauriRouting();
+    invoke.mockResolvedValueOnce(ROUTE);
+    await expect(api.deskRoute("s-1")).resolves.toEqual(ROUTE);
+    invoke.mockResolvedValueOnce(ROUTE);
+    await expect(api.retryRoute("s-1", "sub")).resolves.toEqual(ROUTE);
+    invoke.mockResolvedValueOnce(ROUTE);
+    await expect(api.switchRoute("s-1", "api")).resolves.toEqual(ROUTE);
+    expect(invoke.mock.calls).toEqual([
+      ["desk_route", { sessionId: "s-1" }],
+      ["retry_route", { sessionId: "s-1", connectionId: "sub" }],
+      ["switch_route", { sessionId: "s-1", connectionId: "api" }],
+    ]);
+  });
+
+  it("passes null through for a desk that is not routed", async () => {
+    invoke.mockResolvedValueOnce(null);
+    await expect(new TauriRouting().deskRoute("s-1")).resolves.toBeNull();
+  });
+
+  it("refuses a reply of the wrong shape and passes a backend error through", async () => {
+    const api = new TauriRouting();
+    invoke.mockResolvedValueOnce({ reasoning: "intact" });
+    await expect(api.deskRoute("s-1")).rejects.toThrow(/unexpected desk route/);
+    invoke.mockResolvedValueOnce(null);
+    await expect(api.retryRoute("s-1", "sub")).rejects.toThrow(/unexpected desk route/);
+    invoke.mockRejectedValueOnce("that desk is not routed");
+    await expect(api.switchRoute("s-1", "sub")).rejects.toThrow("that desk is not routed");
+  });
+});
+
+describe("deskRouteSchema", () => {
+  it("rejects an unknown skip kind, an unknown reasoning word and a missing request count", () => {
+    expect(deskRouteSchema.safeParse(ROUTE).success).toBe(true);
+    const [first, second] = ROUTE.status.entries;
+    const withReason = (reason: unknown) => ({ ...ROUTE, status: { ...ROUTE.status, entries: [{ ...first, state: { kind: "unavailable", reason } }, second] } });
+    expect(deskRouteSchema.safeParse(withReason({ kind: "sulking" })).success).toBe(false);
+    expect(deskRouteSchema.safeParse({ ...ROUTE, reasoning: "forgotten" }).success).toBe(false);
+    const { requests: _requests, ...noRequests } = ROUTE;
+    expect(deskRouteSchema.safeParse(noRequests).success).toBe(false);
   });
 });

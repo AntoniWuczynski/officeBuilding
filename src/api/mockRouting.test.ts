@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addConnection, addContext } from "../lib/routing";
 import type { Settings } from "../types";
-import { MockRouting, makeRoutingSettings } from "./mockRouting";
+import { MockRouting, makeDeskRoute, makeRoutingSettings } from "./mockRouting";
 import { makeSettings } from "./mockSettings";
 
 function setup(): { routing: MockRouting; settings: { current: Settings } } {
@@ -56,5 +56,58 @@ describe("MockRouting floors", () => {
     await routing.setFloorContext("p-1", "ctx-1");
     settings.current = { ...settings.current, routing: { ...settings.current.routing, contexts: [] } };
     await expect(routing.floorRouting("p-1")).resolves.toEqual({ enabled: false, context: null, contexts: [] });
+  });
+});
+
+const SCOPE = { bucket: { kind: "whole" }, window: null, observedAt: 100, resetAt: null, checking: false, retryArmed: false } as const;
+
+function routed(): MockRouting {
+  const { routing } = setup();
+  const route = makeDeskRoute();
+  const [sub, api] = route.status.entries;
+  if (sub === undefined || api === undefined) throw new Error("makeDeskRoute needs two entries");
+  routing.setRoute("s-1", {
+    ...route,
+    status: { ...route.status, blockedSince: 50, entries: [{ ...sub, exhausted: [SCOPE, { ...SCOPE, checking: true }] }, api, { ...api, connection: "bad", state: { kind: "unavailable", reason: { kind: "no-credential" } } }] },
+  });
+  return routing;
+}
+
+describe("MockRouting routes", () => {
+  it("has none until one is set, and none again after null", async () => {
+    const { routing } = setup();
+    await expect(routing.deskRoute("s-1")).resolves.toBeNull();
+    routing.setRoute("s-1", makeDeskRoute());
+    await expect(routing.deskRoute("s-1")).resolves.toEqual(makeDeskRoute());
+    routing.setRoute("s-1", null);
+    await expect(routing.deskRoute("s-1")).resolves.toBeNull();
+  });
+
+  it("arms the scopes that are not being checked on a retry", async () => {
+    const routing = routed();
+    const view = await routing.retryRoute("s-1", "sub");
+    expect(view.status.entries[0]?.exhausted.map((s) => s.retryArmed)).toEqual([true, false]);
+  });
+
+  it("refuses with the backend's words", async () => {
+    const routing = routed();
+    await expect(routing.retryRoute("s-9", "sub")).rejects.toThrow("that desk is not routed");
+    await expect(routing.switchRoute("s-9", "sub")).rejects.toThrow("that desk is not routed");
+    await expect(routing.retryRoute("s-1", "zz")).rejects.toThrow("that connection is not in this desk's order");
+    await expect(routing.retryRoute("s-1", "api")).rejects.toThrow("that connection has no used-up allowance on record, so there is nothing to retry");
+    await expect(routing.switchRoute("s-1", "bad")).rejects.toThrow("Anthropic key cannot be switched to, because no API key is saved for it");
+  });
+
+  it("moves the active entry on a switch, records it and clears the block", async () => {
+    const routing = routed();
+    const view = await routing.switchRoute("s-1", "api");
+    expect(view.status.active).toBe("api");
+    expect(view.status.generation).toBe(2);
+    expect(view.status.blockedSince).toBeNull();
+    expect(view.status.lastSwitch).toMatchObject({ from: "sub", to: "api", reason: "manual" });
+    expect(view.status.entries.map((e) => e.state.kind)).toEqual(["ready", "active", "unavailable"]);
+    const back = await routing.switchRoute("s-1", "sub");
+    expect(back.status.entries[0]?.exhausted.map((x) => x.retryArmed)).toEqual([true, false]);
+    await expect(routing.deskRoute("s-1")).resolves.toEqual(back);
   });
 });

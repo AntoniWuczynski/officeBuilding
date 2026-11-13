@@ -1,6 +1,6 @@
-import type { FloorRouting, RoutingKeyStatus } from "../types";
+import type { DeskRoute, FloorRouting, RoutingKeyStatus } from "../types";
 import type { RoutingApi } from "./RoutingApi";
-import { floorRoutingSchema, routingKeyStatusSchema } from "./routingWire";
+import { deskRouteSchema, floorRoutingSchema, routingKeyStatusSchema } from "./routingWire";
 import { call } from "./tauriApi";
 import { parseWire } from "./wire";
 
@@ -20,5 +20,17 @@ export class TauriRouting implements RoutingApi {
 
   async setFloorContext(projectId: string, contextId: string | null): Promise<FloorRouting> {
     return parseWire(floorRoutingSchema, "floor routing", await call("set_floor_context", { projectId, contextId }));
+  }
+
+  async deskRoute(sessionId: string): Promise<DeskRoute | null> {
+    return parseWire(deskRouteSchema.nullable(), "desk route", await call("desk_route", { sessionId }));
+  }
+
+  async retryRoute(sessionId: string, connectionId: string): Promise<DeskRoute> {
+    return parseWire(deskRouteSchema, "desk route", await call("retry_route", { sessionId, connectionId }));
+  }
+
+  async switchRoute(sessionId: string, connectionId: string): Promise<DeskRoute> {
+    return parseWire(deskRouteSchema, "desk route", await call("switch_route", { sessionId, connectionId }));
   }
 }
