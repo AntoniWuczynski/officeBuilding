@@ -594,7 +594,9 @@ What the build did meanwhile. The subscription relay is a connection kind of its
 
 **Recommendation.** Ask Anthropic first. The relay stays a separate kind either way, so the answer changes nothing else in the design.
 
-## OB-283 — How should a desk move between the Claude and Codex subscriptions when one runs out?
+## OB-283 — How should a desk move between the Claude and Codex subscriptions when one runs out? — DECIDED 2026-11-13: a desk that is not running a workflow is handed over to the other CLI by itself, and a desk that is running one is handed over only when A Human asks, which ends the workflow
+
+Decided by A Human on 2026-11-13: "Let's go with an automatic handover for non workflow ones + an option to manually handover if there's a workflow (killing it in the process)". This amends the fourth ruling of OB-210, which had left handing a session to the other CLI unbuilt. Everything else about the handover is left to the build and will be recorded as the build's calls.
 
 Raised by A Human on 2026-11-13, after issue #8 was built (OB-210): "The whole goal was to seamlessly switch between Claude code and codex if one runs out of usage". A Human is logged in to Codex on this Mac with a ChatGPT plan.
 
