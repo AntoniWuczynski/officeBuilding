@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
-import type { QueuedNote, Session } from "../../types";
+import type { DeskHandoverState, QueuedNote, Session } from "../../types";
 import { HOLD_WORDS, STATE_LABEL, TOOL_LABEL, helpersLine, modelLine, plural } from "../../state/selectors";
+import { cardLine } from "../../lib/handover";
 import { relativeTime } from "../../lib/time";
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
   readonly managed: boolean;
   /** Notes from the manager still waiting for this desk. */
   readonly waiting: readonly QueuedNote[];
+  /** What this desk's handover has to say, if anything. */
+  readonly handover: DeskHandoverState | undefined;
 }
 
 /**
@@ -22,9 +25,10 @@ interface Props {
  * inside the scene it is a plane at the worker's depth, and walls behind a
  * corner desk slice straight through it (WebKit sorts 3D planes strictly).
  */
-export function WorkerCard({ session, x, y, now, editorHint, managed, waiting }: Props): React.ReactElement {
+export function WorkerCard({ session, x, y, now, editorHint, managed, waiting, handover }: Props): React.ReactElement {
   const model = modelLine(session);
   const helpers = helpersLine(session);
+  const handedOver = handover === undefined ? null : cardLine(handover, now);
   return createPortal(
     <div className="worker-card" data-testid="worker-card" role="tooltip" style={{ left: x, top: y }}>
       <b>{session.title}</b>
@@ -41,6 +45,7 @@ export function WorkerCard({ session, x, y, now, editorHint, managed, waiting }:
           {plural(waiting.length, "note", "notes")} from the manager waiting: {HOLD_WORDS[waiting[0].hold]}
         </span>
       )}
+      {handedOver === null ? null : <span>{handedOver}</span>}
       {editorHint === null ? null : <span>{editorHint}</span>}
     </div>,
     document.body,

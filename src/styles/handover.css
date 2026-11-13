@@ -1,0 +1,9 @@
+/* The handover tag sits under "managed" when a desk carries both. */
+.managed-mark + .handover-mark {
+  bottom: 44px;
+}
+
+/* Its line on the sign-out sheet takes the row under the tool and time. */
+.signout-meta[data-testid="signed-out-handover"] {
+  grid-row: 3;
+}

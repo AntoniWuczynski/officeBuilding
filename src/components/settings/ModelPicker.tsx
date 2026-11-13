@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
-import type { ToolOptions } from "../../types";
+import type { ToolKind, ToolOptions } from "../../types";
 
-/** What the model and effort selects are showing: still looking, ready, or no Claude Code. */
-type Models = { readonly kind: "loading" } | { readonly kind: "none" } | { readonly kind: "ready"; readonly options: ToolOptions };
+/** What the model and effort selects are showing: still looking, ready, or the tool not found. */
+export type Models = { readonly kind: "loading" } | { readonly kind: "none" } | { readonly kind: "ready"; readonly options: ToolOptions };
 
-function useClaudeCodeModels(load: () => Promise<readonly ToolOptions[]>): Models {
+export function useToolModels(load: () => Promise<readonly ToolOptions[]>, tool: ToolKind): Models {
   const [models, setModels] = useState<Models>({ kind: "loading" });
   useEffect(() => {
     let live = true;
     load()
       .then((all) => {
-        const options = all.find((o) => o.tool === "claude-code");
+        const options = all.find((o) => o.tool === tool);
         if (live) setModels(options?.available === true ? { kind: "ready", options } : { kind: "none" });
       })
       .catch(() => {
@@ -37,7 +37,7 @@ interface Props {
 
 /** The Model and Effort selects for a Claude Code agent. Picking a model resets the effort. */
 export function ModelPicker({ idPrefix, model, effort, loadOptions, onChange, missing }: Props): React.ReactElement {
-  const models = useClaudeCodeModels(loadOptions);
+  const models = useToolModels(loadOptions, "claude-code");
   const listed = models.kind === "ready" ? models.options.models : [];
   const chosen = listed.find((m) => m.id === (model ?? (models.kind === "ready" ? models.options.defaultModel : "")));
   const efforts = chosen?.efforts ?? [];

@@ -10,6 +10,7 @@ import {
   managerLamp,
   managerLine,
   openCount,
+  handoverFor,
   queuedFor,
   questionsForProject,
   searchSessions,
@@ -165,6 +166,7 @@ export function FloorView(props: Props): React.ReactElement {
               query={query}
               now={now}
               messages={snapshot.messages}
+              handovers={snapshot.handover.desks}
               objects={objects}
               hiring={hireOpen}
               onOpenSession={onOpenSession}
@@ -194,6 +196,7 @@ export function FloorView(props: Props): React.ReactElement {
                 manager={manager}
                 chat={snapshot.chatDesks.includes(openSession.id)}
                 queued={queuedFor(snapshot, openSession.id)}
+                handover={handoverFor(snapshot, openSession.id)}
                 onClose={onCloseTerminal}
               />
             ) : openShell !== undefined ? (

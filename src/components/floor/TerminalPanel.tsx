@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DiscoveryApi } from "../../api/DiscoveryApi";
-import type { DeskView, ManagerFloor, QueuedNote, Session, Shell } from "../../types";
+import type { DeskHandoverState, DeskView, ManagerFloor, QueuedNote, Session, Shell } from "../../types";
 import { STATE_LABEL, TOOL_LABEL, checkoutLine, modelLine, notesFor, plural } from "../../state/selectors";
 import { CloseIcon } from "../icons";
 import { shellPaths } from "../../lib/shell";
@@ -13,6 +13,7 @@ import { readPref, writePref } from "../../lib/prefs";
 import { Conversation } from "./Conversation";
 import { useDeskView } from "./useDeskView";
 import { OpenInEditor } from "../editor/OpenInEditor";
+import { HandoverStrip } from "../handover/HandoverStrip";
 import { RouteStrip } from "../routing/RouteStrip";
 
 export type TerminalApi = Pick<DiscoveryApi, "subscribeTerminal" | "writeTerminal" | "resizeTerminal" | "subscribeFileDrops">;
@@ -92,6 +93,8 @@ type Props = {
   readonly chat?: boolean | undefined;
   /** Your own messages waiting for this session. */
   readonly queued?: readonly QueuedNote[] | undefined;
+  /** What this session's handover has to say, if anything. */
+  readonly handover?: DeskHandoverState | undefined;
 } & ({ readonly session: Session } | { readonly shell: Shell; readonly path: string });
 
 /**
@@ -103,7 +106,7 @@ type Props = {
  * raise-window sessions never open here: clicking them raises their own window.
  */
 export function TerminalPanel(props: Props): React.ReactElement {
-  const { onClose, manager, queued } = props;
+  const { onClose, manager, queued, handover } = props;
   const session = "session" in props ? props.session : null;
   // Opened on a live terminal, the panel stays on it: after `/clear` this id
   // turns read-only while the backend keeps it pointing at the same terminal.
@@ -169,6 +172,7 @@ export function TerminalPanel(props: Props): React.ReactElement {
           </button>
         </span>
       </header>
+      {session !== null && handover !== undefined ? <HandoverStrip sessionId={session.id} state={handover} /> : null}
       {flippable ? <RouteStrip sessionId={session.id} /> : null}
       {session !== null && showingChat ? (
         <Conversation sessionId={session.id} queued={queued} onFlip={flippable ? () => setView("terminal") : undefined} />

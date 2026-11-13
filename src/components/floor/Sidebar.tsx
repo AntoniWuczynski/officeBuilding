@@ -135,7 +135,7 @@ function SectionBody({ section, project, snapshot, now, onOpenSection, onAnswer,
     case "info":
       return <InfoBody project={project} sessions={sessions} now={now} connection={connectionFor(snapshot, project.id)} qa={qaFor(snapshot, project.id)} onOpenSession={onOpenSession} />;
     case "signed-out":
-      return <SignOutSheet ended={endedForProject(snapshot, project.id)} now={now} onResume={onResume} />;
+      return <SignOutSheet ended={endedForProject(snapshot, project.id)} handovers={snapshot.handover.desks} now={now} onResume={onResume} />;
     case "shells":
       return <ShellsPanel shells={snapshot.shells.filter((s) => s.projectId === project.id)} now={now} onOpenShell={onOpenShell} onNewShell={onNewShell} onEndShell={onEndShell} />;
   }

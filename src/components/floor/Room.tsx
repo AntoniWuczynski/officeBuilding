@@ -1,7 +1,8 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import type { AgentMessage, EditorList, Helper, ManagerFloor, Place, QaFloor, Session } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, helpersLine, notesFor, plural, sessionMatches } from "../../state/selectors";
+import type { AgentMessage, DeskHandover, EditorList, Helper, ManagerFloor, Place, QaFloor, Session } from "../../types";
+import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, handoverOf, helpersLine, notesFor, plural, sessionMatches } from "../../state/selectors";
+import { cardLine, tagWord } from "../../lib/handover";
 import { poseForState } from "../../lib/animation";
 import { headsLeft } from "../../lib/iso";
 import type { PlanPoint } from "../../lib/iso";
@@ -59,6 +60,8 @@ interface RoomProps {
   readonly query: string;
   readonly now: Date;
   readonly messages: readonly AgentMessage[];
+  /** What each desk's handover has to say. */
+  readonly handovers: readonly DeskHandover[];
   readonly objects: RoomObjectsModel;
   readonly hiring: boolean;
   readonly onOpenSession: (session: Session) => void;
@@ -127,7 +130,7 @@ const ACTION_WORDS: Record<Session["control"], string> = {
 };
 
 /** The open-plan floor: one desk per session, the hire desk, and the manager's objects. */
-export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire }: RoomProps): React.ReactElement {
+export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, handovers, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire }: RoomProps): React.ReactElement {
   const reduced = useReducedMotion() ?? false;
   const placements = useMemo<readonly Placement[]>(
     () => [...sessions.map((session, i) => ({ session, desk: roomDeskSlot(i) })), ...(reviewer === undefined ? [] : [{ session: reviewer, desk: qaDeskSlot(depth) }])],
@@ -236,6 +239,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
         const seat = s.state === "error" ? floorSpotOf(desk, depth - 4) : seatOf(desk);
         const dim = !sessionMatches(s, query);
         const waiting = notesFor(manager, s.id);
+        const handed = handoverOf(handovers, s.id);
         return (
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
             <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} />
@@ -262,7 +266,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
                   data-testid="worker"
                   data-session={s.id}
                   data-state={s.state}
-                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null, managed.has(s.id) ? "managed by the floor's manager" : null, waiting.length === 0 ? null : `${plural(waiting.length, "note", "notes")} from the manager waiting`].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
+                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), (handed === undefined ? null : cardLine(handed.state, now)), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null, managed.has(s.id) ? "managed by the floor's manager" : null, waiting.length === 0 ? null : `${plural(waiting.length, "note", "notes")} from the manager waiting`].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
                   aria-keyshortcuts={editors === null ? undefined : "Meta+Shift+O"}
                   onClick={() => onOpenSession(s)}
                   onContextMenu={editors === null ? undefined : (e) => openMenu(e, { kind: "session", sessionId: s.id }, `\u201c${s.title}\u201d`, s)}
@@ -280,6 +284,11 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
                       managed
                     </span>
                   ) : null}
+                  {handed === undefined ? null : (
+                    <span className="managed-mark handover-mark" aria-hidden>
+                      {tagWord(handed.state)}
+                    </span>
+                  )}
                 </button>
               </Billboard>
             )}
@@ -302,6 +311,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
           now={now}
           editorHint={editors === null ? null : editorHint(editors.list)}
           managed={managed.has(carded.id)}
+          handover={handoverOf(handovers, carded.id)?.state}
           waiting={notesFor(manager, carded.id)}
         />
       )}
