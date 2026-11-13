@@ -47,8 +47,9 @@ sessions as an **office building**:
   `codex resume` in an in-app terminal, in the folder the session ran in, on
   the same model and effort. The app never stops a running agent itself, so to
   restart a hung one, exit it first (`/exit`) and resume it from the sheet.
-  The two exceptions are the agents on a floor you demolish and a QA
-  reviewer the building started itself.
+  The three exceptions are the agents on a floor you demolish, a QA
+  reviewer the building started itself and a Claude Code session that is
+  handed over to Codex (below).
 - **Decisions and TODOs come from each repo's own files**: open and settled calls
   from `FOUNDER_DECISIONS.md` (or `HUMAN_DECISIONS.md`) plus the agents'
   `DECISIONS.md` log, your actions from `FOUNDER_TODO.md` (or `HUMAN_TODO.md`),
@@ -284,6 +285,36 @@ sessions as an **office building**:
   Bedrock, Vertex and Foundry all can. Not routed at all are the QA reviewer,
   the manager, chat desks that have no terminal, the other tools and anything
   you started by hand.
+- **Handover from the Claude subscription to Codex.** When a Claude Code desk
+  that the building started shows that your Claude subscription is used up,
+  the building can end that session and start Codex in the same folder, on
+  your own Codex sign-in, with a brief of what was done so far. It is off
+  until you set it up in Settings, in the Handover group. Choose what Codex
+  starts with (its own configured default, or a model and effort you pick)
+  and switch "Hand desks over by themselves" on. Nothing is filled in for
+  you. A desk with nothing running in the background is then handed over by
+  itself, once for each limit. A desk that has a workflow, a helper, a shell
+  or anything else running in the background, or where the building cannot
+  tell, is never handed over by itself. It gets a "Hand over to Codex" button
+  in its panel, and using it ends that work. With the switch off, every
+  used-up desk gets the button. Codex arrives as a new desk marked "from
+  Claude Code", and the old session goes on the sign-out sheet, where it can
+  be resumed.
+- **What a handover sends, and what it never does.** The brief is a file only
+  you can read, in the app's data folder and never in your repo. It holds the
+  desk's visible conversation with tool output cut short, and a summary of
+  the folder's git state. Codex is told to read it, so what was said at the
+  desk goes to the other vendor, including any secret a tool printed. Hidden
+  reasoning is left out. No login is read, stored or moved. The building only
+  asks `codex login status` whether Codex is signed in. Only the tool's own
+  record of a used-up five-hour or weekly limit counts. A throttle, a sign-in
+  failure or a server fault hands nothing over. The old session is asked to
+  stop once and is never forced, and if it does not stop, Codex is not
+  started. A session you started by hand is never handed over, a floor's
+  manager cannot hand a desk over, and nothing is handed back by itself when
+  the limit resets. The other direction, Codex to Claude Code, is not built.
+  None of this has run in the installed app or met a real used-up
+  subscription yet.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -336,8 +367,9 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   what the same work would cost through the API, not what a subscription bills.
 - **Not yet:** answering a terminal agent's own question from the Decisions
   panel (answer it in the agent's terminal instead), the app's own MCP
-  server for assistant agents, and in provider routing Sign in with ChatGPT,
-  which waits for OpenAI's answer on whether the app may use it. In the chat view: Antigravity, a read-only chat
+  server for assistant agents, in provider routing Sign in with ChatGPT,
+  which waits for OpenAI's answer on whether the app may use it, and handing
+  a Codex desk over to Claude Code. In the chat view: Antigravity, a read-only chat
   for sessions you started by hand, opening a link, images and attachments, a
   model and effort switcher, plans as cards, sub-agent threads, paging in older
   messages and word-by-word replies from Claude Code. See `TODO.md`. Calls from
@@ -414,6 +446,7 @@ src/
     wire.ts               # zod schemas that validate every backend payload
     mockApi.ts            # in-memory implementation for the browser, plus the demo simulation
     mockData.ts           # seed office (projects, sessions, questions, …)
+    HandoverApi.ts        # the handover seam, one call that hands a desk over, with Tauri and mock implementations
     RoutingApi.ts         # the routing seam for a connection's key, a floor's account context and a desk's route, with Tauri and mock implementations
   state/
     selectors.ts          # floor lights, search, per-floor queues/TODOs/spend, labels
@@ -428,19 +461,21 @@ src/
     looks.ts, time.ts     # stable per-agent looks, true relative times
     routing.ts            # every change the Routing group makes to the routing preferences, as pure functions
     route.ts              # every sentence a routed desk's Route strip shows, as pure functions
+    handover.ts           # every sentence a handover shows on the strip, the name tag, the card and the sign-out sheet, as pure functions
   scene/                  # 3D primitives (IsoBox, Wall, Billboard, Stage) + people and pets
     cast/                 # the cut-out rig, its animation and parts.ts (generated by art/cast/cut.py)
   assets/cast/            # the cut-out parts, one folder per character, plus pets
   components/
     building/             # the cutaway: storeys, lobby, roof, directory bar
     floor/                # the room, its objects, rail, sidebar panels, terminal, the chat panel, hire dialog
-    settings/             # the Settings plate and its Notifications, Editor, Connectors, Quality assurance, Manager, Agents and Routing groups
+    settings/             # the Settings plate and its Notifications, Editor, Connectors, Quality assurance, Manager, Agents, Routing and Handover groups
     editor/               # the "Open in" button and its menu
     connectors/           # the Info panel's Linear row and its connect form
     qa/                   # the Info panel's Quality assurance row and the QA stamp
     manager/              # the Manager panel: hire, pause, the plan, waiting notes and the log
     chat/                 # the chat view's parts: Markdown, tool cards, diffs, the approval card and the message box
     routing/              # the Routing group's context and connection cards, the Info panel's Account context row and the Route strip on a routed desk's panel
+    handover/             # the Handover strip on a used-up desk's panel, with its button and confirmation row
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
@@ -449,7 +484,7 @@ src-tauri/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
     discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly, a Claude Code transcript read as a conversation
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, the routed launch, and the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation)
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, the routed launch, the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation), and handing a used-up desk over (reading the proof, ending the old session, starting the receiver)
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     settings.rs, settings/ # the app's settings (settings.json in the app data dir)
@@ -461,13 +496,14 @@ src-tauri/
     manager/              # a floor's manager: its socket, tokens, the MCP server it talks to, the helper mode and the tool list
     delivery/             # notes and messages for desks: cleaning the text, deciding whether a desk can take one, the queue
     routing/              # provider routing, with its preferences, the selection policy, exhaustion records and their file, the failover state machine, connection keys, the router on the loopback address, the relays to Anthropic and OpenRouter, the experimental translation to OpenAI's Responses format, a reply read as evidence, the router's own answers and what a routed launch adds
+    handover/             # handing a used-up desk to the other tool: the used-up record and its file, the decision, the work log, the brief and its git summary, the receiver's first prompt and the view
     secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
     http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
     poll.rs               # a background job on a timer that backs off, waits when told to and can be woken
     options.rs, options/  # hireable tools, models and per-model efforts, tools' own model lists
     setup/                # the Setup floor's library, each tool's inventory, import, injection
     structured/           # the conversation model every chat uses, and desks without a terminal: Codex app-server and ACP clients
-    feed.rs               # the hook status feed from agents the app launches
+    feed.rs, feed/        # the hook status feed from agents the app launches, and what its events say about background work
     tools.rs              # which agent CLIs are installed
     usage.rs              # each tool's usage-limit windows
     focus.rs              # focus a session's terminal tab, the folder picker

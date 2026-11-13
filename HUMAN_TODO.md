@@ -573,6 +573,118 @@ here.
           weaker (TODO OB-267). The system prompt's attribution block goes to
           OpenAI (TODO OB-275). Say which you veto.
 
+- [ ] OB-285 — Check the handover from the Claude subscription to Codex (TODO
+      OB-284, the ruling is HUMAN_DECISIONS OB-283) in the installed app
+      (`pnpm app:install`). None of this has run anywhere. Every used-up fact
+      the build rests on is a replay to Claude Code 2.1.323, headless, through
+      a local test listener, with no call to Anthropic. What a running
+      workflow writes when the limit hits was never probed. No agent may start
+      a session, drive the Tauri window, run `codex login status` or use up a
+      subscription. Steps 1 to 3 cost nothing. Steps 4 to 10 need a Claude
+      subscription that is really used up, so do them when that next happens.
+      The handover is off until you do step 2.
+      1. Open Settings with Cmd+,. Handover is the last group. "Hand desks
+         over by themselves" is off, and "Claude Code to Codex: Codex starts
+         with" reads "Not chosen". Nothing is filled in for you. One line says
+         that Codex to Claude Code is not built yet. Read the two hints under
+         it. The second says that what was said at the desk goes to the other
+         vendor, including any secret a tool printed. Note anything about the
+         group's look that is off.
+      2. Choose what Codex starts with. Pick "A model I choose", then a model
+         and an effort from Codex's own list, or pick "Codex's own configured
+         default". Switch "Hand desks over by themselves" on. Quit the app and
+         open it again. Your choices are still there.
+      3. `codex login status` on the installed Codex (TODO OB-303). The
+         building reads its exit code and nothing else, and the build read
+         that in Codex's source for release 0.161.0 and never ran it. In a
+         terminal, run `codex login status` and then `echo $?`. It should
+         print 0 while you are signed in. Run `codex logout` and try again,
+         and it should print 1. Sign in again afterwards. If either number
+         differs, the building will either refuse every handover or start
+         Codex when it is signed out.
+      4. A real used-up Claude subscription (TODO OB-303). Hire a Claude Code
+         agent from the app, in one of its own terminals, and work at that
+         desk until Claude Code says the limit is reached. Leave nothing
+         running in the background. The worker should carry "used up" under
+         its name tag, and within about ten seconds the desk should be handed
+         over. The Claude Code worker walks out and a Codex worker walks in.
+         If the desk shows nothing at all, the real entry differs from the
+         replayed one. Then copy the last few lines Claude Code printed and
+         note the time, and nothing more is needed from you.
+      5. The one stop (TODO OB-284). In step 4, note whether Claude Code left
+         within 5 seconds. It gets one SIGTERM and is never forced. If the
+         strip says that Claude Code did not stop, Codex was not started,
+         which is as designed, and the stop does not work on a session that
+         waits at a limit. Check with `ps` that no `claude` process from that
+         desk is left. Then open the sign-out sheet. The old session is listed
+         with "Handed over to Codex" and a time, and Resume brings it back.
+      6. Codex and the brief (TODO OB-303). On the new Codex desk, note
+         whether Codex read the brief without asking you for permission. The
+         file is outside its workspace, in the app's data folder under
+         `handover/briefs`. The desk should carry the old desk's title and
+         "from Claude Code" under its name tag, and the strip in its panel
+         should say when it was handed over and when the limit resets. Open
+         the brief yourself. It should hold the visible conversation with tool
+         output cut short and no hidden reasoning. Run `ls -l` on it, and it
+         should be readable by you only.
+      7. Codex in a folder it has never been trusted in (TODO OB-294). Repeat
+         step 4 on a floor whose folder Codex has never opened. Note what
+         Codex's first screen is, and whether answering it lets the first
+         prompt through. The building adds no trust entry for you.
+      8. A desk that runs a workflow at the limit (TODO OB-296, OB-308). Start
+         a workflow at a Claude Code desk and let the limit hit while it runs.
+         The desk must not be handed over by itself. Its strip should say that
+         it has background work running, or that the building cannot tell,
+         with a "Hand over to Codex" button. Note what Claude Code's own wait
+         shows meanwhile. This was never probed, so anything you see is news.
+         If the desk is handed over by itself, that breaks your ruling, so
+         switch the handover off and say so.
+      9. The manual handover of that desk. Press "Hand over to Codex". A row
+         inside the panel names what is ended, the Claude Code session and the
+         workflow with it. It is not a dialog. Press "End it and hand over".
+         Note whether the workflow and its helpers really ended, and whether
+         Codex started. Then resume the Claude Code session from the sign-out
+         sheet once the limit has reset, and note whether the workflow can be
+         started again from there.
+      10. The switch off, and a second desk. Switch "Hand desks over by
+          themselves" off and reach the limit at a quiet desk. It should get
+          the button and stay. A second Claude Code desk on the same login
+          that has not been refused yet should say that another desk reached
+          the limit. After the reset, neither desk should be handed over or
+          handed back by itself.
+      11. The look, in the real window (TODO OB-284). The strip sits above the
+          route strip in the desk's panel, in the panel's dark colours, and
+          pushes the terminal down without covering it. The word under a
+          worker's name tag is drawn like "managed". The worker's hover card
+          has one more line. Note anything that is cut off, overlaps or is
+          hard to read.
+      12. The three quota notifications in the feed (TODO OB-301). While
+          Claude Code waits at a limit with its own wait-and-continue, watch
+          the desk's state. When Claude Code carries on by itself after the
+          reset, the desk should read "Thinking" and not "Needs you". When
+          it ends its wait without carrying on, the desk should read as idle.
+          When the limit reset while the Mac slept and Claude Code waits for
+          Enter, the desk should read "Needs you". None of the three has been
+          seen from a real session.
+      13. A question for a browser, not a check (TODO OB-304). Nobody has read
+          the vendors' terms for this. OpenAI's terms pages refused automated
+          fetches, and Anthropic's legal page says nothing about two vendors'
+          tools taking turns at one desk. Read both in a browser and say
+          whether a local app may end one vendor's tool and start the other's
+          on your own sign-ins. This sits beside the open call in
+          HUMAN_DECISIONS OB-211.
+      14. A question for you, not a check. HUMAN_DECISIONS OB-283 now lists
+          the calls the build made while you were away. The ones most worth
+          your eye are these. Ending the old session is a third exception to
+          "the app never stops a running agent". Claude Code's own
+          wait-and-continue is left on. Any background work blocks the
+          automatic handover, shells and scheduled wake-ups included, and so
+          does any Bash call in the refused turn. The automatic decision is
+          taken once for each desk and limit. Only the five-hour and seven-day
+          limits count. Codex arrives as a new desk with a note, not in the
+          same seat. The brief can carry a secret a tool printed to the other
+          vendor. Nothing is handed back by itself. Say which you veto.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`
