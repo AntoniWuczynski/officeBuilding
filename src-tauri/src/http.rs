@@ -61,20 +61,13 @@ pub struct UreqClient {
 impl UreqClient {
     #[must_use]
     pub fn new(timeout: Duration) -> Self {
-        // `native-tls-no-default` bundles no roots: the default `RootCerts::WebPki` would
-        // panic at connect time, so the platform verifier is required here.
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(timeout))
             .http_status_as_error(false)
             .https_only(true)
             .max_redirects(0)
             .user_agent("office-building")
-            .tls_config(
-                TlsConfig::builder()
-                    .provider(TlsProvider::NativeTls)
-                    .root_certs(RootCerts::PlatformVerifier)
-                    .build(),
-            )
+            .tls_config(tls())
             .build()
             .into();
         Self { agent }
@@ -112,6 +105,16 @@ impl HttpClient for UreqClient {
     }
 }
 
+/// The TLS settings every HTTPS client in the app uses. `native-tls-no-default` bundles no roots:
+/// the default `RootCerts::WebPki` would panic at connect time, so the platform verifier is
+/// required here.
+pub(crate) fn tls() -> TlsConfig {
+    TlsConfig::builder()
+        .provider(TlsProvider::NativeTls)
+        .root_certs(RootCerts::PlatformVerifier)
+        .build()
+}
+
 /// Fixed words for a failed request. The error itself is never formatted: some variants
 /// echo the URL.
 fn reason(error: &ureq::Error) -> HttpError {
@@ -129,7 +132,7 @@ fn reason(error: &ureq::Error) -> HttpError {
 }
 
 /// A `Retry-After` value that is a whole number of seconds. A date or junk is `None`.
-fn retry_after(value: Option<&str>) -> Option<Duration> {
+pub(crate) fn retry_after(value: Option<&str>) -> Option<Duration> {
     value?.trim().parse::<u64>().ok().map(Duration::from_secs)
 }
 

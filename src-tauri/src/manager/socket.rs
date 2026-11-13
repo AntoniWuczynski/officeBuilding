@@ -129,7 +129,7 @@ fn has_mode(path: &Path, mode: u32, folder: bool) -> bool {
 }
 
 /// A place among `MAX_CONNECTIONS`, given back when the connection's thread ends.
-struct Seat(Arc<AtomicUsize>);
+pub(crate) struct Seat(pub(crate) Arc<AtomicUsize>);
 
 impl Drop for Seat {
     fn drop(&mut self) {
