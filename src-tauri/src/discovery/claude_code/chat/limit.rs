@@ -7,6 +7,7 @@
 
 use super::map::lenient;
 use crate::handover::Window;
+use crate::handover::record::RESET_HORIZON;
 use serde::Deserialize;
 
 /// What stands at the end of a conversation's main chain.
@@ -34,6 +35,20 @@ pub enum Why {
     ServerFault,
     Unreadable,
     Unknown,
+}
+
+impl From<&Reading> for crate::handover::Allowance {
+    fn from(reading: &Reading) -> Self {
+        match reading {
+            Reading::Clear => Self::Clear,
+            Reading::UsedUp { window, resets_at } => Self::UsedUp {
+                window: Some(*window),
+                reset_at: *resets_at,
+                at: None,
+            },
+            Reading::Other(_) => Self::Unproven,
+        }
+    }
 }
 
 /// `apiErrorParams` on an API error line. Its key is snake case inside a camel case line.
@@ -129,13 +144,13 @@ fn used_up(params: Option<&Params>) -> Reading {
     }
 }
 
-/// The furthest reset taken as real: a week and a day on. A larger number (milliseconds, say)
+/// The furthest reset taken as real: `RESET_HORIZON` on. A larger number (milliseconds, say)
 /// would be a record that never lapses, so it counts as no reset (the unknown hold).
 fn latest_reset() -> i64 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
-    now.saturating_add(8 * 24 * 3600)
+    now.saturating_add(RESET_HORIZON)
 }
 
 #[cfg(test)]
@@ -373,6 +388,26 @@ mod tests {
             let want = Reading::Other(Why::Unreadable);
             assert_eq!(reading(&[line]), want, "{name} after nothing");
             assert_eq!(reading(&[LIMIT, line]), want, "{name} after the limit");
+        }
+    }
+
+    #[test]
+    fn a_reading_gives_the_neutral_allowance() {
+        use crate::handover::Allowance;
+        let rows = [
+            (Reading::Clear, Allowance::Clear),
+            (
+                USED_UP,
+                Allowance::UsedUp {
+                    window: Some(Window::FiveHour),
+                    reset_at: Some(1_794_574_385),
+                    at: None,
+                },
+            ),
+            (Reading::Other(Why::Throttle), Allowance::Unproven),
+        ];
+        for (reading, want) in rows {
+            assert_eq!(Allowance::from(&reading), want, "{reading:?}");
         }
     }
 

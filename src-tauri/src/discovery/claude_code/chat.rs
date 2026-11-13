@@ -7,17 +7,15 @@
 pub mod limit;
 mod map;
 
-use super::{feed_lines, grew_in_place, tail_of};
+#[cfg(test)]
+use super::feed_lines;
+use super::follow::{Fed, Follow, OPEN_TAIL};
 use crate::structured::Entry;
 use limit::Reading;
 use map::Mapper;
+pub(in crate::discovery) use map::{KEPT, Loose, lenient, one_line};
 use std::fs;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
-
-/// The most of a transcript the first read takes, from its end.
-const OPEN_TAIL: u64 = 8 * 1024 * 1024;
 /// The longest session id looked for.
 const ID_MAX: usize = 64;
 
@@ -58,20 +56,12 @@ pub struct Read {
     pub reset: bool,
 }
 
-/// Where the last read of the file stopped, and which file it was.
-struct Seen {
-    offset: u64,
-    tail: Vec<u8>,
-    dev: u64,
-    ino: u64,
-}
-
 /// Follows one session's transcript.
 pub struct ChatReader {
     home: PathBuf,
     session_id: String,
     path: Option<PathBuf>,
-    seen: Option<Seen>,
+    follow: Follow,
     mapper: Mapper,
 }
 
@@ -83,7 +73,7 @@ impl ChatReader {
             home: home.to_path_buf(),
             session_id: session_id.to_string(),
             path: None,
-            seen: None,
+            follow: Follow::default(),
             mapper: Mapper::default(),
         }
     }
@@ -96,61 +86,23 @@ impl ChatReader {
         let Some(path) = &self.path else {
             return Read::default();
         };
-        let opened = fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
-            .and_then(|file| file.metadata().map(|meta| (file, meta)));
-        let Some((mut file, meta)) = opened.ok().filter(|(_, meta)| meta.is_file()) else {
+        let mapper = &mut self.mapper;
+        let Some(reset) = self.follow.read(path, Some(OPEN_TAIL), |fed| match fed {
+            Fed::Fresh { skipped } => {
+                *mapper = Mapper::default();
+                if skipped {
+                    mapper.mark_earlier();
+                }
+            }
+            Fed::Line { at, text } => mapper.line(at, text),
+        }) else {
             self.path = None;
             return Read::default();
         };
-        let (len, dev, ino) = (meta.len(), meta.dev(), meta.ino());
-        let resume = self
-            .seen
-            .as_ref()
-            .filter(|s| s.dev == dev && s.ino == ino)
-            .filter(|s| grew_in_place(&mut file, len, s.offset, &s.tail))
-            .map(|s| s.offset);
-        let reset = resume.is_none() && self.seen.is_some();
-        let start = resume.or_else(|| {
-            self.mapper = Mapper::default();
-            self.seen = None;
-            self.first_offset(&mut file, len)
-        });
-        let Some(start) = start.filter(|&s| file.seek(SeekFrom::Start(s)).is_ok()) else {
-            return Read {
-                entries: Vec::new(),
-                reset,
-            };
-        };
-        let mapper = &mut self.mapper;
-        let offset = feed_lines(BufReader::new(&mut file), start, true, |at, line| {
-            mapper.line(at, line);
-        });
-        self.seen = Some(Seen {
-            offset,
-            tail: tail_of(&mut file, offset).unwrap_or_default(),
-            dev,
-            ino,
-        });
         Read {
             entries: self.mapper.take_touched(),
             reset,
         }
-    }
-
-    /// Where a read from the start begins: 0, or just past the first line
-    /// break in the last `OPEN_TAIL` bytes of a longer file.
-    fn first_offset(&mut self, file: &mut fs::File, len: u64) -> Option<u64> {
-        let Some(from) = len.checked_sub(OPEN_TAIL).filter(|&from| from > 0) else {
-            return Some(0);
-        };
-        self.mapper.mark_earlier();
-        file.seek(SeekFrom::Start(from)).ok()?;
-        let mut skipped = Vec::new();
-        let n = BufReader::new(file).read_until(b'\n', &mut skipped).ok()?;
-        Some(from + u64::try_from(n).ok()?)
     }
 
     /// Everything kept, oldest first.

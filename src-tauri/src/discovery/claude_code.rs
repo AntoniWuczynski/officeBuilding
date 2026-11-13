@@ -817,6 +817,7 @@ impl ClaudeSource {
 }
 
 pub mod chat;
+pub(super) mod follow;
 
 #[cfg(test)]
 mod tests;

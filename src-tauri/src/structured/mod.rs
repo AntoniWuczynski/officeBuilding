@@ -14,6 +14,7 @@ pub mod difftext;
 use crate::model::{SessionState, ToolKind};
 use crate::setup::Launch;
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -145,6 +146,18 @@ pub fn capped(entry: Entry) -> Entry {
             }
         }
     }
+}
+
+/// Add `entry`, cut to the caps, to `kept`, or replace the kept entry with its id. True when
+/// the oldest entry was dropped to stay within `most`.
+pub fn keep(kept: &mut VecDeque<Entry>, entry: Entry, most: usize) -> bool {
+    let entry = capped(entry);
+    if let Some(old) = kept.iter_mut().find(|e| e.id() == entry.id()) {
+        *old = entry;
+        return false;
+    }
+    kept.push_back(entry);
+    kept.len() > most && kept.pop_front().is_some()
 }
 
 /// The characters of text an entry holds.
@@ -478,6 +491,22 @@ mod tests {
             panic!("not a tool entry");
         };
         assert_eq!(title, format!("{}{MARKER}", "t".repeat(TITLE_MAX)));
+    }
+
+    #[test]
+    fn keep_adds_replaces_by_id_and_says_when_it_drops_the_oldest() {
+        let mut kept = VecDeque::new();
+        assert!(!keep(&mut kept, agent("a", "one".into()), 2));
+        assert!(!keep(&mut kept, agent("b", "two".into()), 2));
+        assert!(!keep(&mut kept, agent("a", "again".into()), 2));
+        assert_eq!(kept, [agent("a", "again".into()), agent("b", "two".into())]);
+        assert!(keep(&mut kept, agent("c", "z".repeat(TEXT_MAX + 1)), 2));
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept.front(), Some(&agent("b", "two".into())));
+        assert_eq!(
+            kept.back(),
+            Some(&agent("c", format!("{}{MARKER}", "z".repeat(TEXT_MAX))))
+        );
     }
 
     fn numbered(n: usize) -> Vec<Entry> {

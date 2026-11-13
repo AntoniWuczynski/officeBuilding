@@ -4,13 +4,13 @@
 //! the mapper does not know makes no entry. Nothing here returns an error.
 
 use super::limit::{Params, Reading, Said, Scan};
-use crate::structured::{Entry, FileDiff, ToolStatus, capped, difftext};
+use crate::structured::{Entry, FileDiff, ToolStatus, difftext, keep};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// The most entries a conversation keeps: older ones are dropped.
-pub(super) const KEPT: usize = 1000;
+pub(in crate::discovery) const KEPT: usize = 1000;
 /// Lines longer than this are not parsed.
 pub(super) const LINE_MAX: usize = 2 * 1024 * 1024;
 /// The most characters of a prompt that did not come from A Human.
@@ -18,7 +18,7 @@ const NOTICE_MAX: usize = 500;
 
 /// `T` as it reads from the value, or its default when the value has another shape.
 /// The JSON value is only a stepping stone here and never leaves this function.
-pub(super) fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
+pub(in crate::discovery) fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
     d: D,
 ) -> Result<T, D::Error> {
     let value = serde_json::Value::deserialize(d)?;
@@ -26,7 +26,7 @@ pub(super) fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
 }
 
 /// A list item that is skipped, not fatal, when it has a shape the mapper does not know.
-struct Loose<T>(Option<T>);
+pub(in crate::discovery) struct Loose<T>(pub(in crate::discovery) Option<T>);
 
 impl<'de, T: DeserializeOwned> Deserialize<'de> for Loose<T> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -176,7 +176,7 @@ struct ToolInput {
 }
 
 /// `text`'s lines joined by spaces, blank ones left out.
-fn one_line(text: &str) -> String {
+pub(in crate::discovery) fn one_line(text: &str) -> String {
     text.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty())
@@ -275,16 +275,9 @@ impl Mapper {
 
     /// Add `entry`, or replace the kept one with its id.
     fn put(&mut self, entry: Entry) {
-        let entry = capped(entry);
         let id = entry.id().to_string();
-        if let Some(old) = self.kept.iter_mut().find(|e| e.id() == id) {
-            *old = entry;
-        } else {
-            self.kept.push_back(entry);
-            if self.kept.len() > KEPT {
-                self.kept.pop_front();
-                self.earlier = true;
-            }
+        if keep(&mut self.kept, entry, KEPT) {
+            self.earlier = true;
         }
         if self.touched_ids.insert(id.clone()) {
             self.touched.push(id);
