@@ -689,3 +689,57 @@ fn a_tools_instructions_and_hooks_are_copied_in_for_the_other_tools() {
         "only Codex takes hooks besides Claude Code"
     );
 }
+
+#[test]
+fn the_handover_hook_events_are_known_by_name() {
+    assert_eq!(
+        HookEvent::named("SubagentStop"),
+        Some(HookEvent::SubagentStop)
+    );
+    assert_eq!(
+        HookEvent::named("StopFailure"),
+        Some(HookEvent::StopFailure)
+    );
+    assert_eq!(HookEvent::StopFailure.name(), "StopFailure");
+    assert_eq!(HookEvent::named("stopfailure"), None);
+}
+
+#[test]
+fn a_stop_failure_hook_aimed_at_codex_is_left_out() {
+    let (lib, dir) = library("stop-failure");
+    let home = dir.join("home");
+    fs::create_dir_all(home.join(".codex")).expect("mkdir");
+    manifest(
+        &lib,
+        r#"{"hooks":{"failed":{"event":"StopFailure","command":"failed.sh"},
+            "sub":{"event":"SubagentStop","command":"sub.sh"}}}"#,
+    );
+    lib.launch(ToolKind::Codex, &home, None).expect("codex");
+    let codex = fs::read_to_string(dir.join("build/codex-home/hooks.json")).expect("hooks");
+    assert!(!codex.contains("failed.sh") && !codex.contains("StopFailure"));
+    assert!(codex.contains("sub.sh"));
+    lib.launch(ToolKind::ClaudeCode, &home, None)
+        .expect("claude");
+    let claude = fs::read_to_string(dir.join("build/claude-code/hooks/hooks.json")).expect("hooks");
+    let parsed: serde_json::Value = serde_json::from_str(&claude).expect("json");
+    assert_eq!(
+        parsed["hooks"]["StopFailure"][0]["hooks"][0]["command"],
+        "failed.sh"
+    );
+}
+
+#[test]
+fn the_claude_code_feed_hooks_include_the_handover_events() {
+    let (lib, dir) = library("feed-events");
+    let feed = crate::feed::Feed::new(dir.join("feed"));
+    lib.launch(ToolKind::ClaudeCode, Path::new("/nowhere"), Some(&feed))
+        .expect("launch");
+    let hooks = fs::read_to_string(dir.join("build/claude-code/hooks/hooks.json")).expect("hooks");
+    let parsed: serde_json::Value = serde_json::from_str(&hooks).expect("json");
+    for name in ["SessionStart", "SubagentStop", "StopFailure", "Stop"] {
+        let command = parsed["hooks"][name][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(command.contains(&format!("{name}.XXXXXX")), "{name}");
+    }
+}

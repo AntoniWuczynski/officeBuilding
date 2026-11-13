@@ -69,9 +69,9 @@ and never writes into a tool's own config folders.
 
 A skill or instructions file with no entry applies to every tool. MCP server
 names use only letters, digits, `-` and `_`. Hook events: `PreToolUse`,
-`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, and `Notification`
-(Claude Code only); a hook gets the event as JSON on standard input, as Claude
-Code and Codex hooks do. Tools:
+`PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SubagentStop`, and
+`Notification` and `StopFailure` (Claude Code only); a hook gets the event as
+JSON on standard input, as Claude Code and Codex hooks do. Tools:
 `claude-code`, `codex`, `antigravity`, `opencode`, `cursor`.
 ";
 
@@ -159,8 +159,8 @@ pub fn support(tool: ToolKind, kind: ItemKind) -> Support {
     }
 }
 
-/// Hook events by the names Claude Code and Codex use. `Notification` is
-/// Claude Code's alone (Codex has no such hook).
+/// Hook events by the names Claude Code and Codex use. `Notification` and
+/// `StopFailure` are Claude Code's alone (Codex has no such hooks).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HookEvent {
     PreToolUse,
@@ -170,10 +170,12 @@ pub enum HookEvent {
     SessionStart,
     Notification,
     PermissionRequest,
+    SubagentStop,
+    StopFailure,
 }
 
 impl HookEvent {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 9] = [
         Self::PreToolUse,
         Self::PostToolUse,
         Self::UserPromptSubmit,
@@ -181,6 +183,8 @@ impl HookEvent {
         Self::SessionStart,
         Self::Notification,
         Self::PermissionRequest,
+        Self::SubagentStop,
+        Self::StopFailure,
     ];
 
     #[must_use]
@@ -193,6 +197,8 @@ impl HookEvent {
             Self::SessionStart => "SessionStart",
             Self::Notification => "Notification",
             Self::PermissionRequest => "PermissionRequest",
+            Self::SubagentStop => "SubagentStop",
+            Self::StopFailure => "StopFailure",
         }
     }
 
@@ -203,7 +209,7 @@ impl HookEvent {
 
     /// Whether `tool` has this hook event.
     fn exists_in(self, tool: ToolKind) -> bool {
-        !(self == Self::Notification && tool == ToolKind::Codex)
+        !(matches!(self, Self::Notification | Self::StopFailure) && tool == ToolKind::Codex)
     }
 }
 

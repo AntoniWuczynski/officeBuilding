@@ -4,10 +4,12 @@
 //! is internal to Claude Code and changes between versions
 //! (<https://code.claude.com/docs/en/sessions>), so every line is untrusted.
 
+pub mod limit;
 mod map;
 
 use super::{feed_lines, grew_in_place, tail_of};
 use crate::structured::Entry;
+use limit::Reading;
 use map::Mapper;
 use std::fs;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
@@ -161,6 +163,13 @@ impl ChatReader {
     #[must_use]
     pub fn earlier(&self) -> bool {
         self.mapper.earlier()
+    }
+
+    /// What stands at the end of the main chain read so far: the proof of a
+    /// used-up subscription, another API error, or nothing.
+    #[must_use]
+    pub fn limit(&self) -> &Reading {
+        self.mapper.limit()
     }
 }
 

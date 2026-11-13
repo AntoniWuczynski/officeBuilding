@@ -3,6 +3,7 @@
 //! leniently: a value of the wrong shape reads as absent, and a line or block
 //! the mapper does not know makes no entry. Nothing here returns an error.
 
+use super::limit::{Params, Reading, Said, Scan};
 use crate::structured::{Entry, FileDiff, ToolStatus, capped, difftext};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
@@ -17,7 +18,9 @@ const NOTICE_MAX: usize = 500;
 
 /// `T` as it reads from the value, or its default when the value has another shape.
 /// The JSON value is only a stepping stone here and never leaves this function.
-fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(d: D) -> Result<T, D::Error> {
+pub(super) fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
+    d: D,
+) -> Result<T, D::Error> {
     let value = serde_json::Value::deserialize(d)?;
     Ok(serde_json::from_value(value).unwrap_or_default())
 }
@@ -46,6 +49,14 @@ struct Line {
     origin: Option<Origin>,
     #[serde(default, deserialize_with = "lenient")]
     message: Option<Message>,
+    /// An API error's kind, such as `rate_limit`.
+    #[serde(default, deserialize_with = "lenient")]
+    error: Option<String>,
+    /// A refusal's own code, such as `usage_limit_reached`.
+    #[serde(default, deserialize_with = "lenient")]
+    api_error: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    api_error_params: Option<Params>,
 }
 
 #[derive(Deserialize, Default)]
@@ -58,6 +69,8 @@ struct Origin {
 struct Message {
     #[serde(default, deserialize_with = "lenient")]
     content: Content,
+    #[serde(default, deserialize_with = "lenient")]
+    model: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -226,6 +239,8 @@ pub(super) struct Mapper {
     /// Ids added or changed since [`Mapper::take_touched`], in order of first touch.
     touched: Vec<String>,
     touched_ids: HashSet<String>,
+    /// What the newest API error on the main chain says.
+    scan: Scan,
 }
 
 impl Mapper {
@@ -235,6 +250,10 @@ impl Mapper {
 
     pub(super) fn earlier(&self) -> bool {
         self.earlier
+    }
+
+    pub(super) fn limit(&self) -> &Reading {
+        self.scan.reading()
     }
 
     pub(super) fn mark_earlier(&mut self) {
@@ -274,14 +293,34 @@ impl Mapper {
 
     /// Map the line that starts `at` bytes into the transcript.
     pub(super) fn line(&mut self, at: u64, raw: &str) {
+        if raw.trim().is_empty() {
+            return;
+        }
         if raw.len() > LINE_MAX {
+            self.scan.unreadable();
             return;
         }
         let Ok(line) = serde_json::from_str::<Line>(raw) else {
+            self.scan.unreadable();
             return;
         };
+        // A struct also reads from a JSON array: only an object is a transcript entry.
+        let object = raw.trim_start().starts_with('{');
+        if !object {
+            self.scan.unreadable();
+        }
         if line.is_sidechain || line.is_meta {
             return;
+        }
+        if object {
+            self.scan.see(&Said {
+                kind: &line.kind,
+                api_error_message: line.is_api_error_message,
+                model: line.message.as_ref().and_then(|m| m.model.as_deref()),
+                error: line.error.as_deref(),
+                api_error: line.api_error.as_deref(),
+                params: line.api_error_params.as_ref(),
+            });
         }
         let Some(message) = line.message else {
             return;
