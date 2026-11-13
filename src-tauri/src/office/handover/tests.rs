@@ -3,257 +3,17 @@
 //! it is given, and transcripts written under a temp home. No pass here calls `refresh` or
 //! `hire_options`.
 
-use super::run::codex_command;
+use super::fixture::*;
+use super::run::receiver_command;
 use super::*;
-use crate::discovery::claude_code::{pid_alive, terminate};
+use crate::discovery::claude_code::pid_alive;
 use crate::handover::start::first_prompt;
 use crate::handover::view::OfferWhy;
-use crate::handover::work::Signal;
 use crate::handover::{Task, TaskKind, Window};
-use crate::model::{
-    EffortOption, EndedSession, ModelOption, Project, Session, SessionState, Spend, ToolKind,
-    ToolOptions,
-};
+use crate::model::{EffortOption, EndedSession, ModelOption, ToolKind, ToolOptions};
 use crate::office::manager::Seat;
-use crate::office::tests::floor_office;
-use crate::process::FakeRunner;
-use crate::settings::{SettingsPatch, SettingsStore};
 use crate::setup::Launch;
-use std::io::Write;
-use std::sync::Mutex;
-use std::time::{Instant, SystemTime};
-
-/// The automatic switch on, and Codex starting on its own configured default.
-const ON: &str = r#"{"automatic":true,"claudeToCodex":{"kind":"tool-default"}}"#;
-/// The automatic switch off, and a choice made.
-const OFF: &str = r#"{"automatic":false,"claudeToCodex":{"kind":"tool-default"}}"#;
-
-/// The entry Claude Code 2.1.323 wrote when a local listener replayed a used-up allowance to it
-/// on 2026-11-13. A replay, not Anthropic's own reply, and the transcript format is
-/// undocumented. The reset is an hour ahead of the test's clock: the fixture's own number is in
-/// the past by now, and a limit whose reset has passed is not recorded.
-fn limit_line(resets_at: i64) -> String {
-    format!(
-        r#"{{"type":"assistant","isSidechain":false,"timestamp":"2026-11-13T10:53:07.124Z","message":{{"id":"m1","type":"message","role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","content":[{{"type":"text","text":"You've hit your 5-hour limit · resets 12:53pm (UTC)"}}]}},"apiError":"usage_limit_reached","apiErrorParams":{{"rate_limit_info":{{"status":"rejected","resetsAt":{resets_at},"rateLimitType":"five_hour","isUsingOverage":false}}}},"quotaLimits":{{"status":"rejected","resetsAt":{resets_at},"unifiedRateLimitFallbackAvailable":false,"rateLimitType":"five_hour","isUsingOverage":false}},"error":"rate_limit","isApiErrorMessage":true,"apiErrorStatus":429}}"#
-    )
-}
-
-/// The entry Claude Code 2.1.323 wrote when a local listener replayed a throttle to it on
-/// 2026-11-13. A replay, not Anthropic's own reply, and the transcript format is undocumented.
-const THROTTLE: &str = r#"{"type":"assistant","isSidechain":false,"timestamp":"2026-11-13T11:17:26.534Z","message":{"id":"m2","type":"message","role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"API Error: Server is temporarily limiting requests (not your usage limit)"}]},"apiErrorIsTransient":true,"error":"rate_limit","isApiErrorMessage":true,"apiErrorStatus":429}"#;
-
-/// Composed from the key names of entries seen on one machine, not from a replay.
-const AUTHENTICATION: &str = r#"{"type":"assistant","isSidechain":false,"timestamp":"2026-11-13T11:17:26.534Z","message":{"id":"m3","type":"message","role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"Please run /login"}]},"error":"authentication_failed","isApiErrorMessage":true,"apiErrorStatus":401}"#;
-
-/// Composed from the key names of entries seen on one machine, not from a replay.
-const SERVER: &str = r#"{"type":"assistant","isSidechain":false,"timestamp":"2026-11-13T11:17:26.534Z","message":{"id":"m4","type":"message","role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"API Error: 500"}]},"error":"server_error","isApiErrorMessage":true,"apiErrorStatus":500}"#;
-
-/// The model answering again.
-const REPLY: &str = r#"{"type":"assistant","isSidechain":false,"message":{"id":"m5","type":"message","role":"assistant","model":"claude-opus-4-1","content":[{"type":"text","text":"Back at it."}]}}"#;
-
-const TITLE: &str = "Fix the importer";
-
-struct Fixture {
-    office: Office,
-    dir: PathBuf,
-    floor: Project,
-    settings: Arc<SettingsStore>,
-    stops: Arc<Mutex<Vec<i32>>>,
-}
-
-/// An office on a floor, with `handover` as its settings group. `terminate`: the stop sends
-/// SIGTERM, else it only records. `file`: another office's `handover.json`.
-fn build(tag: &str, handover: &str, terminate_on_stop: bool, file: Option<PathBuf>) -> Fixture {
-    let (office, dir, floor) = floor_office(&format!("handover-{tag}"));
-    let path = dir.join("settings.json");
-    std::fs::write(&path, format!(r#"{{"handover":{handover}}}"#)).expect("settings");
-    let settings = Arc::new(SettingsStore::open(path));
-    let stops = Arc::new(Mutex::new(Vec::new()));
-    let seen = Arc::clone(&stops);
-    let host = HandoverHost {
-        runner: Arc::new(FakeRunner::new(|_| {
-            Err("no program runs in a test".to_string())
-        })),
-        file: file.unwrap_or_else(|| dir.join("handover.json")),
-        briefs: dir.join("data/handover/briefs"),
-        stop: Arc::new(move |pid| {
-            lock(&seen).push(pid);
-            if terminate_on_stop {
-                terminate(pid);
-            }
-        }),
-        stop_wait: Duration::from_millis(300),
-    };
-    let office = office
-        .with_settings(Arc::clone(&settings))
-        .with_handover(host);
-    Fixture {
-        office,
-        dir,
-        floor,
-        settings,
-        stops,
-    }
-}
-
-fn fixture(tag: &str, handover: &str) -> Fixture {
-    build(tag, handover, true, None)
-}
-
-fn session(id: &str, tool: ToolKind, project_id: &str) -> Session {
-    Session {
-        id: id.to_string(),
-        tool,
-        project_id: project_id.to_string(),
-        title: TITLE.to_string(),
-        state: SessionState::Idle,
-        control: ControlMode::Full,
-        model: None,
-        effort: None,
-        last_activity_at: String::new(),
-        pending_question_ids: Vec::new(),
-        spend: Spend::default(),
-        helpers: Vec::new(),
-        pets: Vec::new(),
-        worktree: false,
-        branch: None,
-    }
-}
-
-fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while !done() {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-impl Fixture {
-    fn root(&self) -> PathBuf {
-        self.dir.join("home/code/app")
-    }
-
-    fn host(&self) -> &HandoverHost {
-        self.office.handover_host.as_ref().expect("host")
-    }
-
-    /// `/bin/cat` in a terminal of its own, running once the login shell has handed over.
-    fn terminal(&self) -> String {
-        let terminal = self
-            .office
-            .terminals
-            .spawn_shell(&self.root(), "/bin/cat")
-            .expect("spawn");
-        let pid = self.office.terminals.pid(&terminal).expect("pid");
-        wait_for("cat to start", || {
-            crate::focus::process_name(pid).as_deref() == Some("cat")
-        });
-        terminal
-    }
-
-    /// A desk of `tool` the building started: its terminal runs `/bin/cat`.
-    fn desk(&self, id: &str, tool: ToolKind) -> String {
-        let terminal = self.terminal();
-        self.add(id, tool, Some(&terminal));
-        terminal
-    }
-
-    /// A session discovery found, in `terminal` if it is given one.
-    fn add(&self, id: &str, tool: ToolKind, terminal: Option<&str>) {
-        let mut inner = self.office.lock();
-        if let Some(terminal) = terminal {
-            inner.owned.insert(terminal.to_string(), id.to_string());
-        }
-        inner.found.sessions.push(session(id, tool, &self.floor.id));
-    }
-
-    /// Append `lines` to the session's transcript.
-    fn transcript(&self, id: &str, lines: &[&str]) {
-        let folder = self.dir.join("home/.claude/projects/p");
-        std::fs::create_dir_all(&folder).expect("mkdir");
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(folder.join(format!("{id}.jsonl")))
-            .expect("open");
-        for line in lines {
-            writeln!(file, "{line}").expect("write");
-        }
-    }
-
-    /// A hook listed the session's background work.
-    fn listed(&self, id: &str, tasks: Vec<Task>) {
-        self.office.lock().handover.works.note(Signal::Listed {
-            session_id: id.to_string(),
-            at: SystemTime::now(),
-            tasks: Some(tasks),
-        });
-    }
-
-    /// Move the desk's proof back past the settle time instead of sleeping through it.
-    fn settle(&self, id: &str) {
-        self.office
-            .lock()
-            .handover
-            .undecided
-            .insert(id.to_string(), now() - SETTLE_SECS);
-    }
-
-    fn state(&self, id: &str) -> Option<DeskState> {
-        self.office
-            .lock()
-            .handover
-            .view
-            .desks
-            .iter()
-            .find(|d| d.session_id == id)
-            .map(|d| d.state.clone())
-    }
-
-    fn stops(&self) -> Vec<i32> {
-        lock(&self.stops).clone()
-    }
-
-    fn plan(&self, id: &str, by_human: bool) -> Plan {
-        self.office
-            .plan(&self.office.lock(), id, by_human)
-            .expect("plan")
-    }
-
-    fn choose(&self, handover: HandoverSettings) {
-        self.settings
-            .update(SettingsPatch {
-                handover: Some(handover),
-                ..SettingsPatch::default()
-            })
-            .expect("settings");
-    }
-
-    /// End every agent still running and remove the temp folder.
-    fn done(self) {
-        for terminal in self.office.terminals.running_children().values() {
-            let _ = self.office.terminals.write(terminal, "\u{4}");
-        }
-        std::fs::remove_dir_all(&self.dir).expect("cleanup");
-    }
-}
-
-/// `change_hands`, with its failure as the reason and whether the old session was ended.
-fn change(fx: &Fixture, plan: &Plan, command: &str) -> Result<String, (String, bool)> {
-    fx.office
-        .change_hands(fx.host(), plan, command)
-        .map_err(|f| (f.reason, f.ended))
-}
-
-fn offered(why: OfferWhy, work: Work, reset_at: i64) -> DeskState {
-    DeskState::Offered {
-        to: Tool::Codex,
-        why,
-        work,
-        window: Some(Window::FiveHour),
-        reset_at: Some(reset_at),
-    }
-}
+use std::time::Instant;
 
 #[test]
 fn only_a_running_desk_the_building_started_is_ours() {
@@ -482,6 +242,7 @@ fn a_limit_whose_reset_has_passed_is_not_recorded() {
 fn hand_plan(fx: &Fixture, id: &str, terminal: &str) -> Plan {
     let plan = Plan {
         session_id: id.to_string(),
+        project_id: fx.floor.id.clone(),
         terminal: terminal.to_string(),
         by_human: true,
         record: UsedUp {
@@ -617,6 +378,7 @@ fn the_handover_code_holds_no_force_and_types_nothing() {
     for (file, text) in [
         ("office/handover.rs", include_str!("../handover.rs")),
         ("office/handover/run.rs", include_str!("run.rs")),
+        ("office/handover/desk.rs", include_str!("desk.rs")),
     ] {
         for word in ["SIGKILL", "kill(", "SIGHUP", "terminals.write"] {
             assert!(!text.contains(word), "{file} holds {word}");
@@ -716,7 +478,14 @@ fn codex_starts_as_an_ordinary_hire_with_every_word_quoted() {
         ),
     ];
     for (start, prompt, want) in rows {
-        let got = codex_command(&start, &codex_options(), prompt, "/bin/zsh", &setup);
+        let got = receiver_command(
+            Tool::Codex,
+            &start,
+            &codex_options(),
+            prompt,
+            "/bin/zsh",
+            &setup,
+        );
         assert_eq!(got, want, "{start:?}");
         if let Ok(command) = got {
             assert!(!command.contains(&*folder.to_string_lossy()));
@@ -822,7 +591,7 @@ fn a_human_handover_is_refused_in_words() {
         .saw(record(Tool::ClaudeCode, "s-one"));
 
     fx.choose(HandoverSettings::default());
-    assert_eq!(refused("s-one"), Err(CHOOSE.to_string()), "nothing chosen");
+    assert_eq!(refused("s-one"), Err(choose(Tool::Codex)), "nothing chosen");
     let on: HandoverSettings = serde_json::from_str(ON).expect("settings");
     fx.choose(on);
 
@@ -866,21 +635,6 @@ fn a_human_handover_is_refused_in_words() {
     );
     assert!(fx.stops().is_empty());
     fx.done();
-}
-
-/// Hand `id` over by hand as far as the fakes allow: the plan, the change and its record.
-fn hand_over_with_cat(fx: &Fixture, plan: &Plan) -> String {
-    fx.office
-        .lock()
-        .handover
-        .underway
-        .insert(plan.session_id.clone());
-    let started = change(fx, plan, "/bin/cat").expect("started");
-    let id = fx.office.lock().handover.book.next_id();
-    fx.office
-        .finish(plan, id, Ok(started.clone()))
-        .expect("recorded");
-    started
 }
 
 #[test]

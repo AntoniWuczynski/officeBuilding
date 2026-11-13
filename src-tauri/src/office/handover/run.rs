@@ -1,30 +1,60 @@
 //! Carrying a handover out: everything that can be done before anything is ended, then one
 //! polite stop of the old session and the start of the receiver in the same folder. The
-//! third exception to OB-027: one stop, a bounded wait, never a second signal or force.
+//! third exception to OB-027, for either tool: one stop, a bounded wait, never a second
+//! signal or force.
 
 use super::super::launch::{
     DEFAULT_EFFORT, DEFAULT_MODEL, Launched, chosen_model, hireable, launch_command,
 };
-use super::{Failure, HandoverHost, NOT_SET_UP, Office, Plan, now};
-use crate::discovery::claude_code::chat::ChatReader;
-use crate::handover::{Work, brief, git, start};
-use crate::model::{DeskView, HireRequest, ModelOption, ToolKind, ToolOptions};
+use super::{Failure, HandoverHost, NOT_SET_UP, Office, Plan, desk, now};
+use crate::handover::{Tool, Work, brief, git, start};
+use crate::model::{DeskView, HireRequest, ModelOption, ToolOptions};
 use crate::process;
 use crate::pty;
+use crate::routing::router::Opened;
 use crate::settings::StartWith;
-use crate::setup::Launch;
-use std::path::PathBuf;
+use crate::setup::{Launch, Opt};
+use crate::tools;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const NOT_INSTALLED: &str = "Codex is not installed on this Mac";
-const CHANGED: &str = "the desk changed while it was being handed over";
-pub(super) const DID_NOT_STOP: &str = "Claude Code did not stop when asked, so Codex was not started. Type /exit in its terminal, then hand the desk over again";
-pub(super) const ENDED_LATE: &str = "Claude Code ended only after the handover had stopped waiting for it, so Codex was not started. Resume the Claude Code session from the sign-out sheet";
+pub(super) const CHANGED: &str = "the desk changed while it was being handed over";
 
-/// What `prepare` made: the command that starts the receiver, and the brief it reads.
+/// The old session outlived the wait after the one stop.
+pub(super) fn did_not_stop(from: Tool) -> String {
+    format!(
+        "{} did not stop when asked, so {} was not started. Type /exit in its terminal, then hand the desk over again",
+        from.label(),
+        from.other().label()
+    )
+}
+
+/// The old session that did not stop has ended since.
+pub(super) fn ended_late(from: Tool) -> String {
+    format!(
+        "{} ended only after the handover had stopped waiting for it, so {} was not started. Resume the {} session from the sign-out sheet",
+        from.label(),
+        from.other().label(),
+        from.label()
+    )
+}
+
+/// The old session was ended and the receiver did not start, for the reason `why`.
+fn did_not_start(from: Tool, why: &str) -> String {
+    format!(
+        "{} was ended and {} did not start: {why}. Resume the {} session from the sign-out sheet",
+        from.label(),
+        from.other().label(),
+        from.label()
+    )
+}
+
+/// What `prepare` made: the command that starts the receiver, the brief it reads, and the
+/// route opened for it on a routed floor.
 struct Prepared {
     command: String,
     brief: PathBuf,
+    route: Option<Opened>,
 }
 
 impl Office {
@@ -46,31 +76,38 @@ impl Office {
                 reason,
                 ended: false,
             }),
-            Ok(prepared) => self
-                .change_hands(host, plan, &prepared.command)
-                .inspect_err(|_| brief::remove(&prepared.brief)),
+            Ok(Prepared {
+                command,
+                brief: path,
+                route,
+            }) => self
+                .change_hands(host, plan, &command, route)
+                .inspect_err(|_| brief::remove(&path)),
         };
         self.finish(plan, id, result)
     }
 
     /// Everything that can be done before anything is ended. The office lock is held only
-    /// to read the feed for the launch options.
+    /// to read the feed for the launch options, and by `routed` for a moment. A route is
+    /// opened last, so no failure here can leave one open.
     fn prepare(&self, host: &HandoverHost, plan: &Plan, id: &str) -> Result<Prepared, String> {
+        let (from, to) = (plan.record.tool, plan.record.tool.other());
         if !plan.folder.is_dir() {
             return Err(super::FOLDER_GONE.to_string());
         }
-        let options = hireable(self.hire_options(), ToolKind::Codex)?;
+        let options = hireable(self.hire_options(), to.kind())?;
+        let not_installed = || format!("{} is not installed on this Mac", to.label());
+        let binary = tools::binary(to.kind()).ok_or_else(not_installed)?;
         let shell = pty::login_shell();
-        let paths = process::login_paths(&*host.runner, &shell, ["codex", "git"]);
+        let paths = process::login_paths(&*host.runner, &shell, [binary, "git"]);
         let named = |name: &str| {
             paths
                 .iter()
                 .find(|p| p.file_name().is_some_and(|f| f == name))
         };
-        let codex = named("codex").ok_or(NOT_INSTALLED)?;
-        start::signed_in(&*host.runner, codex)?;
-        let mut reader = ChatReader::new(&self.home, &plan.session_id);
-        reader.read();
+        let program = named(binary).ok_or_else(not_installed)?;
+        start::signed_in(&*host.runner, to, program)?;
+        let (entries, earlier) = desk::conversation(from, &self.home, &plan.session_id);
         let git = git::summary(
             &*host.runner,
             named("git").map(PathBuf::as_path),
@@ -79,8 +116,8 @@ impl Office {
         let text = brief::render(
             &brief::Facts {
                 id,
-                from: plan.record.tool,
-                to: plan.record.tool.other(),
+                from,
+                to,
                 by_human: plan.by_human,
                 at: now(),
                 window: plan.record.window,
@@ -92,82 +129,103 @@ impl Office {
                 worktree: plan.worktree,
                 work: &plan.work,
                 git: &git,
-                earlier: reader.earlier(),
+                earlier,
             },
-            &reader.kept(),
+            &entries,
         );
         let brief = brief::write(&host.briefs, id, &text, &plan.folder)?;
-        let prompt = start::first_prompt(&plan.title, plan.record.tool, &brief);
-        self.setup
-            .launch(ToolKind::Codex, &self.home, Some(&self.lock().feed))
-            .and_then(|setup| codex_command(&plan.start, &options, &prompt, &shell, &setup))
-            .map(|command| Prepared {
+        // The path asked for and the file it resolves to are the same (V13).
+        let told = std::fs::canonicalize(&brief).unwrap_or_else(|_| brief.clone());
+        let prompt = start::first_prompt(&plan.title, from, &told);
+        // Two statements: `routed` takes the office lock, which the feed's guard holds.
+        let setup = self
+            .setup
+            .launch(to.kind(), &self.home, Some(&self.lock().feed));
+        setup
+            .and_then(|setup| {
+                let setup = with_leave(to, setup, &told);
+                receiver_command(to, &plan.start, &options, &prompt, &shell, &setup)
+            })
+            .and_then(|command| self.routed(&plan.project_id, to.kind(), false, command, &shell))
+            .map(|(command, route)| Prepared {
                 command,
                 brief: brief.clone(),
+                route,
             })
             .inspect_err(|_| brief::remove(&brief))
     }
 
-    /// End the old session and start the receiver. Ok: the receiver's terminal.
+    /// End the old session and start the receiver. Ok: the receiver's terminal. `route`, the
+    /// receiver's route on a routed floor, is closed on every failure.
     pub(super) fn change_hands(
         &self,
         host: &HandoverHost,
         plan: &Plan,
         command: &str,
+        route: Option<Opened>,
     ) -> Result<String, Failure> {
-        let changed = || Failure {
-            reason: CHANGED.to_string(),
-            ended: false,
+        let from = plan.record.tool;
+        let refused = |reason: String| {
+            if let (Some(opened), Some(router)) = (&route, &self.routing) {
+                router.close(&opened.id);
+            }
+            Failure {
+                reason,
+                ended: false,
+            }
         };
         {
             let inner = self.lock();
             // The proof and the work are checked again: the limit may have reset, and the
-            // session carried on with a workflow, while the receiver was being prepared.
+            // session carried on with background work, while the receiver was being prepared.
             let still = inner.owned.get(&plan.terminal) == Some(&plan.session_id)
                 && !Self::fixed_role(&inner, &plan.terminal)
                 && {
                     let (book, at) = (&inner.handover.book, now());
                     book.own(&plan.session_id, at)
-                        .or_else(|| book.live(plan.record.tool, at))
+                        .or_else(|| book.live(from, at))
                 }
                 .is_some_and(|r| r.same_limit(plan.record.reset_at, plan.record.seen_at))
                 && (plan.by_human
                     || matches!(inner.handover.works.of(&plan.session_id), Work::Clear));
             if !still {
-                return Err(changed());
+                drop(inner);
+                return Err(refused(CHANGED.to_string()));
             }
         }
         if matches!(
             self.terminals.wait_exit(&plan.terminal, Duration::ZERO),
             Ok(None)
         ) {
-            let pid = self.terminals.pid(&plan.terminal).map_err(|_| changed())?;
-            // Asked once. One that outlives the wait is left to A Human, and Codex is not started.
+            let Ok(pid) = self.terminals.pid(&plan.terminal) else {
+                return Err(refused(CHANGED.to_string()));
+            };
+            // Asked once. One that outlives the wait is left to A Human, and the receiver is
+            // not started.
             (host.stop)(pid);
             if matches!(
                 self.terminals.wait_exit(&plan.terminal, host.stop_wait),
                 Ok(None)
             ) {
-                return Err(Failure {
-                    reason: DID_NOT_STOP.to_string(),
-                    ended: false,
-                });
+                return Err(refused(did_not_stop(from)));
             }
         }
-        self.launch(
-            &plan.folder,
-            command,
-            Launched::Discovered {
-                title: plan.title.clone(),
-            },
-        )
-        .map_err(|why| Failure {
-            reason: format!(
-                "Claude Code was ended and Codex did not start: {}. Resume the Claude Code session from the sign-out sheet",
-                without_tail(&why)
-            ),
-            ended: true,
-        })
+        // `launch_routed` closes the route itself when the launch fails.
+        let terminal = self
+            .launch_routed(
+                &plan.folder,
+                command,
+                Launched::Discovered {
+                    title: plan.title.clone(),
+                },
+                route,
+            )
+            .map_err(|why| Failure {
+                reason: did_not_start(from, without_tail(&why)),
+                ended: true,
+            })?;
+        self.note_view(from.other().kind(), &terminal);
+        Ok(terminal)
     }
 }
 
@@ -181,48 +239,68 @@ fn without_tail(why: &str) -> &str {
     }
 }
 
-/// The model and effort ids the receiving tool is launched with. The tool's own default
-/// passes neither. A choice must be one the tool itself lists.
+/// The model and effort the receiving tool is launched with. A choice must be one the tool
+/// lists. Codex's own default passes neither. Claude Code's is the model the hire dialog
+/// preselects, at that model's default effort (K6).
 pub(super) fn receiver(
+    to: Tool,
     start: &StartWith,
     options: &ToolOptions,
 ) -> Result<(ModelOption, String), String> {
-    match start {
-        StartWith::ToolDefault => Ok((
-            ModelOption {
-                id: DEFAULT_MODEL.to_string(),
-                label: DEFAULT_MODEL.to_string(),
-                efforts: Vec::new(),
-                default_effort: DEFAULT_EFFORT.to_string(),
-            },
-            DEFAULT_EFFORT.to_string(),
-        )),
-        StartWith::Chosen { model, effort } => {
-            // `launch_command` writes the effort inside a TOML string.
-            if effort.contains(['"', '\\']) {
+    let (model, effort) = match (to, start) {
+        (Tool::Codex, StartWith::ToolDefault) => {
+            return Ok((
+                ModelOption {
+                    id: DEFAULT_MODEL.to_string(),
+                    label: DEFAULT_MODEL.to_string(),
+                    efforts: Vec::new(),
+                    default_effort: DEFAULT_EFFORT.to_string(),
+                },
+                DEFAULT_EFFORT.to_string(),
+            ));
+        }
+        (Tool::ClaudeCode, StartWith::ToolDefault) => chosen_model(options, None, None)?,
+        (_, StartWith::Chosen { model, effort }) => {
+            // `launch_command` writes Codex's effort inside a TOML string.
+            if to == Tool::Codex && effort.contains(['"', '\\']) {
                 return Err("that effort cannot be passed to Codex".to_string());
             }
-            let (model, effort) = chosen_model(options, Some(model), Some(effort))?;
-            Ok((model.clone(), effort))
+            chosen_model(options, Some(model), Some(effort))?
         }
-    }
+    };
+    Ok((model.clone(), effort))
 }
 
-/// The command that starts Codex on `prompt`: the building's ordinary Codex hire, never routed.
-pub(super) fn codex_command(
+/// The one read rule Claude Code gets for `brief` (K7). Codex's setup is returned as it is,
+/// and so is Claude Code's when the path can carry no rule.
+pub(super) fn with_leave(to: Tool, mut setup: Launch, brief: &Path) -> Launch {
+    if to == Tool::ClaudeCode
+        && let Some(rule) = start::read_rule(brief)
+    {
+        setup.opts.push(Opt {
+            flag: "--allowedTools",
+            value: rule,
+        });
+    }
+    setup
+}
+
+/// The command that starts `to` on `prompt`: the building's ordinary hire of that tool.
+pub(super) fn receiver_command(
+    to: Tool,
     start: &StartWith,
     options: &ToolOptions,
     prompt: &str,
     shell: &str,
     setup: &Launch,
 ) -> Result<String, String> {
-    let (model, effort) = receiver(start, options)?;
+    let (model, effort) = receiver(to, start, options)?;
     let req = HireRequest {
-        tool: ToolKind::Codex,
+        tool: to.kind(),
         title: prompt.to_string(),
         model: model.id.clone(),
         effort,
-        ultracode: false,
+        ultracode: to == Tool::ClaudeCode && options.ultracode == Some(true),
         view: DeskView::Terminal,
     };
     launch_command(&req, &model, prompt, shell, setup)

@@ -3,13 +3,11 @@
 //! Carrying one out is in `handover/run.rs`. Nothing here ends or starts an agent.
 
 use super::{Inner, Office, STOP_WAIT};
-use crate::discovery::claude_code::chat::ChatReader;
-use crate::discovery::claude_code::chat::limit::Reading;
-use crate::handover::record::{Book, Done, HandoverFile, Outcome, UsedUp};
+use crate::handover::record::{Book, Done, HandoverFile, Outcome, RESET_HORIZON, UsedUp};
 use crate::handover::survey::{DeskFacts, Now, Survey, survey};
 use crate::handover::view::{BlockWhy, DeskState, HandoverView};
-use crate::handover::work::WorkLog;
-use crate::handover::{Tool, Work};
+use crate::handover::work::{self, WorkLog};
+use crate::handover::{Allowance, Tool, Work};
 use crate::model::ControlMode;
 use crate::process::{Runner, SystemRunner};
 use crate::settings::{HandoverSettings, StartWith};
@@ -19,6 +17,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(test)]
+mod codex_tests;
+mod desk;
+#[cfg(test)]
+mod fixture;
 mod run;
 #[cfg(test)]
 mod tests;
@@ -64,11 +67,55 @@ pub(super) struct State {
     started_in: BTreeMap<String, String>,
     /// What the last pass showed.
     pub(super) view: HandoverView,
+    /// The Codex desks whose rollout counts: a top-level thread on the built-in provider (K5).
+    codex_counts: BTreeSet<String>,
 }
 
-/// The transcript reader of each Claude Code desk the building started, with the last reading
-/// acted on. Taken before the office lock, never under it.
-pub(super) type Limits = BTreeMap<String, (ChatReader, Reading)>;
+impl State {
+    /// Record what the desks' own files said in one pass: which Codex desks count, their
+    /// work, and each allowance that changed.
+    fn note(&mut self, read: desk::Read, now: i64) {
+        self.codex_counts = read
+            .codex
+            .iter()
+            .filter(|(_, seen, _)| seen.counts)
+            .map(|(id, _, _)| id.clone())
+            .collect();
+        for (id, seen, busy) in &read.codex {
+            self.works.put(id, work::codex(&seen.goal, *busy));
+        }
+        for (id, tool, allowance) in read.changed {
+            match allowance {
+                Allowance::UsedUp {
+                    window,
+                    reset_at,
+                    at,
+                } => {
+                    let record = UsedUp {
+                        tool,
+                        window,
+                        reset_at: reset_at.filter(|r| *r <= now + RESET_HORIZON),
+                        // Dated by the tool when it says (K3), never later than now.
+                        seen_at: at.map_or(now, |t| t.min(now)),
+                        session_id: id.clone(),
+                    };
+                    if record.live(now) && self.book.saw(record) {
+                        self.undecided.insert(id, now);
+                    }
+                }
+                Allowance::Clear => {
+                    self.book.cleared(&id);
+                    self.undecided.remove(&id);
+                }
+                Allowance::Unproven => {}
+            }
+        }
+    }
+}
+
+/// The reader of each desk the building started, by its tool, with the last allowance acted on.
+/// Taken before the office lock, never under it.
+pub(super) type Limits = BTreeMap<String, (desk::Follower, Allowance)>;
 
 /// The automatic decision waits this long after the proof is first read, so hook files still
 /// being written are collected first.
@@ -76,11 +123,17 @@ const SETTLE_SECS: i64 = 2;
 
 const NOT_SET_UP: &str = "handover is not set up";
 const NOT_OURS: &str = "the building did not start this desk, so it cannot be handed over";
-const NOT_USED_UP: &str = "this desk's subscription is not recorded as used up";
-const CHOOSE: &str = "choose what Codex starts with in Settings, under Handover, first";
+const NOT_USED_UP: &str = "this desk is not recorded as used up";
 const FOLDER_GONE: &str = "that folder is gone";
-const NO_ENTRY: &str =
-    "this desk's subscription is not recorded as used up, or the building did not start it";
+const NO_ENTRY: &str = "this desk is not recorded as used up, or the building did not start it";
+
+/// Nothing is chosen for the direction that ends in `to`.
+fn choose(to: Tool) -> String {
+    format!(
+        "choose what {} starts with in Settings, under Handover, first",
+        to.label()
+    )
+}
 
 /// What one pass found: the handovers to start now, and whether the view changed.
 #[derive(Default)]
@@ -93,6 +146,8 @@ pub(super) struct Due {
 #[derive(Clone)]
 pub(super) struct Plan {
     session_id: String,
+    /// The floor the session is on, for a routed launch.
+    project_id: String,
     terminal: String,
     by_human: bool,
     /// The record it answers: the desk's own, or its tool's live one.
@@ -146,10 +201,31 @@ impl Office {
             || inner.seats.values().any(|s| s.terminal == terminal)
     }
 
-    /// The desks a handover may reach, session id to terminal id: started by the building in a
-    /// terminal of its own that still runs, neither a reviewer's nor a manager's, under full
-    /// control, of a tool the handover knows.
+    /// The handover tool of the session `id` discovery found.
+    fn tool_of(inner: &Inner, id: &str) -> Option<Tool> {
+        inner
+            .found
+            .sessions
+            .iter()
+            .find(|s| s.id == id)
+            .and_then(|s| Tool::of(s.tool))
+    }
+
+    /// The desks a handover may reach, session id to terminal id: those `started` gives, less
+    /// the Codex desks whose rollout does not count (K5).
     fn ours(&self, inner: &Inner) -> BTreeMap<String, String> {
+        let mut ours = self.started(inner);
+        ours.retain(|id, _| {
+            Self::tool_of(inner, id) != Some(Tool::Codex)
+                || inner.handover.codex_counts.contains(id)
+        });
+        ours
+    }
+
+    /// Every desk the building started in a terminal of its own that still runs, session id
+    /// to terminal id: neither a reviewer's nor a manager's, under full control, of a tool the
+    /// handover knows.
+    fn started(&self, inner: &Inner) -> BTreeMap<String, String> {
         inner
             .owned
             .iter()
@@ -222,14 +298,17 @@ impl Office {
     fn note_ended_late(&self, inner: &mut Inner) {
         let ran_in = &inner.ran_in;
         let terminals = &self.terminals;
-        inner
-            .handover
-            .book
-            .ended_late(run::DID_NOT_STOP, run::ENDED_LATE, |id| {
-                ran_in.get(id).is_some_and(|terminal| {
-                    !matches!(terminals.wait_exit(terminal, Duration::ZERO), Ok(None))
-                })
-            });
+        for from in [Tool::ClaudeCode, Tool::Codex] {
+            inner.handover.book.ended_late(
+                &run::did_not_stop(from),
+                &run::ended_late(from),
+                |id| {
+                    ran_in.get(id).is_some_and(|terminal| {
+                        !matches!(terminals.wait_exit(terminal, Duration::ZERO), Ok(None))
+                    })
+                },
+            );
+        }
     }
 
     pub(super) fn handover_due(&self) -> Due {
@@ -238,7 +317,9 @@ impl Office {
         };
         let now = now();
         let mut limits = lock(&self.limits);
-        let claude: BTreeSet<String> = {
+        // Each desk the building started: its session id, its tool and, for Codex, how many of
+        // its sub-agent threads have a turn in flight.
+        let desks: Vec<desk::Started> = {
             let mut guard = self.lock();
             let inner = &mut *guard;
             for signal in inner.feed.take_signals() {
@@ -250,52 +331,24 @@ impl Office {
                 .handover
                 .works
                 .keep(|id| live.contains(id), std::time::SystemTime::now());
-            let ours = self.ours(inner);
-            inner
-                .found
-                .sessions
-                .iter()
-                .filter(|s| ours.contains_key(&s.id) && Tool::of(s.tool) == Some(Tool::ClaudeCode))
-                .map(|s| s.id.clone())
+            self.started(inner)
+                .into_keys()
+                .filter_map(|id| {
+                    let tool = Self::tool_of(inner, &id)?;
+                    let busy = match tool {
+                        Tool::ClaudeCode => 0,
+                        Tool::Codex => inner.discovery.codex_subagents_busy(&id),
+                    };
+                    Some((id, tool, busy))
+                })
                 .collect()
         };
-        // No office lock: the transcripts are read here.
-        limits.retain(|id, _| claude.contains(id));
-        let mut readings: Vec<(String, Reading)> = Vec::new();
-        for id in &claude {
-            let (reader, held) = limits
-                .entry(id.clone())
-                .or_insert_with(|| (ChatReader::new(&self.home, id), Reading::Clear));
-            reader.read();
-            if reader.limit() != held {
-                *held = reader.limit().clone();
-                readings.push((id.clone(), held.clone()));
-            }
-        }
+        // No office lock: the transcripts and rollouts are read here.
+        let read = desk::follow(&self.home, &mut limits, &desks);
         let mut guard = self.lock();
         let inner = &mut *guard;
         let state = &mut inner.handover;
-        for (id, reading) in readings {
-            match reading {
-                Reading::UsedUp { window, resets_at } if resets_at.is_none_or(|r| r > now) => {
-                    let record = UsedUp {
-                        tool: Tool::ClaudeCode,
-                        window: Some(window),
-                        reset_at: resets_at,
-                        seen_at: now,
-                        session_id: id.clone(),
-                    };
-                    if state.book.saw(record) {
-                        state.undecided.insert(id, now);
-                    }
-                }
-                Reading::Clear => {
-                    state.book.cleared(&id);
-                    state.undecided.remove(&id);
-                }
-                Reading::UsedUp { .. } | Reading::Other(_) => {}
-            }
-        }
+        state.note(read, now);
         state.book.prune(now);
         for (terminal, done) in &state.started_in {
             if let Some(session) = inner.owned.get(terminal) {
@@ -352,7 +405,7 @@ impl Office {
             .handover_settings()
             .start_with(tool)
             .cloned()
-            .ok_or(CHOOSE)?;
+            .ok_or_else(|| choose(tool.other()))?;
         let folder = inner
             .found
             .checkouts
@@ -367,12 +420,9 @@ impl Office {
             .find(|p| p.id == session.project_id)
             .map(|p| p.name.clone())
             .unwrap_or_default();
-        let work = match tool {
-            Tool::ClaudeCode => inner.handover.works.of(session_id),
-            Tool::Codex => Work::Unknown,
-        };
         Ok(Plan {
             session_id: session_id.to_string(),
+            project_id: session.project_id.clone(),
             terminal: terminal.clone(),
             by_human,
             record,
@@ -382,7 +432,7 @@ impl Office {
             floor,
             branch: session.branch.clone(),
             worktree: session.worktree,
-            work,
+            work: inner.handover.works.of(session_id),
         })
     }
 
@@ -408,17 +458,19 @@ impl Office {
                 .map(|d| d.state);
             match state {
                 Some(DeskState::Offered { .. }) => {}
-                Some(DeskState::Blocked { why, .. }) => {
+                Some(DeskState::Blocked { to, why, .. }) => {
                     return Err(match why {
-                        BlockWhy::NotChosen => CHOOSE,
+                        BlockWhy::NotChosen => choose(to),
                         BlockWhy::BothUsedUp => {
-                            "Codex is used up too, so this desk stays where it is"
+                            format!(
+                                "{} is used up too, so this desk stays where it is",
+                                to.label()
+                            )
                         }
                         BlockWhy::AlreadyHandedOver => {
-                            "this desk was already handed over for this limit"
+                            "this desk was already handed over for this limit".to_string()
                         }
-                    }
-                    .to_string());
+                    });
                 }
                 Some(
                     DeskState::Underway { .. }
