@@ -610,6 +610,8 @@ Why a running command-line interface (CLI) cannot simply be pointed at the other
 
 **Recommendation.** Build the handover now and ask OpenAI about Sign in with ChatGPT alongside it. The router already proves when the Claude subscription is used up, which is the trigger a handover needs.
 
+A Human on 2026-11-13, not yet a ruling: "1 might have to be the move. I'm only worried about workflows". The worry holds. A workflow lives inside its Claude Code session, so a handover cannot carry one that is running. What keeps one alive is the router changing the connection behind the same process, which needs a fallback the building holds itself (an Anthropic API key today), or waiting for the allowance to reset and resuming it in the same session. What a running workflow does when the allowance runs out has not been probed.
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.
