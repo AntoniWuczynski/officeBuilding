@@ -6,6 +6,10 @@ import type { DiscoveryApi } from "./api/DiscoveryApi";
 import { MockApi } from "./api/mockApi";
 import { makeDemoSnapshot } from "./api/mockData";
 import { TauriApi } from "./api/tauriApi";
+import type { RoutingApi } from "./api/RoutingApi";
+import { MockRouting } from "./api/mockRouting";
+import { TauriRouting } from "./api/tauriRouting";
+import { RoutingContext } from "./components/routing/RoutingContext";
 import "./index.css";
 
 const container = document.getElementById("root");
@@ -15,15 +19,19 @@ if (container === null) {
 
 // Inside the desktop app: real sessions from the Rust backend. In a plain
 // browser (pnpm dev): the mock office with its demo simulation.
-function makeApi(): DiscoveryApi {
-  if (isTauri()) return new TauriApi();
+function makeApis(): { readonly api: DiscoveryApi; readonly routing: RoutingApi } {
+  if (isTauri()) return { api: new TauriApi(), routing: new TauriRouting() };
   const mock = new MockApi(makeDemoSnapshot());
   mock.startSimulation();
-  return mock;
+  return { api: mock, routing: new MockRouting(() => mock.getSettings()) };
 }
+
+const { api, routing } = makeApis();
 
 createRoot(container).render(
   <StrictMode>
-    <App api={makeApi()} />
+    <RoutingContext value={routing}>
+      <App api={api} />
+    </RoutingContext>
   </StrictMode>,
 );

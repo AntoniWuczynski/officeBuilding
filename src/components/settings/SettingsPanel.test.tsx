@@ -191,3 +191,13 @@ describe("SettingsPanel agents", () => {
     expect((await api.hireOptions()).find((o) => o.tool === "claude-code")?.view).toBe("chat");
   });
 });
+
+describe("SettingsPanel routing", () => {
+  it("shows the Routing heading and saves its switch as a routing patch", async () => {
+    const user = userEvent.setup();
+    const { api } = open();
+    expect(await screen.findByRole("heading", { name: "Routing" })).toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Route Claude Code desks through the building" }));
+    expect((await api.getSettings()).routing.enabled).toBe(true);
+  });
+});

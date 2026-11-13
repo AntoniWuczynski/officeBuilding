@@ -23,6 +23,7 @@ import { CloseIcon } from "../icons";
 import { LinearRow } from "../connectors/LinearRow";
 import { ManagerPanel } from "../manager/ManagerPanel";
 import { QaRow } from "../qa/QaRow";
+import { FloorContextRow } from "../routing/FloorContextRow";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { TodoList } from "./TodoList";
 import { SetupPanel } from "./SetupPanel";
@@ -203,6 +204,7 @@ function InfoBody({ project, sessions, now, connection, qa, onOpenSession }: Inf
         </dd>
         <LinearRow project={project} connection={connection} />
         <QaRow project={project} qa={qa} sessions={sessions} now={now} onOpenSession={onOpenSession} />
+        <FloorContextRow project={project} />
         <dt>Agents</dt>
         <dd>
           {counts.active} of {counts.total} active

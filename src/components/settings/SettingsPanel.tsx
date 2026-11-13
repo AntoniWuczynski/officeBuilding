@@ -7,6 +7,7 @@ import { ConnectorsGroup } from "./ConnectorsGroup";
 import { NotificationsGroup } from "./NotificationsGroup";
 import { ManagerGroup } from "./ManagerGroup";
 import { QaGroup } from "./QaGroup";
+import { RoutingGroup } from "./RoutingGroup";
 
 interface Props {
   readonly load: () => Promise<Settings>;
@@ -76,6 +77,10 @@ export function SettingsPanel({ load, save, editors, loadHireOptions, onTestAler
             <section className="settings-group">
               <h3>Manager</h3>
               <ManagerGroup value={state.settings.manager} loadOptions={loadHireOptions} onChange={(manager) => change({ manager })} />
+            </section>
+            <section className="settings-group">
+              <h3>Routing</h3>
+              <RoutingGroup value={state.settings.routing} onChange={(routing) => change({ routing })} />
             </section>
           </>
         ) : null}
