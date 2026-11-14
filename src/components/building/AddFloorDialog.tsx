@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { message } from "../../lib/errors";
-import { PLACE } from "../../state/placeWords";
 import type { PlaceWords } from "../../state/placeWords";
 
 interface Props {
@@ -8,11 +7,11 @@ interface Props {
   readonly onPickFolder: () => Promise<string | null>;
   readonly onAdd: (path: string) => Promise<void>;
   readonly onCancel: () => void;
-  readonly words?: PlaceWords;
+  readonly words: PlaceWords;
 }
 
 /** Add a floor: the repo folder a project lives in. */
-export function AddFloorDialog({ canPickFolder, onPickFolder, onAdd, onCancel, words = PLACE.office }: Props): React.ReactElement {
+export function AddFloorDialog({ canPickFolder, onPickFolder, onAdd, onCancel, words }: Props): React.ReactElement {
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

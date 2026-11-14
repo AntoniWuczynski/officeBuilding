@@ -23,6 +23,7 @@ import {
 } from "../../state/selectors";
 import { FLOOR_CAMERA } from "../../lib/iso";
 import { ROOM, roomDepth } from "../../lib/layout";
+import { PLACE } from "../../state/placeWords";
 import { Stage } from "../../scene/Stage";
 import { LiftIcon } from "../icons";
 import { HireDialog } from "./HireDialog";
@@ -119,7 +120,7 @@ export function FloorView(props: Props): React.ReactElement {
       <header className="topbar" data-tauri-drag-region>
         <button type="button" className="btn btn-back" data-testid="back-button" onClick={onBack}>
           <LiftIcon />
-          {props.backLabel ?? "Building"}
+          {props.backLabel ?? PLACE.office.back}
         </button>
         <h1 className="floor-name">{project.name}</h1>
         <label className="search">

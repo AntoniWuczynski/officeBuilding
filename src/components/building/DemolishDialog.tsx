@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { message } from "../../lib/errors";
-import { PLACE } from "../../state/placeWords";
 import type { PlaceWords } from "../../state/placeWords";
 
 interface Props {
@@ -9,11 +8,11 @@ interface Props {
   readonly agents: number;
   readonly onDemolish: () => Promise<void>;
   readonly onCancel: () => void;
-  readonly words?: PlaceWords;
+  readonly words: PlaceWords;
 }
 
 /** Confirm pulling a floor down, and say what happens to the agents on it. */
-export function DemolishDialog({ name, agents, onDemolish, onCancel, words = PLACE.office }: Props): React.ReactElement {
+export function DemolishDialog({ name, agents, onDemolish, onCancel, words }: Props): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

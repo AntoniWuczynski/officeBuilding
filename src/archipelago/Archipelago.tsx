@@ -6,11 +6,12 @@ import type { OfficeSnapshot, Project, Session } from "../types";
 import { lightWords, poseForState } from "../lib/animation";
 import { hashString, lookFor } from "../lib/looks";
 import { Person } from "../scene/Person";
-import { STATE_LABEL, TOOL_LABEL, helpersLine } from "../state/selectors";
+import { STAMP_WORDS, STATE_LABEL, TOOL_LABEL, helpersLine } from "../state/selectors";
 import type { Present } from "../state/usePresence";
 import { EditableSign } from "../components/building/EditableSign";
 import type { FloorModel } from "../components/building/Storey";
 import { SinkIcon } from "../components/icons";
+import { QaStamp } from "../components/qa/QaStamp";
 import { PLACE } from "../state/placeWords";
 import { COUNTER_H, OCEAN_SIZE, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
 import { agentSlots, clampToBounds, layoutIslands, MAX_SLOTS, mergeOrder, worldBounds } from "./islands";
@@ -125,6 +126,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
   /** Islands that have already risen, so a rebuild for a new project does not make the rest rise again. */
   const risen = useRef(new Set<string>());
   const [selected, setSelected] = useState<string | null>(null);
+  const panelHeading = useRef<HTMLHeadingElement>(null);
   const [noWebGl, setNoWebGl] = useState(false);
   // Reduced motion: still sea, instant camera moves, no flying notes (as the building's walks and collapses).
   const animateRef = useRef(animate);
@@ -159,6 +161,11 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
   const dimmed = new Set(rows.filter((r) => r.floor.dimmed).map((r) => r.spec.projectId));
   const live = useRef({ people, messages: snapshot.messages, dimmed });
   live.current = { people, messages: snapshot.messages, dimmed };
+
+  // Choosing an island opens its panel: take focus there, so its agents and Open island come next in Tab order.
+  useEffect(() => {
+    if (selected !== null) panelHeading.current?.focus();
+  }, [selected]);
 
   // Without WebGL there is no render loop to finish a sink: let a removed island go at once.
   useEffect(() => {
@@ -489,8 +496,8 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
       renderer.domElement.removeEventListener("pointerleave", onLeave);
       for (const [key, hut] of [...huts]) dropHut(key, hut);
       for (const [id, g] of groups) release(g, islandMats.get(id) ?? []);
-      (ocean.mesh.geometry as THREE.BufferGeometry).dispose();
-      (ocean.mesh.material as THREE.Material).dispose();
+      ocean.mesh.geometry.dispose();
+      ocean.mesh.material.dispose();
       renderer.dispose();
       // Browsers keep only a handful of live WebGL contexts; give this one back now rather than on garbage collection.
       renderer.forceContextLoss();
@@ -548,8 +555,10 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
           </button>
         ))}
         {picked === undefined ? null : (
-          <aside className="arch-panel" aria-label={`${picked.spec.name} island`}>
-            <h2>{picked.spec.name}</h2>
+          <aside id="arch-panel" className="arch-panel" aria-label={`${picked.spec.name} island`}>
+            <h2 ref={panelHeading} tabIndex={-1}>
+              {picked.spec.name}
+            </h2>
             <p>
               {picked.floor.counts.total} {picked.floor.counts.total === 1 ? "agent" : "agents"}, {picked.floor.counts.active} working
               {picked.floor.pending > 0 ? `, ${picked.floor.pending} waiting on you` : ""}
@@ -593,7 +602,9 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
               className="nameplate"
               data-testid="island-nameplate"
               data-project={spec.projectId}
-              aria-label={`${spec.name}: ${floor.counts.active} of ${floor.counts.total} active, ${lightWords(floor.light)}${floor.pending > 0 ? `, ${floor.pending} waiting on you` : ""}. Show island.`}
+              aria-label={`${spec.name}: ${floor.counts.active} of ${floor.counts.total} active, ${lightWords(floor.light)}${floor.pending > 0 ? `, ${floor.pending} waiting on you` : ""}${floor.stamp === null ? "" : `, ${STAMP_WORDS[floor.stamp].spoken}`}. Show island.`}
+              aria-expanded={spec.projectId === selected}
+              aria-controls={spec.projectId === selected ? "arch-panel" : undefined}
               onClick={() => {
                 setSelected(spec.projectId);
                 flyTo.current(spec);
@@ -605,6 +616,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
               <span className="nameplate-count">
                 {floor.counts.active}/{floor.counts.total}
               </span>
+              {floor.stamp === null ? null : <QaStamp verdict={floor.stamp} />}
               {floor.pending > 0 ? (
                 <span className="arch-pending" aria-label={`${floor.pending} waiting on you`}>
                   {floor.pending}

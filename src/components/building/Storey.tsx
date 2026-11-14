@@ -13,6 +13,7 @@ import { Person, Walker } from "../../scene/Person";
 import { DemolishIcon } from "../icons";
 import { QaStamp } from "../qa/QaStamp";
 import { STAMP_WORDS } from "../../state/selectors";
+import { PLACE } from "../../state/placeWords";
 import { usePresence } from "../../state/usePresence";
 import type { Phase } from "../../state/usePresence";
 
@@ -182,7 +183,7 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
           type="button"
           className="demolish-btn"
           data-testid="demolish-floor"
-          aria-label={`Demolish ${project.name}`}
+          aria-label={PLACE.office.removeLabel(project.name)}
           title="Demolish this floor"
           disabled={leaving}
           onClick={(e) => {

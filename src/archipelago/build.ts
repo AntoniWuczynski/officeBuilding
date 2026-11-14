@@ -88,7 +88,9 @@ export function ownMaterials(root: THREE.Object3D): THREE.Material[] {
   const copies = new Map<THREE.Material, THREE.Material>();
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
-    const original = o.material as THREE.Material;
+    const mesh: THREE.Mesh = o;
+    const original = mesh.material;
+    if (Array.isArray(original)) return;
     let copy = copies.get(original);
     if (copy === undefined) {
       copy = original.clone();
@@ -115,7 +117,9 @@ export function setOpacity(materials: readonly THREE.Material[], opacity: number
 /** Free what `ownMaterials` copied and the object's own geometry; shared shapes stay. */
 export function release(root: THREE.Object3D, materials: readonly THREE.Material[]): void {
   root.traverse((o) => {
-    if (o instanceof THREE.Mesh && !SHARED.has(o.geometry as THREE.BufferGeometry)) (o.geometry as THREE.BufferGeometry).dispose();
+    if (!(o instanceof THREE.Mesh)) return;
+    const mesh: THREE.Mesh = o;
+    if (!SHARED.has(mesh.geometry)) mesh.geometry.dispose();
   });
   for (const m of materials) m.dispose();
 }
@@ -242,10 +246,10 @@ export function buildIsland(spec: IslandSpec): THREE.Group {
 /** World units across the sea plane before scaling; the view scales it to cover its draw distance. */
 export const OCEAN_SIZE = 1600;
 
-export function buildOcean(): { readonly mesh: THREE.Mesh; readonly tick: (t: number) => void } {
+export function buildOcean(): { readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>; readonly tick: (t: number) => void } {
   const geo = new THREE.PlaneGeometry(OCEAN_SIZE, OCEAN_SIZE, 70, 70);
   geo.rotateX(-Math.PI / 2);
-  const base = geo.attributes["position"] as THREE.BufferAttribute;
+  const base = geo.getAttribute("position");
   const y0 = Float32Array.from({ length: base.count }, (_, i) => base.getX(i) * 0.37 + base.getZ(i) * 0.21);
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x1f9be0, flatShading: true, roughness: 0.4, transparent: true, opacity: 0.93 }));
   mesh.position.y = 0.4;

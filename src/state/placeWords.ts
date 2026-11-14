@@ -5,6 +5,8 @@ export interface PlaceWords {
   readonly noun: string;
   /** The back button on a project's screen. */
   readonly back: string;
+  /** The overview with no projects in it. */
+  readonly emptyNote: string;
   readonly addTitle: string;
   readonly addHint: string;
   readonly addAction: string;
@@ -22,6 +24,7 @@ export interface PlaceWords {
 const OFFICE: PlaceWords = {
   noun: "floor",
   back: "Building",
+  emptyNote: "No projects yet. When an agent starts work in a repo, its floor appears here, or add a floor from the roof.",
   addTitle: "Add a floor",
   addHint: "A floor is a project folder. Agents that start work there take a desk on it; until then its lights stay off.",
   addAction: "Add floor",
@@ -40,6 +43,7 @@ const OFFICE: PlaceWords = {
 const ISLANDS: PlaceWords = {
   noun: "island",
   back: "Islands",
+  emptyNote: "No projects yet. When an agent starts work in a repo, its island appears here, or add an island from the list.",
   addTitle: "Add an island",
   addHint: "An island is a project folder. Agents that start work there take a seat on it; until then its light stays off.",
   addAction: "Add island",

@@ -27,23 +27,23 @@ const HINTS: readonly (readonly [RegExp, IslandTheme])[] = [
 ];
 const FALLBACK: readonly IslandTheme[] = ["workshop", "observatory", "control", "farm"];
 
-export function themeFor(project: Project): IslandTheme {
+function themeFor(project: Project): IslandTheme {
   for (const [re, theme] of HINTS) if (re.test(project.name)) return theme;
   return FALLBACK[hash(project.id) % FALLBACK.length] ?? "workshop";
 }
 
-export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 /** Radii run 22..26 and the coastline swings up to 23% either way (build.ts blob): the widest island reaches 32. */
-export const MAX_REACH = 32;
+const MAX_REACH = 32;
 /**
  * Spiral constant: on r = SPACING * sqrt(i) no two islands sit closer than SPACING (measured for 2 to 40 islands in a
  * group), so 92 leaves at least 92 - 2 * MAX_REACH = 28 units of open sea.
  */
-export const SPACING = 92;
+const SPACING = 92;
 /** Open sea between groups. */
-export const GROUP_GAP = 70;
+const GROUP_GAP = 70;
 /** Room a group reserves: for the next power of two of islands, so one more repo only moves its neighbours when the folder doubles. */
-export function groupRoom(members: number): number {
+function groupRoom(members: number): number {
   return 2 ** Math.ceil(Math.log2(Math.max(1, members)));
 }
 

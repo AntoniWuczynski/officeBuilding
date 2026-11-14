@@ -83,7 +83,15 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   const width = storeyWidth(Math.max(0, ...floors.map((f) => f.sessions.length)));
   const islands = mode === "islands";
   const shownName = islands && buildingName === DEFAULT_BUILDING_NAME ? ISLANDS_DEFAULT_NAME : buildingName;
-  const place = islands ? "island" : "floor";
+  const words = PLACE[mode];
+  const openAdding = (): void => {
+    onOpenPlate();
+    setAdding(true);
+  };
+  const openDemolishing = (projectId: string): void => {
+    onOpenPlate();
+    setDemolishing(projectId);
+  };
 
   const originOf = (el: HTMLElement | null): ScreenOrigin => {
     const view = viewRef.current?.getBoundingClientRect();
@@ -97,11 +105,11 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
       <header className="topbar" data-tauri-drag-region>
         <span className="topbar-sign">{shownName}</span>
         <label className="search">
-          <span className="sr-only">Search {place}s</span>
+          <span className="sr-only">Search {words.noun}s</span>
           <input
             type="search"
             value={query}
-            placeholder={`Search ${place}s`}
+            placeholder={`Search ${words.noun}s`}
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
@@ -134,13 +142,11 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
 
       {floors.length === 0 ? (
         <p className="scene-note" role="status">
-          {islands
-            ? "No projects yet. When an agent starts work in a repo, its island appears here, or add an island from the list."
-            : "No projects yet. When an agent starts work in a repo, its floor appears here, or add a floor from the roof."}
+          {words.emptyNote}
         </p>
       ) : query.trim() !== "" && matching === 0 ? (
         <p className="scene-note" role="status">
-          No {place}s match “{query.trim()}”.{" "}
+          No {words.noun}s match “{query.trim()}”.{" "}
           <button type="button" className="link" onClick={() => setQuery("")}>
             Clear search
           </button>
@@ -159,8 +165,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
               onRename={(next) => renameBuilding(next.trim() === ISLANDS_DEFAULT_NAME ? DEFAULT_BUILDING_NAME : next)}
               onEnter={(projectId) => onEnter(projectId, originOf(viewRef.current))}
               onOpenSession={(s) => onOpenSession?.(s)}
-              onAddFloor={() => setAdding(true)}
-              onDemolish={setDemolishing}
+              onAddFloor={openAdding}
+              onDemolish={openDemolishing}
             />
           </Suspense>
         ) : (
@@ -181,14 +187,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             name={buildingName}
             onRename={renameBuilding}
             onEnter={(projectId, el) => onEnter(projectId, originOf(el))}
-            onAddFloor={() => {
-              onOpenPlate();
-              setAdding(true);
-            }}
-            onDemolish={(projectId) => {
-              onOpenPlate();
-              setDemolishing(projectId);
-            }}
+            onAddFloor={openAdding}
+            onDemolish={openDemolishing}
             onGone={standing.done}
           />
         </Stage>
@@ -202,7 +202,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           onPickFolder={onPickFolder}
           onCancel={() => setAdding(false)}
           onAdd={(path) => onAddFloor(path).then(() => setAdding(false))}
-          words={PLACE[mode]}
+          words={words}
         />
       ) : null}
 
@@ -212,7 +212,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           agents={doomed.sessions.length}
           onCancel={() => setDemolishing(null)}
           onDemolish={() => onDemolishFloor(doomed.project.id).then(() => setDemolishing(null))}
-          words={PLACE[mode]}
+          words={words}
         />
       )}
     </div>
