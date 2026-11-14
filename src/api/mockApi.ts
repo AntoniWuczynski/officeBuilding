@@ -3,23 +3,41 @@ import type {
   ConversationBacklog,
   ConversationUpdate,
   Decision,
+  ConnectorKind,
+  Editor,
+  EditorList,
+  FloorLink,
+  LinearKeyStatus,
+  LinearTeam,
   OfficeSnapshot,
+  Place,
   Project,
   Session,
   SessionState,
+  Settings,
+  SettingsPatch,
   SetupItemKind,
   SetupView,
   Shell,
   Targets,
+  TodoItem,
   ToolKind,
   ToolOptions,
   ToolUsage,
 } from "../types";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
-import { makeHireOptions } from "./mockHireOptions";
+import { makeHireOptions, withDefaultView } from "./mockHireOptions";
+import { COOLDOWN_MAX_SECS } from "../lib/cooldown";
+import { AGENT_LABEL_MAX } from "../lib/agentLabel";
+import { MOCK_TEAMS, mockLinearTodos } from "./mockConnectors";
+import { MOCK_EDITORS } from "./mockEditors";
+import { joinNames } from "../state/selectors";
+import { makeSettings } from "./mockSettings";
+import { hasQueuedNote, makeAbsentManager, managerPatchError, withManagerHired, withManagerSwitch, withNoteWithdrawn } from "./mockManager";
+import { qaPatchError, withQaChecked, withQaSwitch } from "./mockQa";
 import { makeSetupView } from "./mockSetup";
-import { MockConversations } from "./mockConversation";
+import { CLAUDE_TERMINAL, MockConversations, STRUCTURED } from "./mockConversation";
 
 type Listener = (snapshot: OfficeSnapshot) => void;
 
@@ -63,23 +81,132 @@ export class MockApi implements DiscoveryApi {
   private readonly now: () => Date;
   private readonly options: readonly ToolOptions[] = makeHireOptions();
   private setup: SetupView = makeSetupView();
+  private settings: Settings = makeSettings();
+  private installedEditors: readonly Editor[] = ["cursor", "vs-code"];
+  private readonly goneFolders = new Set<string>();
+  private readonly openLog: { readonly place: Place; readonly editor: Editor }[] = [];
+  private openDeskId: string | null = null;
+  private testAlertCount = 0;
+  private linearKey: LinearKeyStatus;
+  private linearTickFailure: string | null = null;
+  private readonly linkLog: string[] = [];
+  private readonly reviewLog: string[] = [];
   /** A structured desk's state follows its conversation; one that ends leaves its floor. */
   private readonly conversations = new MockConversations((sessionId, state) => {
-    if (state === null) {
-      this.commit({
-        ...this.snapshot,
-        sessions: this.snapshot.sessions.filter((x) => x.id !== sessionId),
-        projects: this.snapshot.projects.map((p) => ({ ...p, sessionIds: p.sessionIds.filter((x) => x !== sessionId) })),
-      });
-      return;
-    }
-    this.commit({ ...this.snapshot, sessions: this.snapshot.sessions.map((x) => (x.id === sessionId ? { ...x, state } : x)) });
+    const queued = this.conversations.queued();
+    const gone = state === null;
+    this.commit({
+      ...this.snapshot,
+      queued,
+      sessions: gone ? this.snapshot.sessions.filter((x) => x.id !== sessionId) : this.snapshot.sessions.map((x) => (x.id === sessionId ? { ...x, state } : x)),
+      projects: gone ? this.snapshot.projects.map((p) => ({ ...p, sessionIds: p.sessionIds.filter((x) => x !== sessionId) })) : this.snapshot.projects,
+    });
   });
   private readonly shells = new Map<string, FakeShell>();
 
   constructor(seed: OfficeSnapshot = makeSeedSnapshot(), now: () => Date = () => new Date()) {
     this.snapshot = seed;
     this.now = now;
+    this.linearKey = seed.connections.length > 0 ? { kind: "saved", account: null } : { kind: "missing" };
+  }
+
+  /** The desk whose panel was last reported open, for tests. */
+  get openDesk(): string | null {
+    return this.openDeskId;
+  }
+
+  /** How many test alerts were asked for, for tests. */
+  get testAlerts(): number {
+    return this.testAlertCount;
+  }
+
+  getSettings(): Promise<Settings> {
+    return Promise.resolve(this.settings);
+  }
+
+  updateSettings(patch: SettingsPatch): Promise<Settings> {
+    const cooldown = patch.notifications?.cooldownSecs;
+    if (cooldown !== undefined && !(Number.isInteger(cooldown) && cooldown >= 0 && cooldown <= COOLDOWN_MAX_SECS)) {
+      return Promise.reject(new Error(`the cooldown must be between 0 and ${COOLDOWN_MAX_SECS} seconds`));
+    }
+    const label = patch.connectors?.linearAgentLabel.trim();
+    if (label !== undefined && (label.length === 0 || [...label].length > AGENT_LABEL_MAX)) {
+      return Promise.reject(new Error(`the agent label must be 1 to ${AGENT_LABEL_MAX} characters`));
+    }
+    const qaError = patch.qa === undefined ? null : qaPatchError(patch.qa);
+    if (qaError !== null) return Promise.reject(new Error(qaError));
+    const managerError = patch.manager === undefined ? null : managerPatchError(patch.manager);
+    if (managerError !== null) return Promise.reject(new Error(managerError));
+    this.settings = { ...this.settings, ...patch };
+    return Promise.resolve(this.settings);
+  }
+
+  /** Which editors count as installed, for tests. */
+  setInstalledEditors(list: readonly Editor[]): void {
+    this.installedEditors = list;
+  }
+
+  /** Make a session's folder disappear, for tests. */
+  loseFolder(sessionId: string): void {
+    this.goneFolders.add(sessionId);
+  }
+
+  /** Every open that succeeded, for tests. */
+  get opened(): readonly { readonly place: Place; readonly editor: Editor }[] {
+    return this.openLog;
+  }
+
+  editors(): Promise<EditorList> {
+    return Promise.resolve({
+      editors: MOCK_EDITORS.map((o) => ({ ...o, installed: this.installedEditors.includes(o.editor) })),
+      defaultEditor: this.pickEditor(null),
+    });
+  }
+
+  openInEditor(place: Place, editor: Editor | null): Promise<Editor> {
+    const failure = this.placeError(place);
+    if (failure !== null) return Promise.reject(new Error(failure));
+    const asked = editor === null ? null : MOCK_EDITORS.find((o) => o.editor === editor);
+    if (asked !== null && asked !== undefined && !this.installedEditors.includes(asked.editor)) {
+      return Promise.reject(new Error(`${asked.label} is not installed on this Mac`));
+    }
+    const used = this.pickEditor(editor);
+    if (used === null) return Promise.reject(new Error(`no editor was found on this Mac (looked for ${joinNames(MOCK_EDITORS.map((e) => e.label))})`));
+    this.openLog.push({ place, editor: used });
+    return Promise.resolve(used);
+  }
+
+  /** The asked editor, else the preferred one, else the first installed; null when none is installed. */
+  private pickEditor(asked: Editor | null): Editor | null {
+    const installed = (e: Editor | null): e is Editor => e !== null && this.installedEditors.includes(e);
+    if (installed(asked)) return asked;
+    if (installed(this.settings.editor.preferred)) return this.settings.editor.preferred;
+    return MOCK_EDITORS.map((o) => o.editor).find(installed) ?? null;
+  }
+
+  /** Why the backend would refuse this place, or null when its folder can be opened. */
+  private placeError(place: Place): string | null {
+    const { sessions, ended, projects } = this.snapshot;
+    if (place.kind === "floor") {
+      return projects.some((p) => p.id === place.projectId) ? null : `${place.projectId} is not a floor of this building`;
+    }
+    const known = sessions.find((s) => s.id === place.sessionId);
+    if (known === undefined && !ended.some((s) => s.id === place.sessionId)) return `unknown session: ${place.sessionId}`;
+    if (place.kind === "helper") {
+      if (known === undefined) return `unknown session: ${place.sessionId}`;
+      if (!known.helpers.some((h) => h.id === place.helperId)) return `unknown helper: ${place.helperId}`;
+    }
+    return this.goneFolders.has(place.sessionId) ? "that worktree is gone" : null;
+  }
+
+  setOpenDesk(sessionId: string | null): Promise<void> {
+    this.openDeskId = sessionId;
+    return Promise.resolve();
+  }
+
+  testAlert(): Promise<void> {
+    this.testAlertCount += 1;
+    return Promise.resolve();
   }
 
   setupView(): Promise<SetupView> {
@@ -120,7 +247,7 @@ export class MockApi implements DiscoveryApi {
   }
 
   hireOptions(): Promise<readonly ToolOptions[]> {
-    return Promise.resolve(this.options);
+    return Promise.resolve(withDefaultView(this.options, this.settings.agents.view));
   }
 
   toolUsage(): Promise<readonly ToolUsage[]> {
@@ -178,9 +305,9 @@ export class MockApi implements DiscoveryApi {
     if (request.ultracode && tool?.ultracode === null) {
       return Promise.reject(new Error(`${request.tool} has no ultracode`));
     }
-    if (request.structured && tool?.structured !== true) {
-      return Promise.reject(new Error(`${request.tool} can only run in a terminal`));
-    }
+    const chat = request.view === "chat" ? tool?.chat : undefined;
+    if (chat?.kind === "unavailable") return Promise.reject(new Error(chat.reason));
+    const structured = chat?.kind === "available" && !chat.terminal;
     const id = this.nextId("s-new");
     const session: Session = {
       id,
@@ -188,7 +315,7 @@ export class MockApi implements DiscoveryApi {
       projectId,
       title: request.title.trim() === "" ? "New task" : request.title.trim(),
       state: "thinking",
-      control: request.structured ? "structured" : "full",
+      control: structured ? "structured" : "full",
       model: model.id,
       effort: request.effort,
       lastActivityAt: this.stamp(),
@@ -197,6 +324,7 @@ export class MockApi implements DiscoveryApi {
       helpers: [],
       pets: [],
       worktree: false,
+      branch: null,
     };
     const projects = this.snapshot.projects.map((p) =>
       p.id === projectId ? { ...p, sessionIds: [...p.sessionIds, id] } : p,
@@ -205,8 +333,9 @@ export class MockApi implements DiscoveryApi {
       ...this.snapshot,
       projects,
       sessions: [...this.snapshot.sessions, session],
+      chatDesks: chat?.kind === "available" && chat.terminal ? [...this.snapshot.chatDesks, id] : this.snapshot.chatDesks,
     });
-    if (request.structured) this.conversations.start(id, request.title.trim());
+    if (chat?.kind === "available") this.conversations.start(id, request.title.trim(), structured ? STRUCTURED : CLAUDE_TERMINAL);
     return Promise.resolve(session);
   }
 
@@ -235,8 +364,13 @@ export class MockApi implements DiscoveryApi {
   }
 
   structuredStop(sessionId: string): Promise<void> {
-    this.conversations.stop(sessionId);
-    return Promise.resolve();
+    const e = this.conversations.stop(sessionId);
+    return e === null ? Promise.resolve() : Promise.reject(e);
+  }
+
+  withdrawMessage(messageId: string): Promise<void> {
+    const e = this.conversations.withdraw(messageId);
+    return e === null ? Promise.resolve() : Promise.reject(e);
   }
 
   /** The agent walks back in at once, thinking, in its own (fake) terminal. */
@@ -260,6 +394,7 @@ export class MockApi implements DiscoveryApi {
       helpers: [],
       pets: [],
       worktree: false,
+      branch: null,
     };
     this.commit({
       ...this.snapshot,
@@ -324,9 +459,14 @@ export class MockApi implements DiscoveryApi {
   }
 
   tickTodo(todoId: string): Promise<void> {
-    const exists = this.snapshot.todos.some((t) => t.id === todoId);
-    if (!exists) {
+    const item = this.snapshot.todos.find((t) => t.id === todoId);
+    if (item === undefined) {
       return Promise.reject(new Error(`unknown todo: ${todoId}`));
+    }
+    if (item.source.kind === "linear" && this.linearTickFailure !== null) {
+      const message = this.linearTickFailure;
+      this.linearTickFailure = null;
+      return Promise.reject(new Error(message));
     }
     const todos = this.snapshot.todos.map((t) =>
       t.id === todoId ? { ...t, done: true } : t,
@@ -408,7 +548,7 @@ export class MockApi implements DiscoveryApi {
     if (existing !== undefined) return Promise.resolve(existing);
     const name = clean.split("/").pop() ?? clean;
     const project: Project = { id: this.nextId("p"), name, path: clean, sessionIds: [] };
-    this.commit({ ...this.snapshot, projects: [...this.snapshot.projects, project] });
+    this.commit({ ...this.snapshot, projects: [...this.snapshot.projects, project], managers: [...this.snapshot.managers, makeAbsentManager(project.id)] });
     return Promise.resolve(project);
   }
 
@@ -425,8 +565,164 @@ export class MockApi implements DiscoveryApi {
       sessions: this.snapshot.sessions.filter((s) => !leaving.has(s.id)),
       ended: this.snapshot.ended.filter((e) => e.projectId !== projectId),
       questions: this.snapshot.questions.filter((q) => q.projectId !== projectId),
+      connections: this.snapshot.connections.filter((c) => c.projectId !== projectId),
+      managers: this.snapshot.managers.filter((m) => m.projectId !== projectId),
     });
     return Promise.resolve();
+  }
+
+  /** Make the next tick of a Linear item fail with `message`, for tests. */
+  failNextLinearTick(message: string): void {
+    this.linearTickFailure = message;
+  }
+
+  /** Make a floor's last check fail with `error`, keeping its items, for tests. */
+  setConnectionError(projectId: string, error: string): void {
+    this.commit({ ...this.snapshot, connections: this.snapshot.connections.map((c) => (c.projectId === projectId ? { ...c, error } : c)) });
+  }
+
+  /** Every todo id whose link was opened, for tests. */
+  get openedLinks(): readonly string[] {
+    return this.linkLog;
+  }
+
+  linearKeyStatus(): Promise<LinearKeyStatus> {
+    return Promise.resolve(this.linearKey);
+  }
+
+  setLinearKey(key: string | null): Promise<LinearKeyStatus> {
+    if (key === null) {
+      this.linearKey = { kind: "missing" };
+      this.commit({
+        ...this.snapshot,
+        todos: this.snapshot.todos.filter((t) => t.source.kind !== "linear"),
+        connections: this.snapshot.connections.map((c) => ({ ...c, needsKey: true, fetchedAt: null, error: "no Linear API key is saved" })),
+      });
+      return Promise.resolve(this.linearKey);
+    }
+    if (key.trim() === "") return Promise.reject(new Error("that does not look like a Linear API key"));
+    if (key.includes("bad")) return Promise.reject(new Error("Linear did not accept that key"));
+    this.linearKey = { kind: "saved", account: "Demo User" };
+    this.refreshConnections();
+    return Promise.resolve(this.linearKey);
+  }
+
+  linearTeams(): Promise<readonly LinearTeam[]> {
+    return this.linearKey.kind === "saved" ? Promise.resolve(MOCK_TEAMS) : Promise.reject(new Error("no Linear API key is saved"));
+  }
+
+  connectFloor(projectId: string, link: FloorLink): Promise<void> {
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) {
+      return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    }
+    const keyed = this.linearKey.kind === "saved";
+    const others = this.snapshot.connections.filter((c) => c.projectId !== projectId || c.link.kind !== link.kind);
+    const connection = { projectId, link, fetchedAt: keyed ? this.now().toISOString() : null, error: null, needsKey: !keyed, truncated: false };
+    this.commit({
+      ...this.snapshot,
+      connections: [...others, connection],
+      todos: [...this.todosWithout(projectId, link.kind), ...(keyed ? mockLinearTodos(projectId, link) : [])],
+    });
+    return Promise.resolve();
+  }
+
+  disconnectFloor(projectId: string, connector: ConnectorKind): Promise<void> {
+    this.commit({
+      ...this.snapshot,
+      connections: this.snapshot.connections.filter((c) => c.projectId !== projectId || c.link.kind !== connector),
+      todos: this.todosWithout(projectId, connector),
+    });
+    return Promise.resolve();
+  }
+
+  recheckConnectors(): Promise<void> {
+    if (this.linearKey.kind === "saved") {
+      const fetchedAt = this.now().toISOString();
+      this.commit({ ...this.snapshot, connections: this.snapshot.connections.map((c) => ({ ...c, fetchedAt, error: null })) });
+    }
+    return Promise.resolve();
+  }
+
+  openTodoLink(todoId: string): Promise<void> {
+    if (this.snapshot.todos.find((t) => t.id === todoId)?.source.kind !== "linear") {
+      return Promise.reject(new Error("that item has no page to open"));
+    }
+    this.linkLog.push(todoId);
+    return Promise.resolve();
+  }
+
+  setFloorQa(projectId: string, enabled: boolean): Promise<void> {
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) {
+      return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    }
+    this.commit({ ...this.snapshot, qa: withQaSwitch(this.snapshot.qa, projectId, enabled) });
+    return Promise.resolve();
+  }
+
+  hireManager(projectId: string): Promise<void> {
+    if (projectId === this.snapshot.setupProjectId) return Promise.reject(new Error("the plant room has no manager"));
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    if (this.snapshot.managers.some((m) => m.projectId === projectId && m.status.kind === "hired")) {
+      return Promise.reject(new Error("this floor already has a manager"));
+    }
+    this.commit({ ...this.snapshot, managers: withManagerHired(this.snapshot.managers, projectId, this.now().toISOString()) });
+    return Promise.resolve();
+  }
+
+  setManagerPaused(projectId: string, paused: boolean): Promise<void> {
+    return this.setManagerSwitch(projectId, "paused", paused);
+  }
+
+  setManagerHiring(projectId: string, allowed: boolean): Promise<void> {
+    return this.setManagerSwitch(projectId, "mayHire", allowed);
+  }
+
+  private setManagerSwitch(projectId: string, key: "paused" | "mayHire", on: boolean): Promise<void> {
+    if (!this.snapshot.projects.some((p) => p.id === projectId)) {
+      return Promise.reject(new Error(`${projectId} is not a floor of this building`));
+    }
+    this.commit({ ...this.snapshot, managers: withManagerSwitch(this.snapshot.managers, projectId, key, on) });
+    return Promise.resolve();
+  }
+
+  withdrawManagerNote(projectId: string, noteId: string): Promise<void> {
+    if (!hasQueuedNote(this.snapshot.managers, projectId, noteId)) return Promise.reject(new Error("that note is no longer waiting"));
+    this.commit({ ...this.snapshot, managers: withNoteWithdrawn(this.snapshot.managers, projectId, noteId) });
+    return Promise.resolve();
+  }
+
+  recheckQa(): Promise<void> {
+    const names = new Map(this.snapshot.projects.map((p) => [p.id, p.name]));
+    this.commit({ ...this.snapshot, qa: withQaChecked(this.snapshot.qa, names, this.now().toISOString()) });
+    return Promise.resolve();
+  }
+
+  openReview(projectId: string, number: number, head: string): Promise<void> {
+    const known = this.snapshot.qa.find((q) => q.projectId === projectId)?.reviews.some((r) => r.number === number && r.head === head);
+    if (known !== true) return Promise.reject(new Error("that review is no longer on this floor's record"));
+    this.reviewLog.push(`${projectId}#${number}@${head}`);
+    return Promise.resolve();
+  }
+
+  /** The reviews opened in the browser, for tests. */
+  openedReviews(): readonly string[] {
+    return this.reviewLog;
+  }
+
+  /** The todos left on a floor once a connector's are taken off. */
+  private todosWithout(projectId: string, connector: ConnectorKind): TodoItem[] {
+    return this.snapshot.todos.filter((t) => t.projectId !== projectId || t.source.kind !== connector);
+  }
+
+  /** A saved key brings every connection's items back, fresh. */
+  private refreshConnections(): void {
+    const fetchedAt = this.now().toISOString();
+    const linked = this.snapshot.connections;
+    const todos = [
+      ...this.snapshot.todos.filter((t) => t.source.kind !== "linear"),
+      ...linked.flatMap((c) => mockLinearTodos(c.projectId, c.link)),
+    ];
+    this.commit({ ...this.snapshot, todos, connections: linked.map((c) => ({ ...c, fetchedAt, error: null, needsKey: false })) });
   }
 
   /** A browser has no native folder picker; the dialog asks for a typed path. */
@@ -466,6 +762,7 @@ export class MockApi implements DiscoveryApi {
 
   /** A tiny fake shell: echoes what is typed and answers each line. */
   writeTerminal(sessionId: string, data: string): Promise<void> {
+    this.conversations.answeredInTerminal(sessionId, data);
     const shell = this.shell(sessionId);
     if (shell instanceof Error) return Promise.reject(shell);
     let out = "";

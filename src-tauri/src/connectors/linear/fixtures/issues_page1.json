@@ -1,0 +1,49 @@
+{
+  "data": {
+    "issues": {
+      "nodes": [
+        {
+          "id": "0b0e0c1a-0000-4000-8000-000000000101",
+          "identifier": "ENG-101",
+          "title": "Check the refund email copy",
+          "url": "https://linear.app/example/issue/ENG-101/check-the-refund-email-copy",
+          "assignee": { "isMe": true },
+          "labels": { "nodes": [] }
+        },
+        {
+          "id": "0b0e0c1a-0000-4000-8000-000000000102",
+          "identifier": "ENG-102",
+          "title": "Fix the orders ingest dedupe",
+          "url": "https://linear.app/example/issue/ENG-102/fix-the-orders-ingest-dedupe",
+          "assignee": null,
+          "labels": { "nodes": [{ "name": "Bug" }] }
+        },
+        {
+          "id": "0b0e0c1a-0000-4000-8000-000000000103",
+          "identifier": "ENG-103",
+          "title": "Add retries to the tile fetcher",
+          "url": "https://linear.app/example/issue/ENG-103/add-retries-to-the-tile-fetcher",
+          "assignee": { "isMe": false },
+          "labels": { "nodes": [{ "name": "Agent" }] }
+        },
+        {
+          "id": "0b0e0c1a-0000-4000-8000-000000000104",
+          "identifier": "ENG-104",
+          "title": "Plan the warehouse move",
+          "url": "https://linear.app/example/issue/ENG-104/plan-the-warehouse-move",
+          "assignee": { "isMe": false },
+          "labels": { "nodes": [] }
+        },
+        {
+          "id": "0b0e0c1a-0000-4000-8000-000000000105",
+          "identifier": "ENG-105",
+          "title": "Write the checkout smoke test",
+          "url": "https://linear.app/example/issue/ENG-105/write-the-checkout-smoke-test",
+          "assignee": { "isMe": true },
+          "labels": { "nodes": [{ "name": "agent" }] }
+        }
+      ],
+      "pageInfo": { "hasNextPage": true, "endCursor": "cursor-page-1" }
+    }
+  }
+}

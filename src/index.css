@@ -4,8 +4,17 @@
 @import "./scene/construction.css";
 @import "./scene/cast/puppet.css";
 @import "./styles/chrome.css";
+@import "./styles/view-switch.css";
 @import "./styles/setup.css";
+@import "./styles/settings.css";
+@import "./styles/routing.css";
+@import "./styles/editor.css";
+@import "./styles/connectors.css";
+@import "./styles/qa.css";
+@import "./styles/manager.css";
+@import "./styles/handover.css";
 @import "./styles/conversation.css";
+@import "./styles/chat.css";
 
 html,
 body,

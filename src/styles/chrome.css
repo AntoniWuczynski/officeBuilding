@@ -965,36 +965,3 @@
     line-height: 1.25;
   }
 }
-
-/* Office/Islands: the same sessions, two overviews. */
-/* The overview's search yields room to the switch at the 900px minimum window (240 wide when there is room). */
-.building-view .search {
-  display: block;
-  flex: 0 1 240px;
-  min-width: 120px;
-}
-.building-view .search input {
-  width: 100%;
-}
-.view-switch {
-  display: inline-flex;
-  flex: none;
-  border: 2px solid var(--ink);
-}
-.view-switch button {
-  padding: 6px 12px;
-  border: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font: 700 14px/1 var(--font-sign);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-.view-switch button + button {
-  border-left: 2px solid var(--ink);
-}
-.view-switch button[aria-pressed="true"] {
-  background: var(--ink);
-  color: var(--paper);
-}

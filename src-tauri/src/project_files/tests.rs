@@ -126,6 +126,12 @@ fn checklists_keep_continuations_and_partials() {
         "Rotate the tokens. The Mac's values are stale."
     );
     assert_eq!(items[0].id, "p|TODO.md|2");
+    assert_eq!(
+        items[0].source,
+        TodoSource::File {
+            file: "TODO.md".to_string()
+        }
+    );
     assert!(!items[1].done);
     assert!(items[2].done);
     assert_eq!(parse_item_id(&items[1].id), Some(("TODO.md", 5)));

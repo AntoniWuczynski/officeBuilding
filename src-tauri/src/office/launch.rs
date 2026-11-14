@@ -10,6 +10,34 @@ use crate::tools;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// `claude` subcommands (from `claude --help`, 2.1.285, plus commander's own
+/// `help`). A task that is exactly one of these runs the subcommand even after
+/// `--`; codex takes such a task as its prompt.
+pub(super) const CLAUDE_SUBCOMMANDS: &[&str] = &[
+    "agents",
+    "attach",
+    "auth",
+    "auto-mode",
+    "doctor",
+    "gateway",
+    "help",
+    "import",
+    "install",
+    "logs",
+    "mcp",
+    "plugin",
+    "plugins",
+    "project",
+    "respawn",
+    "rm",
+    "setup-token",
+    "stop",
+    "kill",
+    "ultrareview",
+    "update",
+    "upgrade",
+];
+
 /// What a terminal-backed desk shows, fixed when the agent was hired.
 pub(super) struct Desk {
     pub(super) tool: ToolKind,
@@ -31,9 +59,9 @@ pub(super) enum Launched {
 /// A terminal-backed desk counts as running while its terminal printed this recently.
 pub(super) const DESK_ACTIVE: Duration = Duration::from_secs(10);
 /// The effort id of a model with no effort choices: pass no effort flag.
-const DEFAULT_EFFORT: &str = "default";
+pub(super) const DEFAULT_EFFORT: &str = "default";
 /// The model id that means "the tool's own default": pass no model flag.
-const DEFAULT_MODEL: &str = "default";
+pub(super) const DEFAULT_MODEL: &str = "default";
 /// Codex otherwise opens on an "Update available!" menu whenever a newer
 /// release is out, and the agent never starts work (`check_for_update_on_startup`
 /// in Codex's config).
@@ -61,6 +89,26 @@ pub(super) fn hireable(options: Vec<ToolOptions>, tool: ToolKind) -> Result<Tool
     } else {
         Err(format!("{} is not installed on this Mac", tool_label(tool)))
     }
+}
+
+/// The model of `tool` named `model` (None: its default), and the effort to run it at
+/// (None: the model's default), checked against what the tool offers.
+pub(super) fn chosen_model<'a>(
+    tool: &'a ToolOptions,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<(&'a ModelOption, String), String> {
+    let id = model.unwrap_or(&tool.default_model);
+    let found = tool
+        .models
+        .iter()
+        .find(|m| m.id == id)
+        .ok_or_else(|| format!("{id} is not a model the app can start"))?;
+    let effort = effort.unwrap_or(&found.default_effort);
+    if !found.efforts.iter().any(|e| e.id == effort) {
+        return Err(format!("{} does not support {effort} effort", found.label));
+    }
+    Ok((found, effort.to_string()))
 }
 
 /// Only Claude Code and Codex write session files discovery can read.
@@ -97,6 +145,7 @@ pub(super) fn desk_session(terminal: &str, desk: &Desk, idle: Duration) -> Sessi
         helpers: Vec::new(),
         pets: Vec::new(),
         worktree: false,
+        branch: None,
     }
 }
 
@@ -116,6 +165,7 @@ pub(super) fn launch_command(
 ) -> Result<String, String> {
     let quote = |s: &str| pty::quote(shell, s);
     let env = setup.prefix(&quote);
+    let refuse_peer_messages = setup.refuse_peer_messages;
     let setup = setup.args(&quote);
     let bare_effort = req.effort == DEFAULT_EFFORT;
     // `--` ends the options, so a task starting with `-` stays the prompt.
@@ -132,10 +182,17 @@ pub(super) fn launch_command(
             } else {
                 format!(" --effort {}", quote(&req.effort))
             };
+            // One `--settings` only, so a fixed role's refusal shares the JSON
+            // (<https://code.claude.com/docs/en/settings-reference>, `crossSessionInbound`).
+            let refuse = if refuse_peer_messages {
+                ",\"crossSessionInbound\":\"refuse\""
+            } else {
+                ""
+            };
             format!(
                 "{env}{binary}{setup} --model {}{effort} --settings {}{prompt}",
                 quote(&model.id),
-                quote(&format!("{{\"ultracode\":{}}}", req.ultracode))
+                quote(&format!("{{\"ultracode\":{}{refuse}}}", req.ultracode))
             )
         }
         ToolKind::Codex => {
@@ -181,4 +238,93 @@ pub(super) fn launch_command(
         }
         ToolKind::Unknown => return Err("that tool cannot be hired".to_string()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::EffortOption;
+
+    fn options() -> ToolOptions {
+        let effort = |id: &str| EffortOption {
+            id: id.to_string(),
+            label: id.to_string(),
+            description: String::new(),
+        };
+        let model = |id: &str, label: &str, efforts: &[&str], default: &str| ModelOption {
+            id: id.to_string(),
+            label: label.to_string(),
+            efforts: efforts.iter().map(|e| effort(e)).collect(),
+            default_effort: default.to_string(),
+        };
+        ToolOptions::new(
+            ToolKind::ClaudeCode,
+            true,
+            vec![
+                model("default", "Default", &["medium", "high"], "medium"),
+                model("opus", "Opus", &["low", "high", "max"], "high"),
+            ],
+            "default".to_string(),
+            Some(false),
+        )
+    }
+
+    #[test]
+    fn an_ordinary_hire_is_unchanged_and_a_fixed_role_refuses_messages() {
+        let tool = options();
+        let req = HireRequest {
+            tool: ToolKind::ClaudeCode,
+            title: "fix it".to_string(),
+            model: "opus".to_string(),
+            effort: "high".to_string(),
+            ultracode: true,
+            view: crate::model::DeskView::Terminal,
+        };
+        let mut setup = Launch {
+            opts: vec![crate::setup::Opt {
+                flag: "--plugin-dir",
+                value: "/b/claude-code".to_string(),
+            }],
+            ..Launch::default()
+        };
+        let command = launch_command(&req, &tool.models[1], "fix it", "/bin/zsh", &setup);
+        assert_eq!(
+            command.as_deref(),
+            Ok(
+                r#"claude --plugin-dir '/b/claude-code' --model 'opus' --effort 'high' --settings '{"ultracode":true}' -- 'fix it'"#
+            )
+        );
+        setup.refuse_peer_messages = true;
+        let command = launch_command(&req, &tool.models[1], "fix it", "/bin/zsh", &setup);
+        assert_eq!(
+            command.as_deref(),
+            Ok(
+                r#"claude --plugin-dir '/b/claude-code' --model 'opus' --effort 'high' --settings '{"ultracode":true,"crossSessionInbound":"refuse"}' -- 'fix it'"#
+            )
+        );
+    }
+
+    #[test]
+    fn with_nothing_chosen_the_default_model_runs_at_its_default_effort() {
+        let tool = options();
+        let (model, effort) = chosen_model(&tool, None, None).expect("default");
+        assert_eq!((model.id.as_str(), effort.as_str()), ("default", "medium"));
+        let (model, effort) = chosen_model(&tool, Some("opus"), None).expect("opus");
+        assert_eq!((model.id.as_str(), effort.as_str()), ("opus", "high"));
+        let (model, effort) = chosen_model(&tool, Some("opus"), Some("max")).expect("max");
+        assert_eq!((model.id.as_str(), effort.as_str()), ("opus", "max"));
+    }
+
+    #[test]
+    fn an_unknown_model_or_effort_is_refused_in_the_hire_dialogs_words() {
+        let tool = options();
+        assert_eq!(
+            chosen_model(&tool, Some("haiku"), None).map(|(m, _)| m.id.clone()),
+            Err("haiku is not a model the app can start".to_string())
+        );
+        assert_eq!(
+            chosen_model(&tool, Some("opus"), Some("medium")).map(|(m, _)| m.id.clone()),
+            Err("Opus does not support medium effort".to_string())
+        );
+    }
 }

@@ -508,7 +508,7 @@ describe("floor", () => {
     expect(within(dialog).getByText("Greater reasoning depth for complex problems.")).toBeInTheDocument();
     await user.type(within(dialog).getByRole("textbox"), "port the renderer");
     await user.click(screen.getByTestId("hire-submit"));
-    expect(spawn).toHaveBeenCalledWith("p-arcade", { tool: "codex", model: "gpt-5.6-luna", effort: "high", title: "port the renderer", ultracode: false, structured: false });
+    expect(spawn).toHaveBeenCalledWith("p-arcade", { tool: "codex", model: "gpt-5.6-luna", effort: "high", title: "port the renderer", ultracode: false, view: "terminal" });
     expect(await screen.findByText(/Hired Codex \(gpt-5.6-luna, high effort\) for “port the renderer”/)).toBeInTheDocument();
     // The new hire walks in from the front, then takes the desk.
     const walk = screen.getByTestId("walk");
@@ -694,7 +694,7 @@ describe("manager's office", () => {
       text: `item ${i}`,
       done: i >= 203,
       assignee: "ai" as const,
-      sourceFile: "TODO.md",
+      source: { kind: "file" as const, file: "TODO.md" },
     }));
     renderApp(new MockApi({ ...seed, todos: [...seed.todos, ...many] }));
     await enter("p-arcade");
@@ -710,7 +710,7 @@ describe("manager's office", () => {
   it("TODOs read from a repo file say so", async () => {
     const user = userEvent.setup();
     const seed = makeSeedSnapshot();
-    renderApp(new MockApi({ ...seed, todos: seed.todos.map((t) => (t.assignee === "ai" ? { ...t, sourceFile: "TODO.md" } : t)) }));
+    renderApp(new MockApi({ ...seed, todos: seed.todos.map((t) => (t.assignee === "ai" ? { ...t, source: { kind: "file" as const, file: "TODO.md" } } : t)) }));
     await enter("p-office");
     await user.click(screen.getByTestId("rail-todo"));
     expect(screen.getByText("From TODO.md. Ticking an item writes [x] into the file.")).toBeInTheDocument();
@@ -797,7 +797,7 @@ describe("live updates and failures", () => {
       sessions: seed.sessions.map((s) => (s.id === "s-1" ? { ...s, helpers: change(s.helpers) } : s)),
     });
     act(() => {
-      api.push(withHelpers((h) => [...h, { id: "s-1-new", state: "running", worktree: false }]));
+      api.push(withHelpers((h) => [...h, { id: "s-1-new", state: "running", worktree: false, branch: null }]));
     });
     const arrive = screen.getByTestId("walk");
     expect(arrive).toHaveClass("walk-arrive");

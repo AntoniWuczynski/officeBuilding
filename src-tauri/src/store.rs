@@ -2,7 +2,10 @@
 //! owns sessions and questions; this owns what only the office knows. Saved as
 //! one JSON file in the app's data directory.
 
-use crate::model::{AgentMessage, Decision, TodoItem};
+use crate::manager::wire::ManagerRecord;
+use crate::model::{AgentMessage, Decision, Link, Question, TodoItem};
+use crate::qa::record::QaRecord;
+use crate::routing::config::ContextId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -27,6 +30,21 @@ pub struct Records {
     /// before then stays hidden, and a session started there since brings them back.
     #[serde(default)]
     pub demolished_floors: BTreeMap<String, String>,
+    /// What feeds each floor from outside (absolute repo roots, like `pinned_floors`).
+    #[serde(default)]
+    pub connectors: BTreeMap<String, Vec<Link>>,
+    /// Each floor's QA switch and reviews (absolute repo roots, like `pinned_floors`).
+    #[serde(default)]
+    pub qa: BTreeMap<String, QaRecord>,
+    /// Each floor's manager switches and log (absolute repo roots, like `pinned_floors`).
+    #[serde(default)]
+    pub managers: BTreeMap<String, ManagerRecord>,
+    /// Each floor's account context for routing (absolute repo roots, like `pinned_floors`).
+    #[serde(default)]
+    pub account_contexts: BTreeMap<String, ContextId>,
+    /// Open calls no repo file holds (`AnswerVia::Store`): a manager's escalations on a floor with no decisions file.
+    #[serde(default)]
+    pub calls: Vec<Question>,
     #[serde(default)]
     pub seq: u64,
 }
@@ -67,22 +85,26 @@ impl Store {
 
     /// Write atomically: a temp file renamed over the old one.
     pub fn save(&self) -> Result<(), String> {
-        if let Some(dir) = self.path.parent() {
-            fs::create_dir_all(dir)
-                .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
-        }
-        let tmp = self.path.with_extension("json.tmp");
-        let text = serde_json::to_string_pretty(&self.records).map_err(|e| e.to_string())?;
-        fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, &self.path)
-            .map_err(|e| format!("could not replace {}: {e}", self.path.display()))
+        write_json_atomic(&self.path, &self.records)
     }
+}
+
+/// Write `value` as pretty JSON to `path` atomically: a temp file renamed over the old one.
+pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+    fs::rename(&tmp, path).map_err(|e| format!("could not replace {}: {e}", path.display()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::Party;
+    use crate::model::TodoSource;
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir()
@@ -102,7 +124,7 @@ mod tests {
             text: "x".into(),
             done: false,
             assignee: Party::Human,
-            source_file: None,
+            source: TodoSource::App,
         });
         for i in 0..25 {
             store.push_message(AgentMessage {
@@ -127,6 +149,101 @@ mod tests {
         fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
         fs::write(&path, "{not json").expect("write");
         assert!(Store::open(path.clone()).is_err());
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn an_old_store_loads_and_saves_back_equal() {
+        let path = temp_path("old");
+        fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+        fs::write(
+            &path,
+            r#"{"todos":[{"id":"t-1","projectId":"p","text":"x","done":false,"assignee":"human","sourceFile":null}],"pinnedFloors":[],"seq":1}"#,
+        )
+        .expect("write");
+        let store = Store::open(path.clone()).expect("open");
+        assert_eq!(store.records.todos[0].source, TodoSource::App);
+        assert!(store.records.connectors.is_empty());
+        assert!(store.records.qa.is_empty());
+        assert!(store.records.managers.is_empty());
+        assert!(store.records.calls.is_empty());
+        assert!(store.records.account_contexts.is_empty());
+        store.save().expect("save");
+        assert_eq!(
+            Store::open(path.clone()).expect("reopen").records,
+            store.records
+        );
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn links_round_trip_through_a_save() {
+        let path = temp_path("links");
+        let mut store = Store::open(path.clone()).expect("open");
+        let link = Link::Linear {
+            team_id: "t".into(),
+            team_key: "ENG".into(),
+            team_name: "Engineering".into(),
+            project: None,
+            label: Some("bug".into()),
+        };
+        store
+            .records
+            .connectors
+            .insert("/r".into(), vec![link.clone()]);
+        store.save().expect("save");
+        let again = Store::open(path.clone()).expect("reopen");
+        assert_eq!(again.records.connectors["/r"], vec![link]);
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn a_qa_record_with_a_review_round_trips_through_a_save() {
+        use crate::qa::record::{Review, ReviewOutcome};
+        let path = temp_path("qa");
+        let mut store = Store::open(path.clone()).expect("open");
+        let record = QaRecord {
+            enabled: Some(true),
+            reviews: vec![Review {
+                repo: "example-org/widgets".into(),
+                number: 3,
+                title: "Cache the price list".into(),
+                head: "a".repeat(40),
+                at: "2026-11-12T10:00:00Z".into(),
+                outcome: ReviewOutcome::Clean,
+            }],
+        };
+        store.records.qa.insert("/r".into(), record.clone());
+        store.save().expect("save");
+        let again = Store::open(path.clone()).expect("reopen");
+        assert_eq!(again.records.qa["/r"], record);
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn a_manager_record_with_a_log_round_trips_through_a_save() {
+        use crate::manager::wire::{LogEntry, LogEvent, NoteState};
+        let path = temp_path("manager");
+        let mut store = Store::open(path.clone()).expect("open");
+        let record = ManagerRecord {
+            paused: true,
+            may_hire: true,
+            log: vec![LogEntry {
+                id: "g-1".into(),
+                at: "2026-11-12T10:00:00Z".into(),
+                event: LogEvent::Note {
+                    note_id: "n-1".into(),
+                    to_session_id: "s-2".into(),
+                    to_title: "audit checkout".into(),
+                    text: "Take the first item.".into(),
+                    state: NoteState::Delivered,
+                },
+            }],
+        };
+        store.records.managers.insert("/r".into(), record.clone());
+        store.save().expect("save");
+        let again = Store::open(path.clone()).expect("reopen");
+        assert_eq!(again.records.managers["/r"], record);
         fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
     }
 }

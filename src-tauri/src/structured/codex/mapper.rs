@@ -2,19 +2,20 @@
 //! No process here: the driver feeds it lines and delivers what it returns, so
 //! the tests can replay recorded sessions.
 
-use super::ask::{self, Ask, Fill, FormKind, lines};
+use super::ask::{self, Ask, Fill, FormKind};
+use super::views::{mcp_text, patch_view, plan_text, user_text};
 use super::wire::{Answer, FormValue};
 use super::wire::{
     Capabilities, ClientInfo, CommandDecision, DeltaNote, ElicitAction, ErrorNote, ErrorReply,
-    FileApprovalParams, FileUpdateChange, Incoming, InitializeParams, ItemNote, ItemStatus,
-    McpContent, McpProgressNote, McpResult, Notification, PatchKind, PatchUpdatedNote, PlanNote,
-    Reply, ReplyBody, Request, RequestId, ResolvedNote, ReviewDecision, RpcError, StepStatus,
-    SummaryDeltaNote, SummaryPartNote, TextInput, ThreadItem, ThreadResumeParams,
-    ThreadResumeResult, ThreadStartParams, ThreadStartResult, TurnInterruptParams, TurnNote,
-    TurnStartParams, TurnStartResult, TurnStatus, TurnSteerParams, UserInput, WarningNote,
+    FileApprovalParams, Incoming, InitializeParams, ItemNote, ItemStatus, McpProgressNote,
+    Notification, PatchUpdatedNote, PlanNote, Reply, ReplyBody, Request, RequestId, ResolvedNote,
+    ReviewDecision, RpcError, SummaryDeltaNote, SummaryPartNote, TextInput, ThreadItem,
+    ThreadResumeParams, ThreadResumeResult, ThreadStartParams, ThreadStartResult,
+    TurnInterruptParams, TurnNote, TurnStartParams, TurnStartResult, TurnStatus, TurnSteerParams,
+    WarningNote,
 };
 use crate::model::SessionState;
-use crate::structured::{Approval, Choice, Entry, Event, ToolStatus, Values};
+use crate::structured::{Approval, Choice, Entry, Event, FileDiff, ToolStatus, Values, difftext};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::{HashMap, VecDeque};
@@ -62,6 +63,7 @@ struct ToolView {
     title: String,
     status: ToolStatus,
     detail: String,
+    diffs: Vec<FileDiff>,
 }
 
 /// An approval the human has not answered: the request to answer and, per
@@ -433,10 +435,10 @@ impl Mapper {
                 self.tool_update(&n.item_id, |t| t.detail.push_str(&n.delta))
             }),
             "item/fileChange/patchUpdated" => parse(params, |n: PatchUpdatedNote| {
-                let (title, detail) = patch_view(&n.changes);
+                let (title, diffs) = patch_view(&n.changes);
                 self.tool_update(&n.item_id, |t| {
                     t.title = title;
-                    t.detail = detail;
+                    t.diffs = diffs;
                 })
             }),
             "item/mcpToolCall/progress" => parse(params, |n: McpProgressNote| {
@@ -553,8 +555,8 @@ impl Mapper {
                 changes,
                 status,
             } => {
-                let (title, detail) = patch_view(&changes);
-                return self.tool(&id, title, tool_status(status), detail);
+                let (title, diffs) = patch_view(&changes);
+                return self.tool_with(&id, title, tool_status(status), String::new(), diffs);
             }
             ThreadItem::McpToolCall {
                 id,
@@ -602,6 +604,17 @@ impl Mapper {
     }
 
     fn tool(&mut self, id: &str, title: String, status: ToolStatus, detail: String) -> Vec<Out> {
+        self.tool_with(id, title, status, detail, Vec::new())
+    }
+
+    fn tool_with(
+        &mut self,
+        id: &str,
+        title: String,
+        status: ToolStatus,
+        detail: String,
+        diffs: Vec<FileDiff>,
+    ) -> Vec<Out> {
         // An approval waiting on this item keeps it pending until answered.
         let status = if status == ToolStatus::Running
             && self
@@ -619,6 +632,7 @@ impl Mapper {
                 title,
                 status,
                 detail,
+                diffs,
             },
         );
         self.tool_entry(id)
@@ -647,6 +661,7 @@ impl Mapper {
                     title: t.title.clone(),
                     status: t.status,
                     detail: t.detail.clone(),
+                    diffs: t.diffs.clone(),
                 }))
             })
             .into_iter()
@@ -661,7 +676,10 @@ impl Mapper {
                 typed(params).map(|p| Some(ask::command_approval(p, &self.cwd)))
             }
             "item/fileChange/requestApproval" => typed(params).map(|p: FileApprovalParams| {
-                let files = self.tools.get(&p.item_id).map(|t| t.detail.clone());
+                let files = self
+                    .tools
+                    .get(&p.item_id)
+                    .map(|t| difftext::joined(&t.diffs));
                 Some(ask::file_approval(p, files))
             }),
             "item/permissions/requestApproval" => {
@@ -765,64 +783,6 @@ impl Mapper {
             text,
         }))
     }
-}
-
-/// A tool title naming the files, and the diffs as the detail.
-fn patch_view(changes: &[FileUpdateChange]) -> (String, String) {
-    let names: Vec<String> = changes
-        .iter()
-        .map(|c| match &c.kind {
-            PatchKind::Update {
-                move_path: Some(to),
-            } => format!("{} → {to}", c.path),
-            _ => c.path.clone(),
-        })
-        .collect();
-    let verb = match changes {
-        [c] if matches!(c.kind, PatchKind::Add) => "Add",
-        [c] if matches!(c.kind, PatchKind::Delete) => "Delete",
-        _ => "Edit",
-    };
-    let detail = changes
-        .iter()
-        .map(|c| format!("{}\n{}", c.path, c.diff))
-        .collect::<Vec<_>>()
-        .join("\n");
-    (format!("{verb} {}", names.join(", ")), detail)
-}
-
-fn plan_text(n: &PlanNote) -> String {
-    let steps = n.plan.iter().map(|s| {
-        let mark = match s.status {
-            StepStatus::Completed => "[x]",
-            StepStatus::InProgress => "[~]",
-            StepStatus::Pending => "[ ]",
-        };
-        Some(format!("- {mark} {}", s.step))
-    });
-    lines(std::iter::once(n.explanation.clone()).chain(steps))
-}
-
-fn user_text(content: Vec<UserInput>) -> String {
-    content
-        .into_iter()
-        .filter_map(|c| match c {
-            UserInput::Text { text } => Some(text),
-            UserInput::Other => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn mcp_text(r: McpResult) -> String {
-    r.content
-        .into_iter()
-        .filter_map(|c| match c {
-            McpContent::Text { text } => Some(text),
-            McpContent::Other => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn tool_status(s: ItemStatus) -> ToolStatus {

@@ -2,7 +2,9 @@
 //! re-scan (debounced), and a slow tick catches processes that exit without
 //! touching a file. Changes are pushed to the webview as `office://snapshot`.
 
+use crate::alerts::Alerts;
 use crate::office::Office;
+use crate::structured;
 use notify::{RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,9 +18,24 @@ pub const SETUP_EVENT: &str = "office://setup-changed";
 /// Tools rewrite their config in bursts (Claude Code saves `~/.claude.json` often).
 const SETUP_DEBOUNCE: Duration = Duration::from_secs(1);
 const DEBOUNCE: Duration = Duration::from_millis(400);
+/// The longest a burst of file events may hold a rescan back, so a floor of busy agents
+/// cannot delay an open chat's updates for ever.
+const MAX_DEBOUNCE: Duration = Duration::from_secs(2);
 const TICK: Duration = Duration::from_secs(5);
+/// Never rescan faster than this just to mature a timer.
+const MIN_WAKE: Duration = Duration::from_millis(200);
 
-pub fn start(app: AppHandle, office: Arc<Office>, watched: &[PathBuf]) -> Result<(), String> {
+/// How long the watch loop waits for a file event before it rescans anyway.
+fn next_wait(wake: Option<Duration>) -> Duration {
+    wake.map_or(TICK, |w| w.clamp(MIN_WAKE, TICK))
+}
+
+pub fn start(
+    app: AppHandle,
+    office: Arc<Office>,
+    alerts: Arc<Alerts>,
+    watched: &[PathBuf],
+) -> Result<(), String> {
     let (sender, events) = mpsc::channel();
     let mut notifier = notify::recommended_watcher(sender)
         .map_err(|e| format!("file watcher failed to start: {e}"))?;
@@ -32,16 +49,34 @@ pub fn start(app: AppHandle, office: Arc<Office>, watched: &[PathBuf]) -> Result
         .spawn(move || {
             // Owning the notifier here keeps it alive for the life of the thread.
             let _notifier = notifier;
+            let mut wait = TICK;
             loop {
-                match events.recv_timeout(TICK) {
-                    Ok(_) => while events.recv_timeout(DEBOUNCE).is_ok() {},
+                match events.recv_timeout(wait) {
+                    Ok(_) => {
+                        let started = std::time::Instant::now();
+                        while started.elapsed() < MAX_DEBOUNCE
+                            && events.recv_timeout(DEBOUNCE).is_ok()
+                        {}
+                    }
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                     Err(mpsc::RecvTimeoutError::Disconnected) => return,
                 }
-                if office.refresh() {
+                let changed = office.refresh();
+                let moved = office.deliver_due();
+                let (handle, shown) = (app.clone(), Arc::clone(&office));
+                // Each handover runs on its own thread and pushes a snapshot when it is done.
+                let handed = crate::office::start_due_handovers(&office, move || {
+                    let _ = handle.emit(SNAPSHOT_EVENT, shown.snapshot());
+                });
+                if changed || moved || handed {
                     // A closed webview just means nobody is listening right now.
                     let _ = app.emit(SNAPSHOT_EVENT, office.snapshot());
                 }
+                for update in office.chat_updates() {
+                    let _ = app.emit(structured::EVENT, update);
+                }
+                // On every pass: a held state has to mature on a scan that found no change.
+                wait = next_wait(alerts.check(&app, &office));
             }
         })
         .map_err(|e| format!("could not start the watch thread: {e}"))?;
@@ -92,4 +127,20 @@ pub fn start_setup(app: AppHandle, paths: Vec<PathBuf>) -> Result<(), String> {
         })
         .map_err(|e| format!("could not start the setup watch thread: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_wait_is_the_tick_unless_the_tracker_asks_sooner() {
+        assert_eq!(next_wait(None), TICK);
+        assert_eq!(next_wait(Some(Duration::ZERO)), MIN_WAKE);
+        assert_eq!(
+            next_wait(Some(Duration::from_secs(2))),
+            Duration::from_secs(2)
+        );
+        assert_eq!(next_wait(Some(Duration::from_mins(1))), TICK);
+    }
 }

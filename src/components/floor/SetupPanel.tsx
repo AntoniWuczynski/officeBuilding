@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { HarnessSetup, HookInfo, SetupItemKind, SetupView, Support, Targets, ToolKind } from "../../types";
-import { TOOL_LABEL } from "../../state/selectors";
+import { plural, TOOL_LABEL } from "../../state/selectors";
 
 export interface SetupProps {
   readonly load: () => Promise<SetupView>;
@@ -197,10 +197,6 @@ function TargetPicker({
   );
 }
 
-function count(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
-
 interface InventoryProps {
   readonly harness: HarnessSetup;
   readonly inLibrary: (kind: SetupItemKind, name: string) => boolean;
@@ -232,10 +228,10 @@ function hookLabel(h: HookInfo): string {
 function Inventory({ harness, inLibrary, onImport, onImportAll }: InventoryProps): React.ReactElement {
   const { skills, mcpServers, hooks, plugins, instructions } = harness;
   const parts = [
-    skills === null ? null : count(skills.length, "skill", "skills"),
-    mcpServers === null ? null : count(mcpServers.length, "MCP server", "MCP servers"),
-    hooks === null ? null : count(hooks.length, "hook", "hooks"),
-    plugins === null ? null : count(plugins.length, "plugin", "plugins"),
+    skills === null ? null : plural(skills.length, "skill", "skills"),
+    mcpServers === null ? null : plural(mcpServers.length, "MCP server", "MCP servers"),
+    hooks === null ? null : plural(hooks.length, "hook", "hooks"),
+    plugins === null ? null : plural(plugins.length, "plugin", "plugins"),
   ].filter((p) => p !== null);
   const summary = parts.length === 0 ? "Not read yet" : parts.join(" · ");
   const groups = (

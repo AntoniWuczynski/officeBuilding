@@ -60,7 +60,7 @@ export interface Question {
    * bring its own terminal window to the front. "file": an open call in the
    * repo's decisions file; the answer is written back there.
    */
-  readonly answerVia: "app" | "terminal" | "file";
+  readonly answerVia: "app" | "terminal" | "file" | "store";
   /** Lower = more urgent; the queue is sorted ascending. */
   readonly priority: number;
   readonly askedAt: string;
@@ -86,8 +86,63 @@ export interface TodoItem {
   readonly done: boolean;
   /** Who is expected to tick it off. */
   readonly assignee: "ai" | "human";
-  /** The repo file the item lives in (TODO.md, FOUNDER_TODO.md); null for the app's own records. */
-  readonly sourceFile: string | null;
+  /** The app's own records, a line in a repo file, or a Linear issue. */
+  readonly source: TodoSource;
+}
+
+/** Where a TODO item lives (`TodoSource` in model.rs). */
+export type TodoSource =
+  | { readonly kind: "app" }
+  | { readonly kind: "file"; readonly file: string }
+  | { readonly kind: "linear"; readonly identifier: string; readonly url: string };
+
+/** A project in Linear (not a floor). */
+export interface LinearProject {
+  readonly id: string;
+  readonly name: string;
+}
+
+/** What feeds a floor from Linear: one team, optionally one project and one label, all combined. */
+export interface LinearLink {
+  readonly kind: "linear";
+  readonly teamId: string;
+  readonly teamKey: string;
+  readonly teamName: string;
+  readonly project: LinearProject | null;
+  readonly label: string | null;
+}
+
+/** A floor's link to a connector. One member per connector. */
+export type FloorLink = LinearLink;
+export type ConnectorKind = FloorLink["kind"];
+
+/** A floor's link and how its last check went. */
+export interface Connection {
+  readonly projectId: string;
+  readonly link: FloorLink;
+  /** When its items were last fetched. Null until a check has worked. */
+  readonly fetchedAt: string | null;
+  /** Why the last check failed, in words. Null when it worked or none has run yet. */
+  readonly error: string | null;
+  /** It cannot be checked until a key is saved, or allowed, in Settings. */
+  readonly needsKey: boolean;
+  /** More issues match than are shown. */
+  readonly truncated: boolean;
+}
+
+/** What the building knows about the Linear key. Never the key itself. */
+export type LinearKeyStatus =
+  | { readonly kind: "missing" }
+  | { readonly kind: "saved"; readonly account: string | null }
+  | { readonly kind: "rejected" }
+  | { readonly kind: "unavailable"; readonly reason: string };
+
+/** A Linear team with its open projects, for the connect form. */
+export interface LinearTeam {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly projects: readonly LinearProject[];
 }
 
 /** A note one agent sent another (agent-to-agent messaging). */
@@ -119,6 +174,8 @@ export interface Session {
   readonly pets: readonly Pet[];
   /** It works in a linked git worktree of its floor's repo: a plant sits on its desk. */
   readonly worktree: boolean;
+  /** The worktree's branch; null outside a worktree or on a detached HEAD. */
+  readonly branch: string | null;
 }
 
 /** A shell running a background or long command, Claude Code's `Monitor` watching one, a browser the agent drives, or any other program it started. */
@@ -149,6 +206,8 @@ export interface Helper {
   readonly state: SessionState;
   /** It works in a linked git worktree: a plant sits on its tiny desk. */
   readonly worktree: boolean;
+  /** The worktree's branch; null outside a worktree or on a detached HEAD. */
+  readonly branch: string | null;
 }
 
 export interface Project {
@@ -182,8 +241,24 @@ export interface ToolOptions {
   readonly defaultModel: string;
   /** Null when the tool has no ultracode; otherwise its default (Claude Code). */
   readonly ultracode: boolean | null;
-  /** It can run as a structured desk: no terminal, typed messages and approvals. */
-  readonly structured: boolean;
+  /** Whether its desks can open in the chat view, or why not. */
+  readonly chat: ChatSupport;
+  /** The view the hire dialog starts on: the Settings default, or the terminal when chat is unavailable. */
+  readonly view: DeskView;
+}
+
+/** How a desk's panel opens (`DeskView` in model.rs). */
+export type DeskView = "terminal" | "chat";
+
+/** Whether a tool's desks can open in the chat view (`ChatSupport` in model.rs). */
+export type ChatSupport =
+  | { readonly kind: "available"; readonly terminal: boolean }
+  | { readonly kind: "unavailable"; readonly reason: string };
+
+/** One file's change inside a tool call (`FileDiff` in structured/mod.rs). */
+export interface FileDiff {
+  readonly path: string;
+  readonly text: string;
 }
 
 export type ToolStatus = "pending" | "running" | "done" | "failed";
@@ -193,8 +268,19 @@ export type ConversationEntry =
   | { readonly kind: "user"; readonly id: string; readonly text: string }
   | { readonly kind: "agent"; readonly id: string; readonly text: string }
   | { readonly kind: "thought"; readonly id: string; readonly text: string }
-  | { readonly kind: "tool"; readonly id: string; readonly title: string; readonly status: ToolStatus; readonly detail: string }
+  | { readonly kind: "tool"; readonly id: string; readonly title: string; readonly status: ToolStatus; readonly detail: string; readonly diffs: readonly FileDiff[] }
   | { readonly kind: "notice"; readonly id: string; readonly text: string };
+
+export type ApprovalMode = "inline" | "terminal" | "none";
+
+/** What a conversation's panel may offer (`Capabilities` in structured/mod.rs). */
+export interface ChatCapabilities {
+  readonly compose: boolean;
+  readonly stop: boolean;
+  readonly end: boolean;
+  readonly approvals: ApprovalMode;
+  readonly terminal: boolean;
+}
 
 /** What a field of an approval takes. */
 export type FieldKind =
@@ -228,6 +314,10 @@ export interface ConversationBacklog {
   readonly approval: Approval | null;
   /** Why the agent is gone, once it is. */
   readonly ended: string | null;
+  /** What the panel may offer; fixed while it is open. */
+  readonly capabilities: ChatCapabilities;
+  /** Older entries were left out of `transcript`. */
+  readonly earlier: boolean;
 }
 
 /** A change to a structured desk, pushed while its panel is open. */
@@ -237,6 +327,8 @@ export interface ConversationUpdate {
   readonly state: SessionState;
   readonly approval: Approval | null;
   readonly ended: string | null;
+  /** The transcript was read again from the top: empty it before applying `entry`. */
+  readonly reset: boolean;
 }
 
 /** One usage-limit window of a tool, as the tool itself last measured it. */
@@ -274,6 +366,18 @@ export interface OfficeSnapshot {
   readonly setupProjectId: string;
   /** Plain shells the human opened, listed in each floor's manager's office. */
   readonly shells: readonly Shell[];
+  /** Each standing floor's links to connectors, with how the last check went. */
+  readonly connections: readonly Connection[];
+  /** One QA desk per standing floor except the setup floor, in floor order. */
+  readonly qa: readonly QaFloor[];
+  /** One entry per standing floor except the setup floor, in floor order. */
+  readonly managers: readonly ManagerFloor[];
+  /** Sessions in the app's own terminals whose desk opens in the chat view, by session id. */
+  readonly chatDesks: readonly string[];
+  /** Your own messages waiting for their desks, oldest first. */
+  readonly queued: readonly QueuedNote[];
+  /** Used-up subscriptions and what each desk's handover has to say. */
+  readonly handover: HandoverView;
 }
 
 /** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */
@@ -341,4 +445,398 @@ export interface SetupView {
   readonly harnesses: readonly HarnessSetup[];
   /** What in the library could not be used, in words. */
   readonly problems: readonly string[];
+}
+
+/** When and how the building tells you an agent stopped (`NotificationSettings` in settings.rs). */
+export interface NotificationSettings {
+  readonly finished: boolean;
+  readonly needsYou: boolean;
+  readonly stuck: boolean;
+  readonly sound: boolean;
+  readonly dockBounce: boolean;
+  readonly systemNotification: boolean;
+  /** At most one alert every this many seconds, 0 to 600. */
+  readonly cooldownSecs: number;
+}
+
+/** An editor the building can open a folder in (`Editor` in editor.rs). */
+export type Editor = "cursor" | "vs-code" | "zed" | "devin-desktop";
+
+export interface EditorOption {
+  readonly editor: Editor;
+  readonly label: string;
+  readonly installed: boolean;
+}
+
+/** The editors the building knows, in a fixed order, and the one "Open in" uses. */
+export interface EditorList {
+  readonly editors: readonly EditorOption[];
+  /** Null when none is installed. */
+  readonly defaultEditor: Editor | null;
+}
+
+/** Something in the building that has a folder. The backend finds the folder: a path is never sent. */
+export type Place =
+  | { readonly kind: "session"; readonly sessionId: string }
+  | { readonly kind: "helper"; readonly sessionId: string; readonly helperId: string }
+  | { readonly kind: "floor"; readonly projectId: string };
+
+/** Which editor "Open in" uses (`EditorSettings` in settings.rs). */
+export interface EditorSettings {
+  /** Null: the first one found. */
+  readonly preferred: Editor | null;
+}
+
+/** Connector defaults for the whole building (`ConnectorSettings` in settings.rs). */
+export interface ConnectorSettings {
+  /** Linear issues carrying this label go on the whiteboard. 1 to 80 characters. */
+  readonly linearAgentLabel: string;
+}
+
+/** What the QA reviewer concluded (`Verdict` in qa/record.rs). */
+export type Verdict = "pass" | "concerns";
+
+/** How one QA review ended (`ReviewOutcome` in qa/record.rs). */
+export type ReviewOutcome =
+  | { readonly kind: "posted"; readonly verdict: Verdict; readonly findings: number; readonly reviewId: number }
+  | { readonly kind: "clean" }
+  | { readonly kind: "failed"; readonly reason: string };
+
+/** One review the QA desk attempted (`Review` in qa/record.rs). */
+export interface Review {
+  /** "owner/name". */
+  readonly repo: string;
+  readonly number: number;
+  readonly title: string;
+  /** The reviewed head commit, 40 hex characters. */
+  readonly head: string;
+  readonly at: string;
+  readonly outcome: ReviewOutcome;
+}
+
+/** What a floor's QA desk is doing (`QaStatus` in model.rs). */
+export type QaStatus =
+  | { readonly kind: "off" }
+  | { readonly kind: "waiting" }
+  | { readonly kind: "watching"; readonly repo: string; readonly checkedAt: string; readonly open: number }
+  | { readonly kind: "blocked"; readonly reason: string };
+
+/** The review a floor's QA desk is running now (`QaRun` in model.rs). */
+export interface QaRun {
+  readonly number: number;
+  readonly title: string;
+  readonly startedAt: string;
+  /** The reviewer's desk, once it has one. */
+  readonly sessionId: string | null;
+}
+
+/** A floor's QA desk (`QaFloor` in model.rs). */
+export interface QaFloor {
+  readonly projectId: string;
+  readonly enabled: boolean;
+  readonly status: QaStatus;
+  readonly run: QaRun | null;
+  /** Newest first, at most 5. */
+  readonly reviews: readonly Review[];
+  readonly stamp: Verdict | null;
+}
+
+/** The tools that can be the QA reviewer (`ReviewerTool` in settings.rs). */
+export type ReviewerTool = "claude-code";
+
+/** Quality assurance defaults for the whole building (`QaSettings` in settings.rs). */
+export interface QaSettings {
+  readonly defaultOn: boolean;
+  /** 1 to 60. */
+  readonly pollMinutes: number;
+  readonly everyPush: boolean;
+  readonly skipDrafts: boolean;
+  readonly postWhenClean: boolean;
+  /** 1 to 4. */
+  readonly maxConcurrent: number;
+  /** 1 to 20. */
+  readonly reviewsPerDay: number;
+  readonly tool: ReviewerTool;
+  /** Null: the tool's default model. */
+  readonly model: string | null;
+  /** Null: the model's default effort. */
+  readonly effort: string | null;
+}
+
+/** How new desks open (`AgentSettings` in settings/agents.rs). */
+export interface AgentSettings {
+  readonly view: DeskView;
+}
+
+/** The ways a desk's requests can be served (`ConnectionKind` in routing/config.rs). */
+export type ConnectionKind = "claude-subscription" | "anthropic-api-key" | "openrouter" | "openai-api-key" | "chatgpt-sign-in";
+/** The four model tiers (`TierId` in routing/config.rs). */
+export type TierId = "fable" | "opus" | "sonnet" | "haiku";
+export type PerTier<T> = Readonly<Record<TierId, T>>;
+
+/** What a tier is sent as on one connection (`TierTarget` in routing/config.rs). */
+export interface TierTarget {
+  readonly model: string;
+  /** The effort a desk asks for, to the effort sent upstream. */
+  readonly efforts: Readonly<Record<string, string>>;
+}
+
+export interface RoutingConnection {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: ConnectionKind;
+  /** The id of its account context. */
+  readonly context: string;
+  readonly paid: boolean;
+  readonly experimental: boolean;
+  readonly targets: PerTier<TierTarget | null>;
+}
+
+export interface AccountContext {
+  readonly id: string;
+  readonly name: string;
+  /** Connection ids, in the order they are tried. */
+  readonly chain: readonly string[];
+}
+
+/** The Routing group (`RoutingSettings` in settings/routing.rs). */
+export interface RoutingSettings {
+  readonly enabled: boolean;
+  readonly contexts: readonly AccountContext[];
+  readonly connections: readonly RoutingConnection[];
+  /** The model names a desk asks for, by tier. */
+  readonly tiers: PerTier<readonly string[]>;
+}
+
+/** What the building knows about a connection's API key. Never the key (`KeyStatus` in routing/keys.rs). */
+export type RoutingKeyStatus = { readonly kind: "missing" } | { readonly kind: "saved" } | { readonly kind: "unavailable"; readonly reason: string };
+
+/** A floor's account context with the contexts it can pick from (`FloorRouting` in routing/floors.rs). */
+export interface FloorRouting {
+  readonly enabled: boolean;
+  readonly context: string | null;
+  readonly contexts: readonly { readonly id: string; readonly name: string }[];
+}
+
+/** What a request can need beyond text (`Capability` in routing/capabilities.rs). */
+export type RouteCapability = "tools" | "images" | "documents" | "server-tools";
+
+/** Why a connection may not be tried (`Skip` in routing/policy.rs). */
+export type RouteSkip =
+  | { readonly kind: "removed" }
+  | { readonly kind: "paid-not-allowed" }
+  | { readonly kind: "experimental-not-allowed" }
+  | { readonly kind: "no-credential" }
+  | { readonly kind: "unmapped-model"; readonly model: string }
+  | { readonly kind: "no-target"; readonly tier: TierId }
+  | { readonly kind: "effort-unmapped"; readonly tier: TierId; readonly effort: string }
+  | { readonly kind: "unsupported"; readonly capability: RouteCapability }
+  | { readonly kind: "exhausted" }
+  | { readonly kind: "tried" };
+
+/** The part of a connection's allowance a record covers (`Bucket` in routing/availability.rs). */
+export type RouteBucket = { readonly kind: "whole" } | { readonly kind: "tier"; readonly tier: TierId } | { readonly kind: "model"; readonly model: string };
+
+/** One saved observation that an allowance is used up (`ExhaustedScope` in routing/status.rs). Times are Unix seconds. */
+export interface ExhaustedScope {
+  readonly bucket: RouteBucket;
+  readonly window: string | null;
+  readonly observedAt: number;
+  readonly resetAt: number | null;
+  readonly checking: boolean;
+  readonly retryArmed: boolean;
+}
+
+export type RouteProblemKind = "throttled" | "faulted" | "unauthorised" | "forbidden" | "rejected" | "unreachable" | "interrupted";
+export type RouteEntryState = { readonly kind: "active" } | { readonly kind: "ready" } | { readonly kind: "unavailable"; readonly reason: RouteSkip };
+
+/** One connection of a desk's order (`EntryStatus` in routing/status.rs). */
+export interface RouteEntry {
+  readonly connection: string;
+  readonly name: string;
+  readonly kind: ConnectionKind;
+  readonly state: RouteEntryState;
+  readonly exhausted: readonly ExhaustedScope[];
+  readonly problem: { readonly kind: RouteProblemKind; readonly at: number } | null;
+}
+
+/** A routed session (`RouteStatus` in routing/status.rs). */
+export interface RouteStatus {
+  readonly context: string;
+  readonly generation: number;
+  readonly active: string | null;
+  readonly blockedSince: number | null;
+  readonly lastSwitch: { readonly from: string; readonly to: string; readonly reason: "exhausted" | "manual"; readonly at: number } | null;
+  readonly lastServed: {
+    readonly connection: string;
+    readonly requestedModel: string;
+    readonly requestedEffort: string | null;
+    /** Null: sent as requested. */
+    readonly model: string | null;
+    readonly effort: string | null;
+    readonly at: number;
+  } | null;
+  readonly entries: readonly RouteEntry[];
+}
+
+/** What became of hidden reasoning when the desk changed connection (`Reasoning` in routing/live.rs). */
+export type RouteReasoning = "intact" | "vendor-may-drop" | "removed";
+
+/** A routed desk's route (`DeskRoute` in routing/live.rs). */
+export interface DeskRoute {
+  readonly status: RouteStatus;
+  readonly reasoning: RouteReasoning;
+  readonly requests: number;
+  readonly recordsProblem: string | null;
+}
+
+/** The app's settings, kept by the backend. One field per group. */
+export interface Settings {
+  readonly notifications: NotificationSettings;
+  readonly editor: EditorSettings;
+  readonly connectors: ConnectorSettings;
+  readonly qa: QaSettings;
+  readonly manager: ManagerSettings;
+  readonly agents: AgentSettings;
+  readonly routing: RoutingSettings;
+  readonly handover: HandoverSettings;
+}
+
+/** A change to the settings: each group present replaces that group whole. */
+export type SettingsPatch = Partial<Settings>;
+
+/** Why a note has not been handed to its desk (`Hold` in delivery/gate.rs). */
+export type NoteHold = "busy" | "waiting-on-you" | "stuck" | "finished" | "you-typed" | "awaiting-turn" | "hand-started" | "no-idle-signal" | "paused";
+
+/** A note waiting to reach a desk (`QueuedNote` in manager/wire.rs). */
+export interface QueuedNote {
+  readonly id: string;
+  readonly toSessionId: string;
+  readonly text: string;
+  readonly queuedAt: string;
+  readonly hold: NoteHold;
+}
+
+/** What became of a note (`NoteState` in manager/wire.rs). */
+export type NoteState = "queued" | "delivered" | "withdrawn" | "overridden" | "dropped" | "failed";
+
+export type ManagerLogEvent =
+  | { readonly kind: "note"; readonly noteId: string; readonly toSessionId: string; readonly toTitle: string; readonly text: string; readonly state: NoteState }
+  | { readonly kind: "hire"; readonly tool: ToolKind; readonly task: string }
+  | { readonly kind: "escalation"; readonly title: string }
+  | { readonly kind: "refused"; readonly tool: string; readonly reason: string };
+
+export interface ManagerLogEntry {
+  readonly id: string;
+  readonly at: string;
+  readonly event: ManagerLogEvent;
+}
+
+export type ManagerStatus =
+  | { readonly kind: "absent" }
+  | { readonly kind: "hired"; readonly sessionId: string | null; readonly startedAt: string; readonly lastCallAt: string | null };
+
+export interface ManagerCaps {
+  readonly maxDesks: number;
+  readonly hiredNow: number;
+  readonly spendCeilingUsd: number;
+  readonly spentUsd: number;
+  readonly unpricedDesks: number;
+}
+
+/** A floor's manager (`ManagerFloor` in manager/wire.rs). */
+export interface ManagerFloor {
+  readonly projectId: string;
+  readonly status: ManagerStatus;
+  readonly paused: boolean;
+  readonly mayHire: boolean;
+  /** A call it escalated is still open. */
+  readonly escalated: boolean;
+  /** Desks it hired or has sent a note to, by session id. */
+  readonly managed: readonly string[];
+  readonly caps: ManagerCaps;
+  /** Oldest first. */
+  readonly queue: readonly QueuedNote[];
+  /** Newest first, at most 50. */
+  readonly log: readonly ManagerLogEntry[];
+}
+
+/** The tools that can be a floor's manager (`ManagerTool` in settings.rs). */
+export type ManagerTool = "claude-code";
+
+/** Manager defaults for the whole building (`ManagerSettings` in settings.rs). */
+export interface ManagerSettings {
+  readonly tool: ManagerTool;
+  readonly model: string | null;
+  readonly effort: string | null;
+  /** 1 to 10. */
+  readonly maxDesks: number;
+  /** Whole US dollars, 1 to 1000. */
+  readonly spendCeilingUsd: number;
+}
+
+/** The two tools a desk can be handed between (`Tool` in handover/mod.rs). */
+export type HandoverTool = "claude-code" | "codex";
+/** A subscription window the building can name (`Window` in handover/mod.rs). */
+export type LimitWindow = "five-hour" | "seven-day";
+export type BackgroundTaskKind = "workflow" | "subagent" | "shell" | "scheduled" | "goal" | "other";
+/** One piece of background work a desk has in flight (`Task` in handover/mod.rs). */
+export interface BackgroundTask {
+  readonly kind: BackgroundTaskKind;
+  readonly name: string | null;
+}
+/** What the building knows about a desk's background work (`Work` in handover/mod.rs). */
+export type DeskWork =
+  | { readonly kind: "clear" }
+  | { readonly kind: "running"; readonly tasks: readonly BackgroundTask[] }
+  | { readonly kind: "unknown" };
+/** Why a desk waits for you instead of being handed over by itself (`OfferWhy` in handover/view.rs). */
+export type OfferWhy =
+  | { readonly kind: "automatic-off" | "work-running" | "work-unknown" | "seen-elsewhere" | "not-at-the-time" }
+  | { readonly kind: "failed"; readonly reason: string };
+export type BlockWhy = "not-chosen" | "both-used-up" | "already-handed-over";
+/** What a desk's handover has to say (`DeskState` in handover/view.rs). Times are Unix seconds. */
+export type DeskHandoverState =
+  | {
+      readonly kind: "offered";
+      readonly to: HandoverTool;
+      readonly why: OfferWhy;
+      readonly work: DeskWork;
+      readonly window: LimitWindow | null;
+      readonly resetAt: number | null;
+    }
+  | {
+      readonly kind: "blocked";
+      readonly to: HandoverTool;
+      readonly why: BlockWhy;
+      readonly window: LimitWindow | null;
+      readonly resetAt: number | null;
+      readonly otherResetAt: number | null;
+    }
+  | { readonly kind: "underway"; readonly to: HandoverTool }
+  | { readonly kind: "arrived"; readonly from: HandoverTool; readonly at: number; readonly window: LimitWindow | null; readonly resetAt: number | null }
+  | { readonly kind: "left"; readonly to: HandoverTool; readonly at: number }
+  | { readonly kind: "failed"; readonly to: HandoverTool; readonly at: number; readonly reason: string };
+export interface DeskHandover {
+  readonly sessionId: string;
+  readonly state: DeskHandoverState;
+}
+/** A subscription recorded as used up and not yet reset (`UsedUpView` in handover/view.rs). */
+export interface UsedUpView {
+  readonly tool: HandoverTool;
+  readonly window: LimitWindow | null;
+  readonly resetAt: number | null;
+  readonly seenAt: number;
+}
+export interface HandoverView {
+  readonly usedUp: readonly UsedUpView[];
+  readonly desks: readonly DeskHandover[];
+}
+/** What the receiving tool starts with (`StartWith` in settings/handover.rs). */
+export type StartWith = { readonly kind: "tool-default" } | { readonly kind: "chosen"; readonly model: string; readonly effort: string };
+/** The Handover group (`HandoverSettings` in settings/handover.rs). */
+export interface HandoverSettings {
+  readonly automatic: boolean;
+  readonly claudeToCodex: StartWith | null;
+  readonly codexToClaude: StartWith | null;
 }

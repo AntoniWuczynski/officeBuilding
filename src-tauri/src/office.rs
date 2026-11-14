@@ -1,26 +1,29 @@
 //! The office: live discovery plus the app's own records, behind one lock.
 //! Every Tauri command goes through here, so there is one source of truth.
 
+use crate::connectors::hub::Hub;
 use crate::discovery::{self, Discovered, Discovery};
 use crate::feed::Feed;
 use crate::focus;
 use crate::model::{
-    AgentMessage, AnswerVia, ControlMode, EndedSession, HireFailed, HireRequest, OfficeSnapshot,
-    Party, Project, QuestionAnswer, Session, SessionState, Shell, Spend, TerminalBacklog,
-    TerminalExit, TodoItem, ToolKind, ToolOptions,
+    AgentMessage, AnswerVia, ControlMode, DeskView, EndedSession, HireFailed, HireRequest,
+    OfficeSnapshot, Project, Question, QuestionAnswer, Session, SessionState, Shell, Spend,
+    TerminalBacklog, TerminalExit, ToolKind,
 };
-use crate::options;
 use crate::project_files::{self, ProjectFiles};
 use crate::pty::{self, Terminals};
+use crate::qa;
+use crate::settings::SettingsStore;
 use crate::setup::{Launch, Library};
 use crate::store::Store;
 use crate::structured::{self, desks::Desks};
 use launch::{
-    DESK_ACTIVE, Desk, Launched, desk_session, desk_session_id, hireable, is_discovered,
-    launch_command,
+    CLAUDE_SUBCOMMANDS, DESK_ACTIVE, Desk, Launched, chosen_model, desk_session, desk_session_id,
+    hireable, is_discovered, launch_command,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -46,6 +49,17 @@ struct Inner {
     desks: BTreeMap<String, Desk>,
     /// Plain shells the human opened, by terminal id, until they exit.
     shells: BTreeMap<String, Shell>,
+    /// The terminal of each running QA reviewer, with its floor's project id. Only
+    /// `seat_reviewer` adds to it and only `dismiss_reviewer` removes from it.
+    reviewers: BTreeMap<String, String>,
+    /// Notes on their way to desks, and A Human's keystrokes.
+    mail: deliver::Mail,
+    /// Each floor's running manager, by project id.
+    seats: BTreeMap<String, manager::Seat>,
+    /// Which terminals were hired with the chat view.
+    chat: chat::State,
+    /// Used-up subscriptions, handovers and what each desk has to say about them.
+    handover: handover::State,
 }
 
 pub struct Office {
@@ -57,6 +71,26 @@ pub struct Office {
     structured: Arc<Desks>,
     /// The setup floor's project id: the library folder is its floor.
     setup_project_id: String,
+    /// The connectors' cache of each linked floor's items.
+    connectors: Arc<Hub>,
+    /// The app's settings, if this office was given them.
+    settings: Option<Arc<SettingsStore>>,
+    /// The pull request watch behind each floor's QA desk, if this office was given one.
+    qa: Option<Arc<qa::watch::Watch>>,
+    /// What managers need (the token registry, the socket, the helper), or why there is none.
+    manager: Result<manager::ManagerHost, String>,
+    /// Held across a manager's hire, from its checks to its record, so hires are one at a time.
+    hiring: Mutex<()>,
+    /// The Claude Code conversations a panel follows. Taken before the office lock, never under it.
+    chats: Mutex<chat::follow::Followers>,
+    /// The last ticket handed to a `keep_chat` call, so a stale desk switch is ignored.
+    chat_tickets: AtomicU64,
+    /// The provider router, if this office was given one.
+    routing: Option<Arc<crate::routing::router::Router>>,
+    /// What handing desks over needs, if this office was given it.
+    handover_host: Option<HandoverHost>,
+    /// The transcript readers the handover follows. Taken before the office lock, never under it.
+    limits: Mutex<handover::Limits>,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -78,33 +112,6 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 /// Process names of shells: while the started process still runs one, the
 /// login shell has not handed over to the agent yet.
 const SHELL_NAMES: &[&str] = &["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh", "csh"];
-/// `claude` subcommands (from `claude --help`, 2.1.285, plus commander's own
-/// `help`). A task that is exactly one of these runs the subcommand even after
-/// `--`; codex takes such a task as its prompt.
-const CLAUDE_SUBCOMMANDS: &[&str] = &[
-    "agents",
-    "attach",
-    "auth",
-    "auto-mode",
-    "doctor",
-    "gateway",
-    "help",
-    "import",
-    "install",
-    "logs",
-    "mcp",
-    "plugin",
-    "plugins",
-    "project",
-    "respawn",
-    "rm",
-    "setup-token",
-    "stop",
-    "kill",
-    "ultrareview",
-    "update",
-    "upgrade",
-];
 
 /// The app-owned terminal a process runs in, and how many generations below
 /// the agent we started there the process is (0: it is that agent).
@@ -220,8 +227,14 @@ fn launch_failure(
 /// any desk could show its terminal, so that becomes the error here. The agent
 /// has to outlast [`LAUNCH_GRACE`] from the moment the login shell hands over
 /// to it, however long the shell's profile takes (up to [`LAUNCH_LIMIT`]).
-fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<String, String> {
-    let terminal = terminals.spawn_shell(root, command)?;
+/// `env` is set in the terminal's environment, never on its command line.
+fn start_agent_with(
+    terminals: &Terminals,
+    root: &Path,
+    command: &str,
+    env: &[(&str, &str)],
+) -> Result<String, String> {
+    let terminal = terminals.spawn_shell_with(root, command, env)?;
     let pid = terminals.pid(&terminal)?;
     let started = Instant::now();
     let mut handed_over: Option<Instant> = None;
@@ -241,6 +254,11 @@ fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<Stri
             Some(_) | None => {}
         }
     }
+}
+
+#[cfg(test)]
+fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<String, String> {
+    start_agent_with(terminals, root, command, &[])
 }
 
 /// The tool's own resume command for an ended session, on the model and effort it ran with.
@@ -280,6 +298,20 @@ fn resume_command(ended: &EndedSession, shell: &str, setup: &Launch) -> Result<S
     Ok(words.join(" "))
 }
 
+/// What A Human chose for `question`: an option's label or their own words.
+fn answer_text(question: &Question, answer: &QuestionAnswer) -> Result<String, String> {
+    match answer {
+        QuestionAnswer::Option { option_id } => question
+            .options
+            .iter()
+            .find(|o| &o.id == option_id)
+            .map(|o| o.label.clone())
+            .ok_or_else(|| format!("unknown option {option_id}")),
+        QuestionAnswer::Other { text } if !text.trim().is_empty() => Ok(text.trim().to_string()),
+        QuestionAnswer::Other { .. } => Err("empty free-text answer".to_string()),
+    }
+}
+
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -310,8 +342,23 @@ impl Office {
                 hired: BTreeMap::new(),
                 desks: BTreeMap::new(),
                 shells: BTreeMap::new(),
+                reviewers: BTreeMap::new(),
+                mail: deliver::Mail::default(),
+                seats: BTreeMap::new(),
+                chat: chat::State::default(),
+                handover: handover::State::default(),
             }),
             terminals,
+            connectors: Arc::new(Hub::new(Vec::new(), Box::new(|| {}))),
+            settings: None,
+            qa: None,
+            manager: Err("the manager's socket is not open".to_string()),
+            hiring: Mutex::new(()),
+            chats: Mutex::default(),
+            chat_tickets: AtomicU64::new(0),
+            routing: None,
+            handover_host: None,
+            limits: Mutex::default(),
         }
     }
 
@@ -329,6 +376,9 @@ impl Office {
         let mut found = inner.discovery.scan(SystemTime::now());
         let pinned = inner.store.records.pinned_floors.clone();
         drop_demolished(&mut found, &inner.store.records.demolished_floors);
+        if let Some(data) = inner.store.path().parent() {
+            reviewers::hide_ended_reviewers(&mut found, &qa::worktrees_dir(data));
+        }
         let running = self.terminals.running_children();
         inner
             .desks
@@ -358,6 +408,9 @@ impl Office {
             if let Some(p) = found.projects.iter_mut().find(|p| p.id == desk.project_id) {
                 p.session_ids.push(session.id.clone());
             }
+            found
+                .checkouts
+                .insert(session.id.clone(), desk.root.clone());
             found.sessions.push(session);
         }
         let discovery = &inner.discovery;
@@ -391,29 +444,12 @@ impl Office {
         changed
     }
 
-    /// A floor's TODOs for one assignee: its file when it has one, else the app's store.
-    fn todos_for(inner: &Inner, project_id: &str, assignee: Party) -> Vec<TodoItem> {
-        let from_file = inner.files.get(project_id).and_then(|f| match assignee {
-            Party::Human => f.human_todos.clone(),
-            Party::Ai => f.agent_todos.clone(),
-        });
-        from_file.unwrap_or_else(|| {
-            inner
-                .store
-                .records
-                .todos
-                .iter()
-                .filter(|t| t.project_id == project_id && t.assignee == assignee)
-                .cloned()
-                .collect()
-        })
-    }
-
     pub fn snapshot(&self) -> OfficeSnapshot {
         let inner = self.lock();
         let r = &inner.store.records;
         let mut questions = inner.found.questions.clone();
         questions.extend(inner.files.values().flat_map(|f| f.open.iter().cloned()));
+        questions.extend(r.calls.iter().cloned());
         let mut decisions = r.decisions.clone();
         decisions.extend(
             inner
@@ -421,16 +457,7 @@ impl Office {
                 .values()
                 .flat_map(|f| f.decided.iter().flatten().cloned()),
         );
-        let todos = inner
-            .found
-            .projects
-            .iter()
-            .flat_map(|p| {
-                let mut all = Self::todos_for(&inner, &p.id, Party::Human);
-                all.extend(Self::todos_for(&inner, &p.id, Party::Ai));
-                all
-            })
-            .collect();
+        let todos = self.all_todos(&inner);
         let (projects, sessions, ended) = with_structured(&inner.found, &self.structured);
         OfficeSnapshot {
             projects,
@@ -442,20 +469,21 @@ impl Office {
             messages: r.messages.clone(),
             setup_project_id: self.setup_project_id.clone(),
             shells: inner.shells.values().cloned().collect(),
+            connections: self.connections(&inner),
+            qa: self.qa_floors(&inner),
+            managers: self.manager_floors(&inner),
+            chat_desks: Self::chat_desks(&inner),
+            queued: self.queued_messages(&inner),
+            handover: inner.handover.view.clone(),
         }
     }
 
-    pub fn hire_options(&self) -> Vec<ToolOptions> {
-        let mut all = options::hire_options(&self.home);
-        for o in &mut all {
-            o.structured = o.available && structured::supports(o.tool);
-        }
-        all
-    }
-
-    /// Start an agent in an in-app terminal, in the floor's folder. It appears
-    /// as a desk as soon as the tool writes its session files.
-    pub fn spawn_session(&self, project_id: &str, req: &HireRequest) -> Result<Session, String> {
+    /// `spawn_session`, with the terminal it started (None for a structured desk).
+    pub(super) fn spawn_in_terminal(
+        &self,
+        project_id: &str,
+        req: &HireRequest,
+    ) -> Result<(Session, Option<String>), String> {
         // The absolute root, not the `~/…` display path.
         let root = self
             .lock()
@@ -465,20 +493,12 @@ impl Office {
             .cloned()
             .ok_or_else(|| format!("unknown project: {project_id}"))?;
         let tool = hireable(self.hire_options(), req.tool)?;
-        let model = tool
-            .models
-            .iter()
-            .find(|m| m.id == req.model)
-            .ok_or_else(|| format!("{} is not a model the app can start", req.model))?;
-        if !model.efforts.iter().any(|e| e.id == req.effort) {
-            return Err(format!(
-                "{} does not support {} effort",
-                model.label, req.effort
-            ));
-        }
+        let (model, _) = chosen_model(&tool, Some(&req.model), Some(&req.effort))?;
         let task = req.title.trim();
-        if req.structured {
-            return self.spawn_structured(project_id, &root, req, model, task);
+        if req.view == DeskView::Chat && structured::supports(req.tool) {
+            return self
+                .spawn_structured(project_id, &root, req, model, task)
+                .map(|session| (session, None));
         }
         if req.tool == ToolKind::Codex && task.is_empty() {
             // Codex writes nothing discovery can see until its first turn.
@@ -497,6 +517,7 @@ impl Office {
             .setup
             .launch(req.tool, &self.home, Some(&self.lock().feed))?;
         let command = launch_command(req, model, task, &shell, &setup)?;
+        let (command, routed) = self.routed(project_id, req.tool, false, command, &shell)?;
         let title = if task.is_empty() { "New task" } else { task };
         let launched = if is_discovered(req.tool) {
             Launched::Discovered {
@@ -512,9 +533,9 @@ impl Office {
                 effort: req.effort.clone(),
             })
         };
-        let terminal = self.launch(&root, &command, launched)?;
+        let terminal = self.launch_routed(&root, &command, launched, routed)?;
         // A discovered session's real id arrives with discovery; this is only the receipt.
-        Ok(Session {
+        let session = Session {
             id: if is_discovered(req.tool) {
                 format!("hired-{}", chrono::Utc::now().timestamp_millis())
             } else {
@@ -533,7 +554,9 @@ impl Office {
             helpers: Vec::new(),
             pets: Vec::new(),
             worktree: false,
-        })
+            branch: None,
+        };
+        Ok((session, Some(terminal)))
     }
 
     /// Resume an ended session in an in-app terminal, in the folder it ran in.
@@ -558,15 +581,34 @@ impl Office {
             .setup
             .launch(ended.tool, &self.home, Some(&self.lock().feed))?;
         let command = resume_command(&ended, &shell, &setup)?;
-        self.launch(&dir, &command, Launched::Discovered { title: ended.title })
-            .map(drop)
+        let (command, routed) =
+            self.routed(&ended.project_id, ended.tool, true, command, &shell)?;
+        let tool = ended.tool;
+        self.launch_routed(
+            &dir,
+            &command,
+            Launched::Discovered { title: ended.title },
+            routed,
+        )
+        .map(|terminal| self.note_view(tool, &terminal))
     }
 
     /// Run `command` in a new in-app terminal in `dir`. An agent that stops at
     /// once is an error; one that stops later, before reaching a desk, is
     /// reported by `hire_failed`.
     fn launch(&self, dir: &Path, command: &str, launched: Launched) -> Result<String, String> {
-        let terminal = start_agent(&self.terminals, dir, command)?;
+        self.launch_with(dir, command, launched, &[])
+    }
+
+    /// `launch`, with `env` in the terminal's environment and never on its command line.
+    fn launch_with(
+        &self,
+        dir: &Path,
+        command: &str,
+        launched: Launched,
+        env: &[(&str, &str)],
+    ) -> Result<String, String> {
+        let terminal = start_agent_with(&self.terminals, dir, command, env)?;
         // Under the lock `hire_failed` takes: an exit either lands here or finds the entry.
         let mut inner = self.lock();
         if let Some(code) = self.terminals.wait_exit(&terminal, Duration::ZERO)? {
@@ -681,6 +723,9 @@ impl Office {
         question_id: &str,
         answer: &QuestionAnswer,
     ) -> Result<(), String> {
+        if let Some(settled) = self.answer_store_call(question_id, answer) {
+            return settled;
+        }
         {
             let inner = self.lock();
             let question = inner
@@ -701,21 +746,9 @@ impl Office {
                 AnswerVia::App => {
                     return Err("answering in the app is not wired to a terminal yet".to_string());
                 }
+                AnswerVia::Store => return Err("that call is kept by the building".to_string()),
                 AnswerVia::File => {
-                    let text = match answer {
-                        QuestionAnswer::Option { option_id } => question
-                            .options
-                            .iter()
-                            .find(|o| &o.id == option_id)
-                            .map(|o| o.label.clone())
-                            .ok_or_else(|| format!("unknown option {option_id}"))?,
-                        QuestionAnswer::Other { text } if !text.trim().is_empty() => {
-                            text.trim().to_string()
-                        }
-                        QuestionAnswer::Other { .. } => {
-                            return Err("empty free-text answer".to_string());
-                        }
-                    };
+                    let text = answer_text(question, answer)?;
                     let (file, line) =
                         project_files::parse_item_id(question_id).ok_or("malformed question id")?;
                     let root = inner
@@ -730,47 +763,6 @@ impl Office {
         }
         self.refresh();
         Ok(())
-    }
-
-    pub fn tick_todo(&self, todo_id: &str) -> Result<(), String> {
-        let from_file = {
-            let inner = self.lock();
-            inner
-                .files
-                .values()
-                .flat_map(|f| f.human_todos.iter().chain(f.agent_todos.iter()).flatten())
-                .find(|t| t.id == todo_id)
-                .map(|t| {
-                    (
-                        t.project_id.clone(),
-                        project_files::parse_item_id(todo_id)
-                            .map(|(file, line)| (file.to_string(), line)),
-                    )
-                })
-        };
-        if let Some((project_id, location)) = from_file {
-            let (file, line) = location.ok_or("malformed todo id")?;
-            let root = self
-                .lock()
-                .found
-                .roots
-                .get(&project_id)
-                .cloned()
-                .ok_or("that floor is no longer in the building")?;
-            project_files::tick(&root, &file, line)?;
-            self.refresh();
-            return Ok(());
-        }
-        let mut inner = self.lock();
-        let todo = inner
-            .store
-            .records
-            .todos
-            .iter_mut()
-            .find(|t| t.id == todo_id)
-            .ok_or_else(|| format!("unknown todo: {todo_id}"))?;
-        todo.done = true;
-        inner.store.save()
     }
 
     /// Record a note between two agents (delivery into the recipient arrives with the MCP work).
@@ -833,6 +825,7 @@ impl Office {
     }
 
     pub fn terminal_write(&self, session_id: &str, data: &str) -> Result<(), String> {
+        self.human_typed(session_id, data);
         self.terminals.write(&self.terminal_of(session_id)?, data)
     }
 
@@ -890,76 +883,32 @@ fn stop_agents(agents: &[(String, i32)], within: Duration) -> Result<(), String>
     }
 }
 
-/// Keep each demolished floor down until work starts there again. Its earlier
-/// sessions never return to the desks, but a rebuilt floor's sign-out sheet
-/// keeps everyone who left, the agents its demolition stopped included.
-fn drop_demolished(found: &mut Discovered, demolished: &BTreeMap<String, String>) {
-    let instant = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok();
-    for (key, at) in demolished {
-        let Some(at) = instant(at) else { continue };
-        let id = discovery::project_id(Path::new(key));
-        let since = |when: &str| instant(when).is_some_and(|t| t > at);
-        let rebuilt = found
-            .sessions
-            .iter()
-            .any(|s| s.project_id == id && since(&s.last_activity_at))
-            || found
-                .ended
-                .iter()
-                .any(|e| e.project_id == id && since(&e.ended_at));
-        found
-            .sessions
-            .retain(|s| s.project_id != id || since(&s.last_activity_at));
-        if rebuilt {
-            let kept: Vec<String> = found
-                .sessions
-                .iter()
-                .filter(|s| s.project_id == id)
-                .map(|s| s.id.clone())
-                .collect();
-            if let Some(p) = found.projects.iter_mut().find(|p| p.id == id) {
-                p.session_ids.retain(|sid| kept.contains(sid));
-            }
-        } else {
-            found.ended.retain(|e| e.project_id != id);
-            found.projects.retain(|p| p.id != id);
-            found.roots.remove(&id);
-        }
-    }
-    let sessions = &found.sessions;
-    found
-        .questions
-        .retain(|q| q.session_id.is_empty() || sessions.iter().any(|s| s.id == q.session_id));
-    let ended = &found.ended;
-    found
-        .resume_dirs
-        .retain(|sid, _| ended.iter().any(|e| &e.id == sid));
-}
-
-/// Floors the human pinned that no agent is working on yet: added with no desks.
-fn add_pinned_floors(found: &mut Discovered, pinned: &[String], home: &Path) {
-    for key in pinned {
-        let root = PathBuf::from(key);
-        let id = discovery::project_id(&root);
-        if found.roots.contains_key(&id) || !root.is_dir() {
-            continue;
-        }
-        found.projects.push(Project {
-            id: id.clone(),
-            name: root
-                .file_name()
-                .map_or_else(|| key.clone(), |n| n.to_string_lossy().into_owned()),
-            path: discovery::display_path(&root, home),
-            session_ids: Vec::new(),
-        });
-        found.roots.insert(id, root);
-    }
-}
-
+mod chat;
+mod connectors;
+mod deliver;
+mod desk_states;
+mod floor_list;
+mod folders;
+#[cfg(test)]
+mod guard;
+mod handover;
+pub use handover::{HandoverHost, start_due_handovers};
 mod launch;
+mod manager;
+mod manager_calls;
+mod manager_hire;
+mod manager_send;
+mod manager_tools;
+pub use manager::ManagerHost;
+mod qa_desk;
+mod reviewers;
+mod routed;
 mod setup;
 mod shells;
+mod staff;
 mod structured_desks;
+mod todos;
+use floor_list::{add_pinned_floors, drop_demolished};
 use structured_desks::with_structured;
 #[cfg(test)]
 mod tests;

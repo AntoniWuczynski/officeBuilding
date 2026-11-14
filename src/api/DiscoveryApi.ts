@@ -1,4 +1,4 @@
-import type { ConversationBacklog, ConversationUpdate, OfficeSnapshot, Project, Session, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { ConnectorKind, DeskView, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -13,8 +13,8 @@ export interface HireRequest {
   readonly effort: string;
   /** Run with ultracode on (Claude Code only, a setting beside the effort). */
   readonly ultracode: boolean;
-  /** Run as a structured desk instead of in a terminal (tools whose options say they can). */
-  readonly structured: boolean;
+  /** The view its desk opens in. Chat without a terminal starts a structured desk. */
+  readonly view: DeskView;
 }
 
 /** A hired agent that exited before it reached a desk. */
@@ -77,6 +77,28 @@ export interface DiscoveryApi {
 
   /** The setup floor's items and each harness's own setup, re-read on every call. */
   setupView(): Promise<SetupView>;
+
+  /** The app's settings, read from the backend's settings file. */
+  getSettings(): Promise<Settings>;
+
+  /** Change settings: each group in `patch` replaces that group. Resolves to the saved settings. */
+  updateSettings(patch: SettingsPatch): Promise<Settings>;
+
+  /** The editors the building knows, which are installed, and the default. Looks afresh on every call. */
+  editors(): Promise<EditorList>;
+
+  /**
+   * Open the folder behind a desk, a helper's tiny desk or a floor in an editor
+   * (null: the default). Resolves to the editor used. Rejects when the place is
+   * unknown, its folder is gone, or no editor could be started.
+   */
+  openInEditor(place: Place, editor: Editor | null): Promise<Editor>;
+
+  /** Tell the backend which desk's panel is open (null: none), so it does not alert for it. */
+  setOpenDesk(sessionId: string | null): Promise<void>;
+
+  /** Send a test alert in three seconds, by the methods switched on. */
+  testAlert(): Promise<void>;
 
   /** Hear when anything the Setup panel shows may have changed on disk. Returns an unsubscribe. */
   subscribeSetupChanges(listener: () => void): () => void;
@@ -153,20 +175,23 @@ export interface DiscoveryApi {
    */
   resumeSession(sessionId: string): Promise<void>;
 
-  /** A `structured` desk's conversation so far. */
+  /** A chat desk's (structured, or Claude Code in an app terminal) conversation so far. */
   structuredBacklog(sessionId: string): Promise<ConversationBacklog>;
 
-  /** Hear every change to a `structured` desk. Returns an unsubscribe. */
+  /** Hear every change to a chat desk. Returns an unsubscribe. */
   subscribeStructured(sessionId: string, listener: (update: ConversationUpdate) => void): () => void;
 
-  /** Send the human's message to a `structured` desk as its next turn. */
+  /** Send the human's message to a chat desk (structured, or Claude Code in an app terminal). It waits when the desk is busy. */
   structuredPrompt(sessionId: string, text: string): Promise<void>;
 
-  /** Answer a `structured` desk's open approval with one of its choices and the fields' values, by field id. */
+  /** Answer a structured desk's open approval with one of its choices and the fields' values, by field id. */
   structuredAnswer(sessionId: string, approvalId: string, choiceId: string, values: Readonly<Record<string, string>>): Promise<void>;
 
-  /** Stop the turn a `structured` desk is running. */
+  /** Stop the turn a chat desk is running. */
   structuredCancel(sessionId: string): Promise<void>;
+
+  /** Withdraw one of your own messages that is still waiting for its desk. */
+  withdrawMessage(messageId: string): Promise<void>;
 
   /** End a `structured` desk's agent; the desk leaves once it has stopped. */
   structuredStop(sessionId: string): Promise<void>;
@@ -179,4 +204,49 @@ export interface DiscoveryApi {
 
   /** Hear about files dropped onto the window. Returns an unsubscribe. */
   subscribeFileDrops(listener: (drop: FileDrop) => void): () => void;
+
+  /** What the building knows about the Linear key. May read the Keychain. Never returns the key. */
+  linearKeyStatus(): Promise<LinearKeyStatus>;
+
+  /**
+   * Save a Linear API key (checked with Linear first) or, with null, remove the saved one.
+   * Rejects, saving nothing, when Linear refuses the key or cannot be reached.
+   */
+  setLinearKey(key: string | null): Promise<LinearKeyStatus>;
+
+  /** The Linear teams the key can see, each with its open projects. Rejects without a usable key. */
+  linearTeams(): Promise<readonly LinearTeam[]>;
+
+  /** Feed a floor from a connector, replacing its link of the same kind. The floor becomes pinned. */
+  connectFloor(projectId: string, link: FloorLink): Promise<void>;
+
+  /** Stop feeding a floor from a connector. Its items leave the boards. */
+  disconnectFloor(projectId: string, connector: ConnectorKind): Promise<void>;
+
+  /** Ask every connector again now, without waiting for the next minute. */
+  recheckConnectors(): Promise<void>;
+
+  /** Open a connector item (a Linear issue) in the browser. Rejects for an item with no link. */
+  openTodoLink(todoId: string): Promise<void>;
+
+  /** Switch a floor's QA desk on or off. Switching it on pins the floor. */
+  setFloorQa(projectId: string, enabled: boolean): Promise<void>;
+
+  /** Ask GitHub for pull requests again now, without waiting for the next check. */
+  recheckQa(): Promise<void>;
+
+  /** Open a QA review (or its pull request, when nothing was posted) in the browser. */
+  openReview(projectId: string, number: number, head: string): Promise<void>;
+
+  /** Hire this floor's manager. Rejects when one is already there or it cannot be started. */
+  hireManager(projectId: string): Promise<void>;
+
+  /** Pause or resume a floor's manager. Paused, it can read but nothing is sent or hired. */
+  setManagerPaused(projectId: string, paused: boolean): Promise<void>;
+
+  /** Let a floor's manager hire desks, or not. Off until switched on. */
+  setManagerHiring(projectId: string, allowed: boolean): Promise<void>;
+
+  /** Withdraw a note the manager has waiting for a desk. */
+  withdrawManagerNote(projectId: string, noteId: string): Promise<void>;
 }

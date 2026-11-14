@@ -1,17 +1,20 @@
 import { useState } from "react";
-import type { EndedSession } from "../../types";
-import { TOOL_LABEL } from "../../state/selectors";
+import type { DeskHandover, EndedSession } from "../../types";
+import { TOOL_LABEL, handoverOf } from "../../state/selectors";
 import { message } from "../../lib/errors";
+import { OpenInEditor } from "../editor/OpenInEditor";
+import { signOutLine } from "../../lib/handover";
 import { relativeTime } from "../../lib/time";
 
 interface Props {
   readonly ended: readonly EndedSession[];
+  readonly handovers: readonly DeskHandover[];
   readonly now: Date;
   readonly onResume: (sessionId: string) => Promise<void>;
 }
 
 /** The floor's sign-out sheet: agents that left in the last 12 hours, each a Resume away. */
-export function SignOutSheet({ ended, now, onResume }: Props): React.ReactElement {
+export function SignOutSheet({ ended, handovers, now, onResume }: Props): React.ReactElement {
   return (
     <div className="panel-body">
       {ended.length === 0 ? (
@@ -23,7 +26,7 @@ export function SignOutSheet({ ended, now, onResume }: Props): React.ReactElemen
           </p>
           <ul className="signout-list">
             {ended.map((e) => (
-              <SignOutRow key={e.id} ended={e} now={now} onResume={onResume} />
+              <SignOutRow key={e.id} ended={e} handover={handoverOf(handovers, e.id)} now={now} onResume={onResume} />
             ))}
           </ul>
         </>
@@ -32,7 +35,7 @@ export function SignOutSheet({ ended, now, onResume }: Props): React.ReactElemen
   );
 }
 
-function SignOutRow({ ended, now, onResume }: { readonly ended: EndedSession; readonly now: Date; readonly onResume: (sessionId: string) => Promise<void> }): React.ReactElement {
+function SignOutRow({ ended, handover, now, onResume }: { readonly ended: EndedSession; readonly handover: DeskHandover | undefined; readonly now: Date; readonly onResume: (sessionId: string) => Promise<void> }): React.ReactElement {
   const [resuming, setResuming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const resume = (): void => {
@@ -44,6 +47,7 @@ function SignOutRow({ ended, now, onResume }: { readonly ended: EndedSession; re
       setResuming(false);
     });
   };
+  const handedOver = handover === undefined ? null : signOutLine(handover.state);
   const model = ended.model === null ? "" : `, ${ended.model}`;
   return (
     <li className="signout-row" data-testid="signed-out-row">
@@ -54,9 +58,17 @@ function SignOutRow({ ended, now, onResume }: { readonly ended: EndedSession; re
         {TOOL_LABEL[ended.tool]}
         {model}, left {relativeTime(ended.endedAt, now)}
       </span>
-      <button type="button" className="btn signout-resume" aria-label={`Resume ${ended.title}`} disabled={resuming} onClick={resume}>
-        {resuming ? "Resuming" : "Resume"}
-      </button>
+      {handedOver === null ? null : (
+        <span className="signout-meta" data-testid="signed-out-handover">
+          {handedOver}
+        </span>
+      )}
+      <span className="signout-resume signout-actions">
+        <OpenInEditor place={{ kind: "session", sessionId: ended.id }} what={`“${ended.title}”`} opens="the folder it worked in" />
+        <button type="button" className="btn" aria-label={`Resume ${ended.title}`} disabled={resuming} onClick={resume}>
+          {resuming ? "Resuming" : "Resume"}
+        </button>
+      </span>
       {error === null ? null : (
         <p className="form-error signout-error" role="alert">
           Could not resume: {error}.

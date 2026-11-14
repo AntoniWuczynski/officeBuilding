@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import type { DiscoveryApi, HireRequest, QuestionAnswer } from "./api/DiscoveryApi";
-import type { Session } from "./types";
-import { TOOL_LABEL, sessionById } from "./state/selectors";
+import type { Editor, Place, Session, SettingsPatch } from "./types";
+import { TOOL_LABEL, editorLabel, sessionById } from "./state/selectors";
 import { useNow } from "./state/useNow";
 import { useOffice } from "./state/useOffice";
 import { ViewSwitch } from "./components/ViewSwitch";
@@ -15,6 +15,16 @@ import { FloorView } from "./components/floor/FloorView";
 import type { Section } from "./components/floor/sections";
 import { TerminalApiContext } from "./components/floor/TerminalPanel";
 import { ConversationApiContext } from "./components/floor/Conversation";
+import { useEditors } from "./state/useEditors";
+import { EditorContext } from "./components/editor/EditorContext";
+import type { EditorActions } from "./components/editor/EditorContext";
+import { ConnectorsContext } from "./components/connectors/ConnectorsContext";
+import type { ConnectorActions } from "./components/connectors/ConnectorsContext";
+import { QaContext } from "./components/qa/QaContext";
+import type { QaActions } from "./components/qa/QaContext";
+import { ManagerContext } from "./components/manager/ManagerContext";
+import type { ManagerActions } from "./components/manager/ManagerContext";
+import { SettingsPanel } from "./components/settings/SettingsPanel";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
 import { message } from "./lib/errors";
@@ -37,6 +47,7 @@ export function App({ api }: Props): React.ReactElement {
   const [view, setView] = useState<View>({ kind: "building" });
   const [origin, setOrigin] = useState<ScreenOrigin>({ x: 0, y: 0 });
   const [section, setSection] = useState<Section | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
   const toastSeq = useRef(0);
@@ -85,10 +96,16 @@ export function App({ api }: Props): React.ReactElement {
     setView({ kind: "building" });
   }, []);
 
+  // The docked terminal and the Settings plate never overlap, so showing one shuts the other.
+  const showTerminal = useCallback((id: string) => {
+    setSettingsOpen(false);
+    setOpenSessionId(id);
+  }, []);
+
   const openSession = useCallback(
     (session: Session) => {
       if (session.control !== "raise-window") {
-        setOpenSessionId(session.id);
+        showTerminal(session.id);
         return;
       }
       api
@@ -96,7 +113,7 @@ export function App({ api }: Props): React.ReactElement {
         .then(() => toast("ok", `Brought the ${TOOL_LABEL[session.tool]} window for “${session.title}” to the front.`))
         .catch((err: unknown) => toast("error", `Could not raise the window for “${session.title}”: ${message(err)}.`));
     },
-    [api, toast],
+    [api, toast, showTerminal],
   );
 
   const hire = useCallback(
@@ -107,7 +124,7 @@ export function App({ api }: Props): React.ReactElement {
     [api, toast],
   );
 
-  const newShell = useCallback((projectId: string) => api.openShell(projectId).then((s) => setOpenSessionId(s.id)), [api]);
+  const newShell = useCallback((projectId: string) => api.openShell(projectId).then((s) => showTerminal(s.id)), [api, showTerminal]);
 
   // Cmd+N on a floor opens a new shell there, as it opens a window in Terminal.app.
   // Captured first so a focused terminal cannot swallow it.
@@ -123,6 +140,86 @@ export function App({ api }: Props): React.ReactElement {
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [floorId, newShell, toast]);
+
+  const loadEditors = useCallback(() => api.editors(), [api]);
+  const editors = useEditors(loadEditors);
+  const reloadEditors = editors.reload;
+
+  const editorList = editors.list;
+  const openInEditor = useCallback(
+    (place: Place, editor: Editor | null, what: string) => {
+      api
+        .openInEditor(place, editor)
+        .then((used) => toast("ok", `Opened ${what} in ${editorLabel(editorList, used) ?? "your editor"}.`))
+        .catch((err: unknown) => {
+          const label = editorLabel(editorList, editor ?? editorList?.defaultEditor ?? null) ?? "an editor";
+          toast("error", `Could not open ${what} in ${label}: ${message(err)}.`);
+          reloadEditors();
+        });
+    },
+    [api, editorList, toast, reloadEditors],
+  );
+  const editorActions = useMemo<EditorActions>(() => ({ list: editorList, open: openInEditor }), [editorList, openInEditor]);
+
+  // Cmd+Shift+O opens the desk whose panel is open, else the keyboard-focused worker. Captured first so a focused terminal cannot swallow it.
+  const sessions = snapshot?.sessions;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey || !e.shiftKey || e.altKey || e.ctrlKey || e.key.toLowerCase() !== "o") return;
+      const focused = document.activeElement?.closest('[data-testid="worker"]')?.getAttribute("data-session") ?? null;
+      const open = sessions?.find((s) => s.id === openSessionId);
+      const target = open ?? sessions?.find((s) => s.id === focused);
+      if (target === undefined) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      openInEditor({ kind: "session", sessionId: target.id }, editorList?.defaultEditor ?? null, `“${target.title}”`);
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [sessions, openSessionId, editorList, openInEditor]);
+
+  const openSettings = useCallback(() => {
+    // Plates never overlap: the Hire, Add floor and Demolish dialogs must be closed first.
+    if (document.querySelector(".dialog:not(.settings-dialog)") !== null) return;
+    setSection(null);
+    setOpenSessionId(null);
+    setSettingsOpen(true);
+    reloadEditors();
+  }, [reloadEditors]);
+  const chooseSection = useCallback((next: Section | null) => {
+    if (next !== null) setSettingsOpen(false);
+    setSection(next);
+  }, []);
+
+  // Cmd+, toggles Settings from the building and from any floor. Captured first so a focused terminal cannot swallow it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key !== ",") return;
+      e.preventDefault();
+      if (e.repeat) return;
+      if (settingsOpen) setSettingsOpen(false);
+      else openSettings();
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [settingsOpen, openSettings]);
+
+  // Tell the backend which desk is open so it does not alert for it. A failed report only means an extra alert.
+  useEffect(() => {
+    api.setOpenDesk(openSessionId).catch(() => {});
+  }, [api, openSessionId]);
+
+  const loadSettings = useCallback(() => api.getSettings(), [api]);
+  const saveSettings = useCallback(
+    (patch: SettingsPatch) =>
+      api.updateSettings(patch).then((saved) => {
+        if (patch.editor !== undefined) reloadEditors();
+        return saved;
+      }),
+    [api, reloadEditors],
+  );
+  const testAlert = useCallback(() => api.testAlert(), [api]);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
   const loadHireOptions = useCallback(() => api.hireOptions(), [api]);
   const loadUsage = useCallback((refresh: boolean) => api.toolUsage(refresh), [api]);
@@ -172,6 +269,65 @@ export function App({ api }: Props): React.ReactElement {
     [api, snapshot, toast],
   );
 
+  const connectorActions = useMemo<ConnectorActions>(
+    () => ({
+      keyStatus: () => api.linearKeyStatus(),
+      setKey: (key) => api.setLinearKey(key),
+      teams: () => api.linearTeams(),
+      connect: (projectId, link) => api.connectFloor(projectId, link).then(() => toast("ok", `Connected to Linear team ${link.teamKey}.`)),
+      disconnect: (projectId, connector) => api.disconnectFloor(projectId, connector).then(() => toast("ok", "Disconnected from Linear.")),
+      recheck: () => {
+        api.recheckConnectors().catch((err: unknown) => toast("error", `Could not re-check Linear: ${message(err)}.`));
+      },
+      openLink: (todoId) => {
+        api.openTodoLink(todoId).catch((err: unknown) => toast("error", `Could not open that issue: ${message(err)}.`));
+      },
+      openSettings,
+    }),
+    [api, toast, openSettings],
+  );
+
+  const qaActions = useMemo<QaActions>(
+    () => ({
+      setFloor: (projectId, enabled) =>
+        api.setFloorQa(projectId, enabled).then(() => toast("ok", enabled ? "QA is on for this floor. The floor is pinned." : "QA is off for this floor.")),
+      recheck: () => {
+        api.recheckQa().catch((err: unknown) => toast("error", `Could not ask GitHub: ${message(err)}.`));
+      },
+      openReview: (projectId, review) => {
+        api.openReview(projectId, review.number, review.head).catch((err: unknown) => toast("error", `Could not open that review: ${message(err)}.`));
+      },
+      openSettings,
+    }),
+    [api, toast, openSettings],
+  );
+
+  const managerActions = useMemo<ManagerActions>(() => {
+    const change = (done: string, task: Promise<void>): Promise<void> =>
+      task.then(
+        () => toast("ok", done),
+        (err: unknown) => toast("error", `Could not change the manager: ${message(err)}.`),
+      );
+    return {
+      hire: (projectId) =>
+        api.hireManager(projectId).then(
+          () => toast("ok", "Hired a manager for this floor. The floor is pinned."),
+          (err: unknown) => {
+            toast("error", `Could not hire a manager: ${message(err)}.`);
+            throw err;
+          },
+        ),
+      setPaused: (projectId, paused) =>
+        change(paused ? "The manager is paused. Nothing is sent or hired until you resume it." : "The manager is back at work.", api.setManagerPaused(projectId, paused)),
+      setHiring: (projectId, allowed) =>
+        change(allowed ? "The manager may hire desks on this floor." : "The manager may no longer hire desks on this floor.", api.setManagerHiring(projectId, allowed)),
+      withdraw: (projectId, noteId) => {
+        api.withdrawManagerNote(projectId, noteId).catch((err: unknown) => toast("error", `Could not withdraw that note: ${message(err)}.`));
+      },
+      openSettings,
+    };
+  }, [api, toast, openSettings]);
+
   const tick = useCallback(
     (todoId: string) => {
       api.tickTodo(todoId).catch((err: unknown) => toast("error", `Could not tick that off: ${message(err)}.`));
@@ -218,6 +374,7 @@ export function App({ api }: Props): React.ReactElement {
               onAddFloor={addFloor}
               onDemolishFloor={demolishFloor}
               loadUsage={loadUsage}
+              onOpenPlate={closeSettings}
               mode={viewMode}
               viewSwitch={<ViewSwitch mode={viewMode} onChange={setViewMode} />}
               onOpenSession={(s) => {
@@ -242,7 +399,9 @@ export function App({ api }: Props): React.ReactElement {
               now={now}
               section={section}
               openSessionId={openSessionId}
-              onSection={setSection}
+              onSection={chooseSection}
+              onOpenSettings={openSettings}
+              onOpenPlate={closeSettings}
               onOpenSession={openSession}
               onCloseTerminal={() => setOpenSessionId(null)}
               onBack={leave}
@@ -252,7 +411,7 @@ export function App({ api }: Props): React.ReactElement {
               onAnswer={answer}
               onTick={tick}
               onResume={resume}
-              onOpenShell={setOpenSessionId}
+              onOpenShell={showTerminal}
               onNewShell={() => newShell(project.id)}
               onEndShell={(id) => api.endShell(id)}
               setup={setup}
@@ -267,10 +426,19 @@ export function App({ api }: Props): React.ReactElement {
     <MotionConfig reducedMotion="user">
       <TerminalApiContext value={api}>
       <ConversationApiContext value={api}>
+      <EditorContext value={editorActions}>
+      <ConnectorsContext value={connectorActions}>
+      <QaContext value={qaActions}>
+      <ManagerContext value={managerActions}>
         <div className={viewMode === "islands" && project === undefined ? "app is-islands" : "app"}>
           {body}
+          {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </ManagerContext>
+      </QaContext>
+      </ConnectorsContext>
+      </EditorContext>
       </ConversationApiContext>
       </TerminalApiContext>
     </MotionConfig>

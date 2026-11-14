@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MockApi } from "./mockApi";
+import { STRUCTURED } from "./mockConversation";
 import { makeSeedSnapshot } from "./mockData";
+import { addContext } from "../lib/routing";
+import { makeSettings } from "./mockSettings";
 
 const NOW = new Date("2026-09-29T12:00:00Z");
 const fixedNow = (): Date => NOW;
@@ -52,21 +55,101 @@ describe("MockApi", () => {
     const api = new MockApi(makeSeedSnapshot(), fixedNow);
     const listener = vi.fn();
     api.subscribe(listener);
-    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "  port the renderer ", model: "gpt-5.5", effort: "high", ultracode: false, structured: false });
+    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "  port the renderer ", model: "gpt-5.5", effort: "high", ultracode: false, view: "terminal" });
     expect(session).toMatchObject({ projectId: "p-arcade", tool: "codex", state: "thinking", control: "full", title: "port the renderer", model: "gpt-5.5", effort: "high", lastActivityAt: NOW.toISOString() });
     const snap = await api.getSnapshot();
     expect(snap.projects.find((p) => p.id === "p-arcade")?.sessionIds).toContain(session.id);
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it("a chat desk's backlog carries the structured capabilities, and an edit prompt yields a diff", async () => {
+    const api = new MockApi();
+    const session = await api.spawnSession("p-arcade", { tool: "codex", title: "", model: "gpt-5.5", effort: "high", ultracode: false, view: "chat" });
+    const first = await api.structuredBacklog(session.id);
+    expect(first.capabilities).toEqual(STRUCTURED);
+    expect(first.earlier).toBe(false);
+    await api.structuredPrompt(session.id, "edit the notes");
+    const entry = (await api.structuredBacklog(session.id)).transcript.find((e) => e.kind === "tool");
+    expect(entry).toMatchObject({ title: "Edit notes.txt", status: "done", detail: "" });
+    expect(entry?.kind === "tool" ? entry.diffs : []).toHaveLength(1);
+  });
+
   it("spawnSession names an untitled task and rejects bad requests", async () => {
     const api = new MockApi();
-    const ok = { tool: "claude-code", title: "   ", model: "claude-opus-5-5", effort: "high", ultracode: false, structured: false } as const;
+    const ok = { tool: "claude-code", title: "   ", model: "claude-opus-5-5", effort: "high", ultracode: false, view: "terminal" } as const;
     await expect(api.spawnSession("p-arcade", ok)).resolves.toMatchObject({ title: "New task" });
     await expect(api.spawnSession("nope", ok)).rejects.toThrow(/unknown project/);
     await expect(api.spawnSession("p-arcade", { ...ok, model: "gpt-5.5" })).rejects.toThrow(/not a model the app can start/);
     await expect(api.spawnSession("p-arcade", { ...ok, tool: "opencode" })).rejects.toThrow(/not a model the app can start/);
     await expect(api.spawnSession("p-arcade", { ...ok, tool: "codex", model: "gpt-5.5", effort: "max" })).rejects.toThrow(/does not support max effort/);
+  });
+
+  it("hireOptions follows the Agents setting where chat is available", async () => {
+    const api = new MockApi();
+    expect((await api.hireOptions()).every((o) => o.view === "terminal")).toBe(true);
+    await api.updateSettings({ agents: { view: "chat" } });
+    const views = Object.fromEntries((await api.hireOptions()).map((o) => [o.tool, o.view]));
+    expect(views).toEqual({ "claude-code": "chat", codex: "chat", antigravity: "terminal", opencode: "terminal", cursor: "terminal" });
+  });
+
+  it("hires chat desks by whether the tool keeps a terminal, and refuses chat where it is unavailable", async () => {
+    const api = new MockApi();
+    const claude = { tool: "claude-code", title: "a", model: "claude-opus-5-5", effort: "high", ultracode: false, view: "chat" } as const;
+    const full = await api.spawnSession("p-arcade", claude);
+    expect(full.control).toBe("full");
+    expect((await api.getSnapshot()).chatDesks).toEqual([full.id]);
+    const codex = await api.spawnSession("p-arcade", { ...claude, tool: "codex", model: "gpt-5.5" });
+    expect(codex.control).toBe("structured");
+    expect((await api.getSnapshot()).chatDesks).toEqual([full.id]);
+    await expect(api.spawnSession("p-arcade", { ...claude, tool: "antigravity", model: "Gemini 3.6 Flash" })).rejects.toThrow(
+      "chat for Antigravity is not built yet, so it runs in the terminal",
+    );
+  });
+
+  it("keeps a message sent to a desk with an open approval in snapshot.queued until the turn ends", async () => {
+    const api = new MockApi();
+    const desk = await api.spawnSession("p-arcade", { tool: "codex", title: "", model: "gpt-5.5", effort: "high", ultracode: false, view: "chat" });
+    await api.structuredPrompt(desk.id, "run it");
+    await api.structuredPrompt(desk.id, "then this");
+    const waiting = (await api.getSnapshot()).queued;
+    expect(waiting).toEqual([expect.objectContaining({ toSessionId: desk.id, text: "then this", hold: "waiting-on-you" })]);
+    const approval = (await api.structuredBacklog(desk.id)).approval;
+    await api.structuredAnswer(desk.id, approval?.id ?? "", "deny", {});
+    expect((await api.getSnapshot()).queued).toEqual([]);
+    expect((await api.structuredBacklog(desk.id)).transcript.map((e) => (e.kind === "agent" ? e.text : ""))).toContain("Done: then this");
+  });
+
+  it("withdrawMessage removes a waiting message, and rejects the second time", async () => {
+    const api = new MockApi();
+    const desk = await api.spawnSession("p-arcade", { tool: "codex", title: "", model: "gpt-5.5", effort: "high", ultracode: false, view: "chat" });
+    await api.structuredPrompt(desk.id, "run it");
+    await api.structuredPrompt(desk.id, "never mind");
+    const id = (await api.getSnapshot()).queued[0]?.id ?? "";
+    await api.withdrawMessage(id);
+    expect((await api.getSnapshot()).queued).toEqual([]);
+    await expect(api.withdrawMessage(id)).rejects.toThrow("that message is no longer waiting");
+  });
+
+  it("gives a Claude Code chat desk the terminal capabilities and a card a line break in its terminal closes", async () => {
+    const api = new MockApi();
+    const claude = { tool: "claude-code", title: "", model: "claude-opus-5-5", effort: "high", ultracode: false, view: "chat" } as const;
+    const desk = await api.spawnSession("p-arcade", claude);
+    expect((await api.structuredBacklog(desk.id)).capabilities).toEqual({ compose: true, stop: true, end: false, approvals: "terminal", terminal: true });
+    await api.structuredPrompt(desk.id, "run the tests");
+    expect((await api.structuredBacklog(desk.id)).approval).toEqual({
+      id: "terminal-prompt",
+      title: "Claude Code is waiting for your answer",
+      detail: "Claude needs your permission to use Bash",
+      fields: [],
+      choices: [],
+    });
+    await api.writeTerminal(desk.id, "1");
+    expect((await api.structuredBacklog(desk.id)).approval).not.toBeNull();
+    await api.writeTerminal(desk.id, "\r");
+    expect((await api.structuredBacklog(desk.id)).approval).toBeNull();
+    await api.structuredCancel(desk.id);
+    expect((await api.structuredBacklog(desk.id)).transcript.at(-1)).toMatchObject({ kind: "notice", text: "Turn stopped." });
+    await expect(api.structuredStop(desk.id)).rejects.toThrow("only a structured desk can be ended from its conversation");
   });
 
   it("answerQuestion (option) clears the question, unblocks the session and records a decision", async () => {
@@ -285,5 +368,126 @@ describe("MockApi floors", () => {
     expect(after.ended.some((e) => e.projectId === "p-shop")).toBe(false);
     expect(after.questions.some((q) => q.projectId === "p-shop")).toBe(false);
     await expect(api.demolishFloor("p-shop")).rejects.toThrow(/not a floor/);
+  });
+
+  describe("editors", () => {
+    const place = { kind: "session", sessionId: "s-1" } as const;
+
+    it("lists the four editors, the default being the first installed", async () => {
+      const list = await new MockApi().editors();
+      expect(list.editors.map((o) => [o.editor, o.installed])).toEqual([["cursor", true], ["vs-code", true], ["zed", false], ["devin-desktop", false]]);
+      expect(list.editors.map((o) => o.label)).toEqual(["Cursor", "VS Code", "Zed", "Devin Desktop"]);
+      expect(list.defaultEditor).toBe("cursor");
+    });
+
+    it("prefers the saved editor when installed, skips it when not", async () => {
+      const api = new MockApi();
+      await api.updateSettings({ editor: { preferred: "vs-code" } });
+      expect((await api.editors()).defaultEditor).toBe("vs-code");
+      await api.updateSettings({ editor: { preferred: "zed" } });
+      expect((await api.editors()).defaultEditor).toBe("cursor");
+    });
+
+    it("has no default when nothing is installed", async () => {
+      const api = new MockApi();
+      api.setInstalledEditors([]);
+      expect((await api.editors()).defaultEditor).toBeNull();
+      await expect(api.openInEditor(place, null)).rejects.toThrow("no editor was found on this Mac (looked for Cursor, VS Code, Zed and Devin Desktop)");
+    });
+
+    it("opens each kind of place and logs it", async () => {
+      const api = new MockApi();
+      const helper = (await api.getSnapshot()).sessions.find((s) => s.id === "s-1")?.helpers[0]?.id ?? "";
+      const places = [place, { kind: "helper", sessionId: "s-1", helperId: helper }, { kind: "floor", projectId: "p-shop" }] as const;
+      for (const p of places) await expect(api.openInEditor(p, null)).resolves.toBe("cursor");
+      await expect(api.openInEditor(place, "vs-code")).resolves.toBe("vs-code");
+      expect(api.opened).toEqual([...places.map((p) => ({ place: p, editor: "cursor" })), { place, editor: "vs-code" }]);
+    });
+
+    it("opens a signed-out session", async () => {
+      const api = new MockApi();
+      const ended = (await api.getSnapshot()).ended[0];
+      if (ended === undefined) throw new Error("no ended session in the seed");
+      await expect(api.openInEditor({ kind: "session", sessionId: ended.id }, null)).resolves.toBe("cursor");
+    });
+
+    it("refuses what the backend refuses", async () => {
+      const api = new MockApi();
+      await expect(api.openInEditor({ kind: "floor", projectId: "nope" }, null)).rejects.toThrow("nope is not a floor of this building");
+      await expect(api.openInEditor({ kind: "session", sessionId: "nope" }, null)).rejects.toThrow("unknown session: nope");
+      await expect(api.openInEditor({ kind: "helper", sessionId: "nope", helperId: "h" }, null)).rejects.toThrow("unknown session: nope");
+      await expect(api.openInEditor({ kind: "helper", sessionId: "s-1", helperId: "nope" }, null)).rejects.toThrow("unknown helper: nope");
+      await expect(api.openInEditor(place, "zed")).rejects.toThrow("Zed is not installed on this Mac");
+      expect(api.opened).toEqual([]);
+    });
+
+    it("says a lost folder is gone", async () => {
+      const api = new MockApi();
+      api.loseFolder("s-2");
+      await expect(api.openInEditor({ kind: "session", sessionId: "s-2" }, null)).rejects.toThrow("that worktree is gone");
+      await expect(api.openInEditor(place, null)).resolves.toBe("cursor");
+    });
+  });
+
+  describe("settings", () => {
+    it("starts on the defaults", async () => {
+      const settings = await new MockApi().getSettings();
+      expect(settings).toEqual({
+        notifications: { finished: true, needsYou: true, stuck: true, sound: true, dockBounce: true, systemNotification: true, cooldownSecs: 10 },
+        editor: { preferred: null },
+        connectors: { linearAgentLabel: "agent" },
+        qa: { defaultOn: false, pollMinutes: 5, everyPush: true, skipDrafts: true, postWhenClean: true, maxConcurrent: 1, reviewsPerDay: 3, tool: "claude-code", model: null, effort: null },
+        manager: { tool: "claude-code", model: null, effort: null, maxDesks: 3, spendCeilingUsd: 20 },
+        agents: { view: "terminal" },
+        routing: {
+          enabled: false,
+          contexts: [],
+          connections: [],
+          tiers: { fable: [], opus: [], sonnet: [], haiku: [] },
+        },
+        handover: { automatic: false, claudeToCodex: null, codexToClaude: null },
+      });
+    });
+
+    it("saves a routing group and reads it back", async () => {
+      const api = new MockApi();
+      const routing = addContext(makeSettings().routing, "ctx-1a2b3c4d", "Work");
+      await expect(api.updateSettings({ routing })).resolves.toEqual({ ...makeSettings(), routing });
+      await expect(api.getSettings()).resolves.toMatchObject({ routing });
+    });
+
+    it("merges an update, returns it and reads it back", async () => {
+      const api = new MockApi();
+      const notifications = { ...makeSettings().notifications, sound: false, cooldownSecs: 600 };
+      const expected = { ...makeSettings(), notifications };
+      await expect(api.updateSettings({ notifications })).resolves.toEqual(expected);
+      await expect(api.getSettings()).resolves.toEqual(expected);
+    });
+
+    it("resolves an empty patch and changes nothing", async () => {
+      const api = new MockApi();
+      await expect(api.updateSettings({})).resolves.toEqual(makeSettings());
+    });
+
+    it.each([601, -1, 1.5])("rejects a cooldown of %s and changes nothing", async (cooldownSecs) => {
+      const api = new MockApi();
+      await expect(api.updateSettings({ notifications: { ...makeSettings().notifications, cooldownSecs } })).rejects.toThrow(
+        "the cooldown must be between 0 and 600 seconds",
+      );
+      await expect(api.getSettings()).resolves.toEqual(makeSettings());
+    });
+
+    it("records the open desk and the test alerts", async () => {
+      const api = new MockApi();
+      expect(api.openDesk).toBeNull();
+      expect(api.testAlerts).toBe(0);
+      await api.setOpenDesk("s-1");
+      await api.testAlert();
+      await api.testAlert();
+      expect(api.openDesk).toBe("s-1");
+      expect(api.testAlerts).toBe(2);
+      await api.setOpenDesk(null);
+      expect(api.openDesk).toBeNull();
+    });
   });
 });

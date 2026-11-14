@@ -19,7 +19,7 @@ use super::rules::{LastBlock, Signals};
 use crate::model::{Helper, SessionState, Spend};
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
@@ -191,6 +191,49 @@ fn ask_user_question(input: &Value, id: &str, at: &str) -> Option<PendingQuestio
     })
 }
 
+/// Consume lines from `reader`, starting `start_offset` bytes into the
+/// underlying file, call `each` with the offset each line starts at and the
+/// line without its line ending, and return the offset just past the last line
+/// consumed. When `defer_trailing_partial` is set, a trailing line with no
+/// newline yet is left unread (the file may still be mid-write, so the
+/// next call can pick it up once it is whole); otherwise it is processed
+/// as-is, since its content is already fully present in `reader` even
+/// though the source text happens not to end in a newline (e.g. a full
+/// parse of an in-memory buffer, or a split made at a line boundary).
+/// `ClaudeSource` always passes `true`, so a transcript whose very last
+/// line on disk never gains a trailing newline is never picked up by the
+/// incremental path; every real transcript observed ends in `\n`, so this
+/// is accepted rather than worked around.
+fn feed_lines(
+    mut reader: impl BufRead,
+    start_offset: u64,
+    defer_trailing_partial: bool,
+    mut each: impl FnMut(u64, &str),
+) -> u64 {
+    let mut offset = start_offset;
+    let mut buf = String::new();
+    loop {
+        buf.clear();
+        let n = match reader.read_line(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        let complete = buf.ends_with('\n');
+        if !complete && defer_trailing_partial {
+            break;
+        }
+        let at = offset;
+        offset += u64::try_from(n).unwrap_or(u64::MAX);
+        let line = buf.strip_suffix('\n').unwrap_or(&buf);
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        each(at, line);
+        if !complete {
+            break;
+        }
+    }
+    offset
+}
+
 /// Resumable reduction of a transcript. Every field carried across lines in the
 /// old single-pass reducer lives here, so feeding lines 1..n in one call or in
 /// 1..k then k+1..n calls yields the same result: `parse_transcript` (the full
@@ -240,45 +283,11 @@ impl ParserState {
         }
     }
 
-    /// Consume lines from `reader`, starting `start_offset` bytes into the
-    /// underlying file, and return the offset just past the last line
-    /// consumed. When `defer_trailing_partial` is set, a trailing line with no
-    /// newline yet is left unread (the file may still be mid-write, so the
-    /// next call can pick it up once it is whole); otherwise it is processed
-    /// as-is, since its content is already fully present in `reader` even
-    /// though the source text happens not to end in a newline (e.g. a full
-    /// parse of an in-memory buffer, or a split made at a line boundary).
-    /// `ClaudeSource` always passes `true`, so a transcript whose very last
-    /// line on disk never gains a trailing newline is never picked up by the
-    /// incremental path; every real transcript observed ends in `\n`, so this
-    /// is accepted rather than worked around.
-    fn feed_lines(
-        &mut self,
-        mut reader: impl BufRead,
-        start_offset: u64,
-        defer_trailing_partial: bool,
-    ) -> u64 {
-        let mut offset = start_offset;
-        let mut buf = String::new();
-        loop {
-            buf.clear();
-            let n = match reader.read_line(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => n,
-            };
-            let complete = buf.ends_with('\n');
-            if !complete && defer_trailing_partial {
-                break;
-            }
-            offset += u64::try_from(n).unwrap_or(u64::MAX);
-            let line = buf.strip_suffix('\n').unwrap_or(&buf);
-            let line = line.strip_suffix('\r').unwrap_or(line);
+    /// [`feed_lines`] into this state.
+    fn feed_lines(&mut self, reader: impl BufRead, start_offset: u64, defer: bool) -> u64 {
+        feed_lines(reader, start_offset, defer, |_, line| {
             self.process_line(line);
-            if !complete {
-                break;
-            }
-        }
-        offset
+        })
     }
 
     #[expect(
@@ -496,6 +505,24 @@ pub struct Found {
     pub transcript: Transcript,
     pub live: Option<LiveEntry>,
     pub helpers: Vec<Helper>,
+    /// Where each listed helper works now, by helper id.
+    pub helper_places: BTreeMap<String, super::Location>,
+}
+
+/// A working sub-agent, and where its latest folder sits.
+fn helper_at(id: &str, t: &Transcript) -> (Helper, Option<super::Location>) {
+    let place = t
+        .latest_cwd
+        .as_deref()
+        .map(|cwd| super::locate(Path::new(cwd)));
+    let in_tree = place.as_ref().filter(|p| p.worktree);
+    let helper = Helper {
+        id: id.to_string(),
+        state: helper_state(t),
+        worktree: in_tree.is_some(),
+        branch: in_tree.and_then(|p| super::branch_of(&p.checkout)),
+    };
+    (helper, place)
 }
 
 /// A sub-agent silent this long was killed or lost, not left working: tool
@@ -545,17 +572,27 @@ const TAIL_WINDOW: u64 = 4096;
 /// Read the `TAIL_WINDOW` bytes ending at `offset` (or all of them, if
 /// `offset` is smaller than that). Used both to snapshot a cache entry's tail
 /// and, on the next scan, to re-check it before trusting a resume.
-fn read_tail(path: &Path, offset: u64) -> Option<Vec<u8>> {
+fn tail_of(file: &mut fs::File, offset: u64) -> Option<Vec<u8>> {
     let window_start = offset.saturating_sub(TAIL_WINDOW);
     let len = usize::try_from(offset - window_start).unwrap_or(0);
     if len == 0 {
         return Some(Vec::new());
     }
-    let mut file = fs::File::open(path).ok()?;
     file.seek(SeekFrom::Start(window_start)).ok()?;
     let mut buf = vec![0u8; len];
     file.read_exact(&mut buf).ok()?;
     Some(buf)
+}
+
+/// [`tail_of`] the file at `path`.
+fn read_tail(path: &Path, offset: u64) -> Option<Vec<u8>> {
+    tail_of(&mut fs::File::open(path).ok()?, offset)
+}
+
+/// Whether `file`, now `len` bytes long, still holds `tail` just before
+/// `offset`: it only grew since it was read up to there.
+fn grew_in_place(file: &mut fs::File, len: u64, offset: u64, tail: &[u8]) -> bool {
+    len >= offset && tail_of(file, offset).as_deref() == Some(tail)
 }
 
 /// Scans Claude Code's files, re-reading a transcript only when it changed,
@@ -640,16 +677,11 @@ impl ClaudeSource {
             // could construct it.
             if entry.dev == dev
                 && entry.ino == ino
-                && len >= entry.offset
-                && read_tail(path, entry.offset).as_deref() == Some(entry.tail.as_slice())
+                && let Ok(mut file) = fs::File::open(path)
+                && grew_in_place(&mut file, len, entry.offset, &entry.tail)
+                && file.seek(SeekFrom::Start(entry.offset)).is_ok()
             {
                 let mut state = entry.state;
-                let Ok(mut file) = fs::File::open(path) else {
-                    return self.full_parse(path, mtime, len, dev, ino);
-                };
-                if file.seek(SeekFrom::Start(entry.offset)).is_err() {
-                    return self.full_parse(path, mtime, len, dev, ino);
-                }
                 let offset = state.feed_lines(BufReader::new(file), entry.offset, true);
                 let transcript = state.finish();
                 let tail = read_tail(path, offset).unwrap_or_default();
@@ -711,6 +743,7 @@ impl ClaudeSource {
                     let mut paths = Vec::new();
                     collect_jsonl(&dir.join(&session_id).join("subagents"), &mut paths);
                     let mut helpers = Vec::new();
+                    let mut helper_places = BTreeMap::new();
                     // Only `agent-*.jsonl` is a sub-agent: a workflow keeps its `journal.jsonl` beside them.
                     for path in paths.into_iter().filter(|p| {
                         p.file_name()
@@ -725,14 +758,11 @@ impl ClaudeSource {
                             && written_within(&path, now, HELPER_SILENCE)
                             && let Some(id) = path.file_stem().and_then(|s| s.to_str())
                         {
-                            helpers.push(Helper {
-                                id: id.to_string(),
-                                state: helper_state(&t),
-                                worktree: t
-                                    .latest_cwd
-                                    .as_deref()
-                                    .is_some_and(|cwd| super::locate(Path::new(cwd)).worktree),
-                            });
+                            let (helper, place) = helper_at(id, &t);
+                            helpers.push(helper);
+                            if let Some(place) = place {
+                                helper_places.insert(id.to_string(), place);
+                            }
                         }
                     }
                     // Stable desk order, whatever order the directory lists in.
@@ -742,6 +772,7 @@ impl ClaudeSource {
                         transcript,
                         live: entry,
                         helpers,
+                        helper_places,
                     });
                 }
             }
@@ -766,6 +797,7 @@ impl ClaudeSource {
                 session_id,
                 transcript,
                 helpers: Vec::new(),
+                helper_places: BTreeMap::new(),
             });
         }
         found
@@ -783,6 +815,9 @@ impl ClaudeSource {
             })
     }
 }
+
+pub mod chat;
+pub(super) mod follow;
 
 #[cfg(test)]
 mod tests;

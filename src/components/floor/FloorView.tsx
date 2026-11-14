@@ -4,12 +4,20 @@ import type { OfficeSnapshot, Project, Session, ToolOptions } from "../../types"
 import type { HireRequest, QuestionAnswer } from "../../api/DiscoveryApi";
 import {
   endedForProject,
+  qaFor,
   formatUsd,
+  managerFor,
+  managerLamp,
+  managerLine,
   openCount,
+  handoverFor,
+  queuedFor,
   questionsForProject,
   searchSessions,
   sessionCounts,
   sessionsForProject,
+  splitManager,
+  splitReviewer,
   todosForProject,
   totalSpend,
 } from "../../state/selectors";
@@ -34,6 +42,9 @@ interface Props {
   readonly section: Section | null;
   readonly openSessionId: string | null;
   readonly onSection: (section: Section | null) => void;
+  readonly onOpenSettings: () => void;
+  /** The Hire plate is opening, so no other plate may stay open over it. */
+  readonly onOpenPlate: () => void;
   readonly onOpenSession: (session: Session) => void;
   readonly onCloseTerminal: () => void;
   readonly onBack: () => void;
@@ -54,10 +65,10 @@ interface Props {
 
 /** The sketch's project screen: the open-plan floor, its search and tally, the rail and panels. */
 export function FloorView(props: Props): React.ReactElement {
-  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, loadHireOptions, onHire, onAnswer, onTick, onResume, onOpenShell, onNewShell, onEndShell, setup } = props;
+  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, onOpenSettings, onOpenPlate, loadHireOptions, onHire, onAnswer, onTick, onResume, onOpenShell, onNewShell, onEndShell, setup } = props;
   const setupFloor = snapshot.setupProjectId === project.id;
   // Only the setup floor has a Setup panel, even if one was left open on it.
-  const section = props.section === "setup" && !setupFloor ? null : props.section;
+  const section = (props.section === "setup" && !setupFloor) || (props.section === "manager" && setupFloor) ? null : props.section;
   const [query, setQuery] = useState("");
   const [hireOpen, setHireOpen] = useState(false);
 
@@ -69,7 +80,13 @@ export function FloorView(props: Props): React.ReactElement {
   const aiTodos = todosForProject(snapshot, project.id, "ai");
   const spend = totalSpend(sessions);
   const ended = endedForProject(snapshot, project.id);
-  const depth = roomDepth(sessions.length + 1);
+  const qa = qaFor(snapshot, project.id);
+  const qaDesk = qa !== undefined && qa.enabled;
+  const manager = managerFor(snapshot, project.id);
+  // The manager sits in its glass office and the reviewer in the corner, never at an ordinary desk.
+  const { rest, managerSession } = splitManager(sessions, manager);
+  const { seated, reviewer } = splitReviewer(rest, qa);
+  const depth = roomDepth(seated.length + 1, qaDesk);
   const openSession = sessions.find((s) => s.id === openSessionId);
   const shells = snapshot.shells.filter((s) => s.projectId === project.id);
   const openShell = shells.find((s) => s.id === openSessionId);
@@ -85,6 +102,14 @@ export function FloorView(props: Props): React.ReactElement {
     signedOut: ended.length,
     shells: shells.length,
     plant: setupFloor,
+    manager: setupFloor
+      ? null
+      : {
+          hired: manager?.status.kind === "hired",
+          state: managerSession?.state ?? "idle",
+          lamp: manager === undefined ? "done" : managerLamp(manager),
+          line: managerLine(manager, managerSession),
+        },
   };
 
   const badge = (n: number): string | null => (n > 0 ? String(n) : null);
@@ -135,16 +160,24 @@ export function FloorView(props: Props): React.ReactElement {
             className="room-stage"
           >
             <Room
-              sessions={sessions}
+              sessions={seated}
+              qa={qaDesk ? qa : null}
+              reviewer={reviewer}
+              manager={setupFloor ? undefined : manager}
               depth={depth}
               query={query}
               now={now}
               messages={snapshot.messages}
+              handovers={snapshot.handover.desks}
               objects={objects}
               hiring={hireOpen}
               onOpenSession={onOpenSession}
               onOpenSection={(s) => onSection(s)}
-              onHire={() => setHireOpen(true)}
+              onOpenSettings={onOpenSettings}
+              onHire={() => {
+                onOpenPlate();
+                setHireOpen(true);
+              }}
             />
           </Stage>
 
@@ -159,7 +192,15 @@ export function FloorView(props: Props): React.ReactElement {
 
           <AnimatePresence>
             {openSession !== undefined ? (
-              <TerminalPanel key={openSession.id} session={openSession} onClose={onCloseTerminal} />
+              <TerminalPanel
+                key={openSession.id}
+                session={openSession}
+                manager={manager}
+                chat={snapshot.chatDesks.includes(openSession.id)}
+                queued={queuedFor(snapshot, openSession.id)}
+                handover={handoverFor(snapshot, openSession.id)}
+                onClose={onCloseTerminal}
+              />
             ) : openShell !== undefined ? (
               <TerminalPanel key={openShell.id} shell={openShell} path={project.path} onClose={onCloseTerminal} />
             ) : null}
@@ -175,6 +216,7 @@ export function FloorView(props: Props): React.ReactElement {
               snapshot={snapshot}
               now={now}
               onClose={() => onSection(null)}
+              onOpenSection={(s) => onSection(s)}
               onAnswer={onAnswer}
               onTick={onTick}
               onOpenSession={onOpenSession}
@@ -193,6 +235,7 @@ export function FloorView(props: Props): React.ReactElement {
           onSelect={onSection}
           badges={{
             info: null,
+            manager: badge(manager?.queue.length ?? 0),
             decisions: badge(questions.length),
             "human-todo": badge(openCount(humanTodos)),
             todo: badge(openCount(aiTodos)),

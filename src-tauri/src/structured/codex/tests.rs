@@ -199,6 +199,7 @@ fn exec(status: ToolStatus, detail: &str) -> Event {
         title: "touch probe_ok.txt".into(),
         status,
         detail: detail.into(),
+        diffs: Vec::new(),
     })
 }
 
@@ -326,7 +327,11 @@ fn file_change_approval_shows_the_diff() {
             id: "call_1".into(),
             title: "Add /w/a.txt".into(),
             status: ToolStatus::Running,
-            detail: "/w/a.txt\nhello\n".into()
+            detail: String::new(),
+            diffs: vec![crate::structured::FileDiff {
+                path: "/w/a.txt".into(),
+                text: "hello\n".into(),
+            }],
         })
     );
     let Event::Approval(a) = &ev[1] else {
@@ -712,6 +717,8 @@ fn own_home(name: &str) -> (std::path::PathBuf, crate::setup::Launch) {
     let launch = crate::setup::Launch {
         env: vec![("CODEX_HOME", home.to_string_lossy().into_owned())],
         opts: Vec::new(),
+        flags: Vec::new(),
+        refuse_peer_messages: false,
     };
     (home, launch)
 }
@@ -755,6 +762,8 @@ fn live_approval() {
     let launch = crate::setup::Launch {
         env: vec![("CODEX_HOME", home.to_string_lossy().into_owned())],
         opts: Vec::new(),
+        flags: Vec::new(),
+        refuse_peer_messages: false,
     };
     let mut asked = false;
     let (thread, dir) = live(

@@ -1,7 +1,8 @@
-import type { Spend, TodoItem } from "../../types";
+import type { SessionState, Spend, TodoItem } from "../../types";
 import type { Counts } from "../../state/selectors";
-import { formatTokens, formatUsd } from "../../state/selectors";
-import { ROOM } from "../../lib/layout";
+import { formatTokens, formatUsd, plural } from "../../state/selectors";
+import { poseForState } from "../../lib/animation";
+import { DESK, MANAGER_DESK, ROOM, managerSeat } from "../../lib/layout";
 import { MANAGER_LOOK } from "../../lib/looks";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
@@ -24,6 +25,18 @@ export interface RoomObjectsModel {
   readonly shells: number;
   /** The setup floor: built as a plant room. */
   readonly plant: boolean;
+  /** The floor's manager, or null in the plant room, which has none. */
+  readonly manager: ManagerModel | null;
+}
+
+export interface ManagerModel {
+  readonly hired: boolean;
+  /** The manager's session state, "idle" before it is bound. */
+  readonly state: SessionState;
+  /** The desk light. */
+  readonly lamp: "running" | "waiting-human" | "done";
+  /** The manager in a few words, for its label. */
+  readonly line: string;
 }
 
 interface ObjectsProps {
@@ -33,10 +46,6 @@ interface ObjectsProps {
 }
 
 const NOTE_COLOURS = ["var(--note-yellow)", "var(--note-blue)", "var(--note-pink)"] as const;
-
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
 
 /** Back wall: windows, the AI's whiteboard and the spend meter. */
 export function BackWall({ model, onOpen }: ObjectsProps): React.ReactElement {
@@ -153,10 +162,12 @@ export function SignOutStand({ model, depth, onOpen }: ObjectsProps): React.Reac
   );
 }
 
-/** The manager's glass office: desk, manager and the pile of decisions waiting. */
-export function ManagerOffice({ model, onOpen }: ObjectsProps): React.ReactElement {
+/** The manager's glass office: desk, manager and the pile of decisions waiting. `away`: the manager is walking a note. */
+export function ManagerOffice({ model, onOpen, away }: ObjectsProps & { readonly away: boolean }): React.ReactElement {
   const x = ROOM.managerX;
-  const deskX = x + 46;
+  const deskX = MANAGER_DESK.x;
+  const { manager } = model;
+  const seat = managerSeat();
   const waiting = model.decisionsWaiting;
   // The office's tags hang over the manager's head, above the glass and clear of
   // its walls: lower down they covered the manager and cut through the glass.
@@ -165,10 +176,26 @@ export function ManagerOffice({ model, onOpen }: ObjectsProps): React.ReactEleme
   const tagZ = ROOM.slab + ROOM.glassHeight + 4;
   return (
     <>
-      <Desk x={deskX} y={40} z={ROOM.slab} />
-      <Billboard x={deskX + 25} y={38} z={ROOM.slab}>
-        <Person look={MANAGER_LOOK} pose="idle" />
-      </Billboard>
+      <Desk x={deskX} y={MANAGER_DESK.y} z={ROOM.slab} {...(manager?.hired ? { led: manager.lamp } : {})} />
+      {manager === null || away ? null : manager.hired ? (
+        <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
+          <button
+            type="button"
+            className="worker"
+            data-testid="manager-worker"
+            aria-label={`The floor's manager: ${manager.line}. Open Manager.`}
+            onClick={() => onOpen("manager")}
+          >
+            <Person look={MANAGER_LOOK} pose={poseForState(manager.state)} />
+          </button>
+        </Billboard>
+      ) : (
+        <Billboard x={deskX + DESK.w / 2} y={seat.y} z={ROOM.slab + DESK.h + 14}>
+          <button type="button" className="memo-tag" data-testid="object-manager" aria-label="Manager's desk: nobody is hired. Open Manager." onClick={() => onOpen("manager")}>
+            Hire a manager
+          </button>
+        </Billboard>
+      )}
       {Array.from({ length: Math.min(waiting, 4) }, (_, i) => (
         <IsoBox
           key={i}
