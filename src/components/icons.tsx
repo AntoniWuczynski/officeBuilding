@@ -110,6 +110,15 @@ export function CloseIcon(): React.ReactElement {
   );
 }
 
+/** Two waves: sink an island. */
+export function SinkIcon(): React.ReactElement {
+  return (
+    <svg {...common} width={14} height={14}>
+      <path d="M1 7q2.5-3 5 0t5 0t5 0M1 13q2.5-3 5 0t5 0t5 0" />
+    </svg>
+  );
+}
+
 /** A wrecking ball on its chain: demolish a floor. */
 export function DemolishIcon(): React.ReactElement {
   return (

@@ -4,6 +4,7 @@
 @import "./scene/construction.css";
 @import "./scene/cast/puppet.css";
 @import "./styles/chrome.css";
+@import "./styles/view-switch.css";
 @import "./styles/setup.css";
 @import "./styles/settings.css";
 @import "./styles/routing.css";

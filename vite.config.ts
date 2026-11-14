@@ -36,7 +36,7 @@ export default defineConfig({
       // Phase 1 gates the pure logic layers (state selectors, animation
       // mapping, the mock discovery API). Components are the scaffold and are
       // smoke-tested but excluded from the coverage floor.
-      include: ["src/state/**", "src/lib/**", "src/api/**"],
+      include: ["src/state/**", "src/lib/**", "src/api/**", "src/archipelago/islands.ts"],
       thresholds: {
         statements: 90,
         branches: 90,
