@@ -180,20 +180,24 @@
   display: none;
 }
 
-/* A message in flight between two agents: a folded paper note. */
+/* A message between two agents on one island: a parrot flies it across, wing flapping (boats carry it between islands). */
 .arch-note {
   position: absolute;
   left: 0;
   top: 0;
-  width: 22px;
-  height: 15px;
-  margin: -8px 0 0 -11px;
-  border: 1.5px solid var(--ink);
-  border-radius: 2px;
-  background: linear-gradient(135deg, transparent 49%, var(--ink) 49% 52%, transparent 52%) 0 0 / 50% 55% no-repeat,
-    linear-gradient(225deg, transparent 49%, var(--ink) 49% 52%, transparent 52%) 100% 0 / 50% 55% no-repeat, var(--paper);
+  width: 34px;
+  height: 24px;
+  margin: -12px 0 0 -17px;
   pointer-events: none;
   z-index: 100000;
+}
+.arch-note svg {
+  display: block;
+  overflow: visible;
+}
+.arch-note .wing {
+  transform-box: fill-box;
+  transform-origin: 70% 90%;
 }
 
 /* The selected island's plate: paper and ink, like the floor screen's panels. */

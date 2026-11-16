@@ -14,8 +14,6 @@ export interface IslandSpec {
   /** Island radius in world units, before coastline noise. */
   readonly radius: number;
   readonly theme: IslandTheme;
-  /** The folder the repo lives in: repos side by side form one group of islands. */
-  readonly group: string;
   /** Seeds the coastline, so the shape is stable per project. */
   readonly seed: number;
 }
@@ -33,29 +31,12 @@ function themeFor(project: Project): IslandTheme {
 }
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-/** Radii run 22..26 and the coastline swings up to 23% either way (build.ts blob): the widest island reaches 32. */
-const MAX_REACH = 32;
 /**
- * Spiral constant: on r = SPACING * sqrt(i) no two islands sit closer than SPACING (measured for 2 to 40 islands in a
- * group), so 92 leaves at least 92 - 2 * MAX_REACH = 28 units of open sea.
+ * Spiral constant: on r = SPACING * sqrt(i) no two islands sit closer than SPACING (islands.test.ts measures 2 to 60).
+ * Radii run 22..26 and the coastline swings up to 23% out (build.ts blob), so an island reaches 32 and 92 leaves at
+ * least 92 - 2 * 32 = 28 units of open sea.
  */
 const SPACING = 92;
-/** Open sea between groups. */
-const GROUP_GAP = 70;
-/** Room a group reserves: for the next power of two of islands, so one more repo only moves its neighbours when the folder doubles. */
-function groupRoom(members: number): number {
-  return 2 ** Math.ceil(Math.log2(Math.max(1, members)));
-}
-
-/** How far a group's spiral can reach from its centre, for the room reserved for it. */
-function groupReach(members: number): number {
-  return SPACING * Math.sqrt(groupRoom(members)) + MAX_REACH;
-}
-
-function groupOf(project: Project): string {
-  const i = project.path.lastIndexOf("/");
-  return i <= 0 ? "/" : project.path.slice(0, i);
-}
 
 /** Projects in a stable order: ones already placed keep their place, new ones go last. Removed ones are never dropped. */
 export function mergeOrder(order: readonly string[], currentIds: readonly string[]): string[] {
@@ -64,41 +45,22 @@ export function mergeOrder(order: readonly string[], currentIds: readonly string
 }
 
 /**
- * Each group of repos is a golden-angle spiral of islands; groups sit side by side along x, in the order they first
- * appear, with open sea between. A new repo takes the next place on its group's spiral and a new folder starts a new
- * group at the end of the row, so neither moves an island already placed. A group that outgrows its reserved room
- * (groupRoom: when the folder passes a power of two) moves the groups after it, and itself unless it is the first.
- * The setup project becomes the lighthouse islet.
+ * One golden-angle spiral of islands around the origin, in the order the projects were first seen: a cluster, not a
+ * row. A new repo takes the next place on the spiral, so no island already placed moves. The setup project becomes
+ * the lighthouse islet.
  */
 export function layoutIslands(projects: readonly Project[], setupProjectId: string): IslandSpec[] {
-  const groups = new Map<string, number>();
-  for (const p of projects) groups.set(groupOf(p), (groups.get(groupOf(p)) ?? 0) + 1);
-  // The first group is centred on the origin; each next centre sits one reach past the previous group's.
-  const centreOf = new Map<string, number>();
-  let previous: { readonly centre: number; readonly reach: number } | null = null;
-  for (const [key, members] of groups) {
-    const reach = groupReach(members);
-    const centre: number = previous === null ? 0 : previous.centre + previous.reach + GROUP_GAP + reach;
-    centreOf.set(key, centre);
-    previous = { centre, reach };
-  }
-
-  const index = new Map<string, number>();
-  return projects.map((project) => {
-    const group = groupOf(project);
-    const i = index.get(group) ?? 0;
-    index.set(group, i + 1);
+  return projects.map((project, i) => {
     const a = i * GOLDEN_ANGLE;
     const r = i === 0 ? 0 : SPACING * Math.sqrt(i);
     const isSetup = project.id === setupProjectId;
     return {
       projectId: project.id,
       name: project.name,
-      x: (centreOf.get(group) ?? 0) + Math.cos(a) * r,
+      x: Math.cos(a) * r,
       z: Math.sin(a) * r,
       radius: isSetup ? 11 : 22 + (hash(project.id) % 5),
       theme: isSetup ? "lighthouse" : themeFor(project),
-      group,
       seed: hash(project.id),
     };
   });

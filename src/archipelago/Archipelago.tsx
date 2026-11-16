@@ -13,9 +13,11 @@ import type { FloorModel } from "../components/building/Storey";
 import { SinkIcon } from "../components/icons";
 import { QaStamp } from "../components/qa/QaStamp";
 import { PLACE } from "../state/placeWords";
-import { COUNTER_H, OCEAN_SIZE, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
+import { COUNTER_H, OCEAN_SIZE, buildBoat, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
 import { agentSlots, clampToBounds, layoutIslands, MAX_SLOTS, mergeOrder, worldBounds } from "./islands";
 import type { IslandSpec } from "./islands";
+import { bezierAt, sailRoute } from "./routes";
+import type { Route } from "./routes";
 import "./archipelago.css";
 
 const LIGHT = { green: "var(--ok)", yellow: "var(--wait)", red: "var(--fault)", off: "var(--off)" } as const;
@@ -32,7 +34,17 @@ const MIN_SCALE = 0.7;
 const FOCUS_DISTANCE = 52;
 /** Open sea kept around the islands: the camera target cannot leave this box. */
 const SEA_PAD = 40;
+/** A parrot flies a message between two huts on one island. */
 const NOTE_MS = 2600;
+/** A boat carries a message between islands at this many world units a second, but never faster than a parrot's trip. */
+const BOAT_SPEED = 38;
+const BOAT_MIN_MS = 3200;
+const BOAT_Y = 1.3;
+/** Drawn at 5.6 units a boat is about 11 px at the overview zoom, too small to read as a boat; huts are drawn oversize the same way. */
+const BOAT_SCALE = 3;
+/** A drawn parrot: green body, red head and wing, yellow beak. */
+const PARROT_SVG =
+  '<svg viewBox="0 0 34 24" width="34" height="24" aria-hidden="true"><path class="wing" d="M14 12 L6 2 L20 8 Z" fill="#e0453a" stroke="#1d2433" stroke-width="1.2" stroke-linejoin="round"/><ellipse cx="17" cy="14" rx="9" ry="5" fill="#3fae49" stroke="#1d2433" stroke-width="1.2"/><circle cx="26" cy="10" r="4.2" fill="#e0453a" stroke="#1d2433" stroke-width="1.2"/><path d="M29 9 L34 11 L29.5 13 Z" fill="#f4c542" stroke="#1d2433" stroke-width="1"/><circle cx="26.8" cy="9" r="0.9" fill="#1d2433"/><path d="M8 14 L1 19 L9 17 Z" fill="#2f7fd0" stroke="#1d2433" stroke-width="1" stroke-linejoin="round"/></svg>';
 /** Islands rise from the sea one after another on open (as a storey is built), and sink when removed. */
 const RISE_MS = 1100;
 const RISE_STAGGER_MS = 110;
@@ -329,9 +341,11 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
     const ro = new ResizeObserver(resize);
     ro.observe(el);
 
-    // Notes: a message between two agents flies from sender to receiver, arcing over the sea.
+    // A message between two agents on one island is a parrot flying from sender to receiver; between islands it is a
+    // boat sailing from one shore to the other.
     const seenMsgs = new Set(live.current.messages.map((m) => m.id));
-    const notes: { readonly el: HTMLElement; readonly from: THREE.Vector3; readonly to: THREE.Vector3; readonly t0: number }[] = [];
+    const notes: { readonly el: HTMLElement; readonly wing: SVGElement | null; readonly from: THREE.Vector3; readonly to: THREE.Vector3; readonly t0: number }[] = [];
+    const voyages: { readonly boat: THREE.Group; readonly route: Route; readonly t0: number; readonly ms: number }[] = [];
 
     const v = new THREE.Vector3();
     const head = new THREE.Vector3();
@@ -462,10 +476,22 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         const a = byKey.get(m.fromSessionId);
         const b = byKey.get(m.toSessionId);
         if (a === undefined || b === undefined || !moving) continue;
+        if (a.island !== b.island) {
+          const from = islands.find((i) => i.projectId === a.island);
+          const to = islands.find((i) => i.projectId === b.island);
+          if (from === undefined || to === undefined) continue;
+          const route = sailRoute(from, to, islands);
+          const boat = buildBoat();
+          boat.scale.setScalar(BOAT_SCALE);
+          scene.add(boat);
+          voyages.push({ boat, route, t0: t, ms: Math.max(BOAT_MIN_MS, (Math.hypot(route.to.x - route.from.x, route.to.z - route.from.z) / BOAT_SPEED) * 1000) });
+          continue;
+        }
         const note = document.createElement("div");
         note.className = "arch-note";
+        note.innerHTML = PARROT_SVG;
         el.appendChild(note);
-        notes.push({ el: note, from: new THREE.Vector3(a.x, a.y + PERSON_UNITS, a.z), to: new THREE.Vector3(b.x, b.y + PERSON_UNITS, b.z), t0: t });
+        notes.push({ el: note, wing: note.querySelector<SVGElement>(".wing"), from: new THREE.Vector3(a.x, a.y + PERSON_UNITS, a.z), to: new THREE.Vector3(b.x, b.y + PERSON_UNITS, b.z), t0: t });
       }
       for (let i = notes.length - 1; i >= 0; i--) {
         const n = notes[i];
@@ -480,7 +506,30 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         at.y += Math.sin(Math.PI * k) * (4 + n.from.distanceTo(n.to) * 0.25);
         const s = screen(at);
         n.el.style.display = s.behind ? "none" : "block";
-        n.el.style.transform = `translate(${s.px}px, ${s.py}px) scale(${Math.max(0.5, s.unit / 11)}) rotate(${Math.sin(k * 12) * 14}deg)`;
+        // The wing beats from here, not a CSS keyframe: archipelago.css.test.ts allows only rules scoped to .arch.
+        n.wing?.style.setProperty("transform", `scaleY(${Math.sin(t / 55) * 0.8})`);
+        // The parrot faces the way it is flying on screen.
+        const goingLeft = screen(n.to).px < screen(n.from).px;
+        const size = Math.max(0.8, s.unit / 11);
+        n.el.style.transform = `translate(${s.px}px, ${s.py}px) scale(${goingLeft ? -size : size}, ${size}) rotate(${Math.sin(k * 12) * 6}deg)`;
+      }
+
+      // Boats: along the course, heading with it, bobbing on the swell; one that has arrived is taken out of the sea.
+      for (let i = voyages.length - 1; i >= 0; i--) {
+        const vy = voyages[i];
+        if (vy === undefined) continue;
+        const k = clamp01((t - vy.t0) / vy.ms);
+        if (k >= 1) {
+          scene.remove(vy.boat);
+          voyages.splice(i, 1);
+          continue;
+        }
+        const eased = k * k * (3 - 2 * k);
+        const at = bezierAt(vy.route, eased);
+        const ahead = bezierAt(vy.route, Math.min(1, eased + 0.02));
+        vy.boat.position.set(at.x, BOAT_Y + Math.sin(t / 260 + i) * 0.25, at.z);
+        vy.boat.rotation.y = -Math.atan2(ahead.z - at.z, ahead.x - at.x);
+        vy.boat.rotation.z = Math.sin(t / 340 + i) * 0.06;
       }
       renderer.render(scene, camera);
     };
@@ -490,6 +539,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
       ro.disconnect();
       controls.dispose();
       for (const n of notes) n.el.remove();
+      for (const vy of voyages) scene.remove(vy.boat);
       renderer.domElement.removeEventListener("pointerdown", onDown);
       renderer.domElement.removeEventListener("pointerup", onUp);
       renderer.domElement.removeEventListener("pointermove", onMove);

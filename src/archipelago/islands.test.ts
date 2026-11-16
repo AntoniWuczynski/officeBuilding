@@ -14,51 +14,34 @@ const PROJECTS: Project[] = [
   p("8", "Setup", "/work/Library/Application Support/app/Setup"),
 ];
 
-/** n projects spread round-robin over `groups` folders. */
-function many(n: number, groups: number): Project[] {
-  return Array.from({ length: n }, (_, i) => p(`id-${i}`, `repo-${i}`, `/work/folder-${i % groups}/repo-${i}`));
+function many(n: number): Project[] {
+  return Array.from({ length: n }, (_, i) => p(`id-${i}`, `repo-${i}`, `/work/folder-${i % 3}/repo-${i}`));
 }
 
 describe("layoutIslands", () => {
-  it("leaves every placed island where it was when a new folder appears", () => {
+  it("leaves every placed island where it was when a project is added", () => {
     const before = layoutIslands(PROJECTS, "8");
     const after = layoutIslands([...PROJECTS, p("10", "elsewhere", "/work/elsewhere/elsewhere")], "8");
     for (const island of before) expect(after.find((x) => x.projectId === island.projectId)).toEqual(island);
   });
 
-  it("leaves every placed island where it was when a repo joins a folder that still has room", () => {
-    // Five repos reserve room for eight: a sixth fits.
-    const five = [...many(5, 1), p("b", "b", "/work/other/b")];
-    const before = layoutIslands(five, "none");
-    const after = layoutIslands([...five, p("id-5", "repo-5", "/work/folder-0/repo-5")], "none");
-    for (const island of before) expect(after.find((x) => x.projectId === island.projectId)).toEqual(island);
+  it("makes a cluster: islands from different folders spread both ways, not along one line", () => {
+    const islands = layoutIslands(many(12), "none");
+    const xs = islands.map((i) => i.x);
+    const zs = islands.map((i) => i.z);
+    const spanX = Math.max(...xs) - Math.min(...xs);
+    const spanZ = Math.max(...zs) - Math.min(...zs);
+    expect(spanZ / spanX).toBeGreaterThan(0.6);
+    expect(spanX / spanZ).toBeGreaterThan(0.6);
   });
 
-  it("moves only the groups after one that outgrows its reserved room", () => {
-    const eight = [...many(8, 1), p("b", "b", "/work/other/b")];
-    const before = layoutIslands(eight, "none");
-    const after = layoutIslands([...many(9, 1), p("b", "b", "/work/other/b")], "none");
-    for (const island of before.filter((i) => i.group === "/work/folder-0")) {
-      expect(after.find((x) => x.projectId === island.projectId)).toEqual(island);
-    }
-    expect(after.find((x) => x.projectId === "b")?.x).toBeGreaterThan(before.find((x) => x.projectId === "b")?.x ?? 0);
+  it("makes the setup project the lighthouse", () => {
+    expect(layoutIslands(PROJECTS, "8").find((i) => i.projectId === "8")?.theme).toBe("lighthouse");
   });
 
-  it("groups repos by the folder they live in", () => {
-    const islands = layoutIslands(PROJECTS, "8");
-    const groupOf = (id: string): string | undefined => islands.find((i) => i.projectId === id)?.group;
-    expect(groupOf("1")).toBe(groupOf("2"));
-    expect(groupOf("5")).toBe(groupOf("6"));
-    expect(groupOf("1")).not.toBe(groupOf("5"));
-    expect(islands.find((i) => i.projectId === "8")?.theme).toBe("lighthouse");
-  });
-
-  it("leaves open sea between every pair of islands, from 1 to 40 projects in one, two or three folders", () => {
-    for (const groups of [1, 2, 3]) {
-      for (let n = 1; n <= 40; n++) {
-        const gap = closestPair(layoutIslands(many(n, groups), "none"));
-        if (n > 1) expect(gap, `${n} projects in ${groups} folders`).toBeGreaterThan(4);
-      }
+  it("leaves open sea between every pair of islands, from 2 to 60 projects", () => {
+    for (let n = 2; n <= 60; n++) {
+      expect(closestPair(layoutIslands(many(n), "none")), `${n} projects`).toBeGreaterThan(4);
     }
   });
 });
