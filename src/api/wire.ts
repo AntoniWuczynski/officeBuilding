@@ -28,6 +28,7 @@ export const sessionSchema = z.object({
   pets: z.array(z.object({ id: z.string(), kind: z.enum(["shell", "monitor", "browser", "process"]), label: z.string() })),
   worktree: z.boolean(),
   branch: z.string().nullable(),
+  lastReply: z.string().nullable(),
 }) satisfies z.ZodType<Session>;
 
 export const projectSchema = z.object({
@@ -44,6 +45,8 @@ const todoSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("file"), file: z.string() }),
   z.object({ kind: z.literal("linear"), identifier: z.string(), url: z.string() }),
 ]);
+const todoItemSchema = z.object({ id: z.string(), projectId: z.string(), text: z.string(), done: z.boolean(), assignee: party, source: todoSourceSchema, projectTag: z.string().nullable() });
+const sharedBoardSchema = z.object({ id: z.string(), path: z.string(), name: z.string(), items: z.array(todoItemSchema) });
 const linearProjectSchema = z.object({ id: z.string(), name: z.string() });
 const linkSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -143,6 +146,7 @@ export const snapshotSchema = z.object({
       endedAt: z.string(),
       model: z.string().nullable(),
       effort: z.string().nullable(),
+      lastReply: z.string().nullable(),
     }),
   ),
   questions: z.array(
@@ -163,9 +167,7 @@ export const snapshotSchema = z.object({
   decisions: z.array(
     z.object({ id: z.string(), projectId: z.string(), title: z.string(), detail: z.string(), decidedAt: z.string(), by: party }),
   ),
-  todos: z.array(
-    z.object({ id: z.string(), projectId: z.string(), text: z.string(), done: z.boolean(), assignee: party, source: todoSourceSchema }),
-  ),
+  todos: z.array(todoItemSchema),
   messages: z.array(
     z.object({ id: z.string(), fromSessionId: z.string(), toSessionId: z.string(), text: z.string(), sentAt: z.string() }),
   ),
@@ -177,6 +179,7 @@ export const snapshotSchema = z.object({
   chatDesks: z.array(z.string()),
   queued: z.array(queuedNoteSchema),
   handover: handoverViewSchema,
+  sharedBoards: z.array(sharedBoardSchema),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [
@@ -351,6 +354,7 @@ export const settingsSchema = z.object({
   agents: z.object({ view: deskView }),
   routing: routingSettingsSchema,
   handover: handoverSettingsSchema,
+  boards: z.object({ sharedFiles: z.array(z.string()) }),
 }) satisfies z.ZodType<Settings>;
 
 /** Parse a backend payload, turning a shape mismatch into a readable error. */

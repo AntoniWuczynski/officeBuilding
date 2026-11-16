@@ -79,5 +79,6 @@ export function managerSession(projectId: string, id = "m-1"): Session {
     pets: [],
     worktree: false,
     branch: null,
+    lastReply: null,
   };
 }

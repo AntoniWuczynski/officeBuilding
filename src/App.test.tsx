@@ -695,6 +695,7 @@ describe("manager's office", () => {
       done: i >= 203,
       assignee: "ai" as const,
       source: { kind: "file" as const, file: "TODO.md" },
+      projectTag: null,
     }));
     renderApp(new MockApi({ ...seed, todos: [...seed.todos, ...many] }));
     await enter("p-arcade");

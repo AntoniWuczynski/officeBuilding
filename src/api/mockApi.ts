@@ -327,6 +327,7 @@ export class MockApi implements DiscoveryApi {
       pets: [],
       worktree: false,
       branch: null,
+      lastReply: null,
     };
     const projects = this.snapshot.projects.map((p) =>
       p.id === projectId ? { ...p, sessionIds: [...p.sessionIds, id] } : p,
@@ -397,6 +398,7 @@ export class MockApi implements DiscoveryApi {
       pets: [],
       worktree: false,
       branch: null,
+      lastReply: ended.lastReply,
     };
     this.commit({
       ...this.snapshot,

@@ -57,6 +57,7 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
     pets: over.pets ?? [],
     worktree: over.worktree ?? false,
     branch: over.branch ?? null,
+    lastReply: over.lastReply ?? null,
   };
 }
 
@@ -239,7 +240,7 @@ describe("editor lines", () => {
 const LINK: FloorLink = { kind: "linear", teamId: "t", teamKey: "ENG", teamName: "Engineering", project: null, label: null };
 const NOW = new Date("2026-11-12T10:20:00Z");
 const connection = (patch: Partial<Connection>): Connection => ({ projectId: "p-1", link: LINK, fetchedAt: null, error: null, needsKey: false, truncated: false, ...patch });
-const todo = (source: TodoItem["source"]): TodoItem => ({ id: "x", projectId: "p-1", text: "x", done: false, assignee: "ai", source });
+const todo = (source: TodoItem["source"]): TodoItem => ({ id: "x", projectId: "p-1", text: "x", done: false, assignee: "ai", source, projectTag: null });
 
 describe("connector selectors", () => {
   it("finds a floor's connection", () => {

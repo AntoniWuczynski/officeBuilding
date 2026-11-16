@@ -143,7 +143,7 @@ describe("ManagerPanel with a manager hired", () => {
 
 describe("ManagerPanel lists", () => {
   it("shows the first five open agent TODOs and opens the TODO section", async () => {
-    const many: TodoItem[] = Array.from({ length: 7 }, (_, i) => ({ id: `x-${i}`, projectId: "p-shop", text: `job ${i}`, done: i === 0, assignee: "ai", source: { kind: "app" } }));
+    const many: TodoItem[] = Array.from({ length: 7 }, (_, i) => ({ id: `x-${i}`, projectId: "p-shop", text: `job ${i}`, done: i === 0, assignee: "ai", source: { kind: "app" }, projectTag: null }));
     const onOpenTodos = vi.fn();
     show(actionsFor(), { todos: many, onOpenTodos });
     const plan = screen.getByTestId("manager-plan");

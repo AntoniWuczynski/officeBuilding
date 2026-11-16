@@ -66,6 +66,22 @@ describe("wire", () => {
     expect(() => parseWire(snapshotSchema, "snapshot", bare)).toThrow(/chatDesks/);
   });
 
+  it("carries last replies, project tags, shared boards and the boards setting", () => {
+    const seed = makeSeedSnapshot();
+    const parsed = parseWire(snapshotSchema, "snapshot", seed);
+    expect(parsed.sessions.find((s) => s.id === "s-1")?.lastReply).toMatch(/^Checkout audit is done/);
+    expect(parsed.ended.find((e) => e.id === "e-1")?.lastReply).not.toBeNull();
+    const board = parsed.sharedBoards[0];
+    expect(board?.items.map((i) => i.projectTag)).toEqual(["corner_shop", "Office Building", null]);
+    expect(parseWire(settingsSchema, "settings", makeSettings()).boards.sharedFiles).toEqual([]);
+    const [first, ...rest] = seed.sessions;
+    if (first === undefined) throw new Error("no session in the seed");
+    const { lastReply: _reply, ...noReply } = first;
+    expect(() => parseWire(snapshotSchema, "snapshot", { ...seed, sessions: [noReply, ...rest] })).toThrow(/sessions\.0\.lastReply/);
+    const { sharedBoards: _boards, ...noBoards } = seed;
+    expect(() => parseWire(snapshotSchema, "snapshot", noBoards)).toThrow(/sharedBoards/);
+  });
+
   it("needs queued on the snapshot", () => {
     const { queued: _queued, ...bare } = makeSeedSnapshot();
     expect(() => parseWire(snapshotSchema, "snapshot", bare)).toThrow(/queued/);

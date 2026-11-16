@@ -6,7 +6,7 @@ import { ConnectorsContext } from "../connectors/ConnectorsContext";
 import type { ConnectorActions } from "../connectors/ConnectorsContext";
 import { TodoList } from "./TodoList";
 
-const item = (id: string, source: TodoItem["source"]): TodoItem => ({ id, projectId: "p", text: `text ${id}`, done: false, assignee: "ai", source });
+const item = (id: string, source: TodoItem["source"]): TodoItem => ({ id, projectId: "p", text: `text ${id}`, done: false, assignee: "ai", source, projectTag: null });
 
 const NOW = new Date("2026-09-28T15:41:00Z");
 const connection = (over: Partial<Connection> = {}): Connection => ({

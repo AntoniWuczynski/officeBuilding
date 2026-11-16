@@ -485,6 +485,7 @@ describe("MockApi floors", () => {
           tiers: { fable: [], opus: [], sonnet: [], haiku: [] },
         },
         handover: { automatic: false, claudeToCodex: null, codexToClaude: null },
+        boards: { sharedFiles: [] },
       });
     });
 

@@ -24,16 +24,16 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "p-notes", name: "notes", path: "~/code/notes", sessionIds: [] },
     ],
     sessions: [
-      { id: "s-1", tool: "claude-code", projectId: "p-shop", title: "audit checkout", state: "running", control: "full", model: "claude-opus-5-5", effort: "high", lastActivityAt: "2026-09-28T15:40:00Z", pendingQuestionIds: [], spend: { usd: 1.82, tokens: 412_000, unpricedTokens: 0 }, helpers: helpers("s-1", 3), pets: [{ id: "pet-1", kind: "shell", label: "pnpm dev --port 5183" }, { id: "pet-2", kind: "monitor", label: "deploy errors" }], worktree: false, branch: null },
-      { id: "s-2", tool: "codex", projectId: "p-shop", title: "orders ingest fix", state: "waiting-human", control: "full", model: "gpt-6-astra", effort: "xhigh", lastActivityAt: "2026-09-28T15:38:00Z", pendingQuestionIds: ["q-1"], spend: { usd: 0.44, tokens: 96_000, unpricedTokens: 0 }, helpers: [], pets: [{ id: "pet-3", kind: "browser", label: "node_repl" }, { id: "pet-4", kind: "process", label: "devserver" }], worktree: true, branch: "fix/orders-ingest" },
-      { id: "s-3", tool: "opencode", projectId: "p-shop", title: "map-tiles mirror", state: "error", control: "raise-window", model: null, effort: null, lastActivityAt: "2026-09-28T15:20:00Z", pendingQuestionIds: ["q-2"], spend: { usd: 0.12, tokens: 22_000, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null },
-      { id: "s-4", tool: "claude-code", projectId: "p-office", title: "isometric floors", state: "thinking", control: "full", model: "claude-fable-5-1", effort: "max", lastActivityAt: "2026-09-28T15:41:00Z", pendingQuestionIds: [], spend: { usd: 2.05, tokens: 508_000, unpricedTokens: 0 }, helpers: helpers("s-4", 250), pets: [], worktree: false, branch: null },
-      { id: "s-5", tool: "antigravity", projectId: "p-office", title: "character sprites", state: "idle", control: "read-only", model: null, effort: null, lastActivityAt: "2026-09-28T14:55:00Z", pendingQuestionIds: [], spend: { usd: 0.0, tokens: 0, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null },
-      { id: "s-6", tool: "codex", projectId: "p-arcade", title: "netcode prototype", state: "idle", control: "full", model: "gpt-5.6-terra", effort: "medium", lastActivityAt: "2026-09-28T13:10:00Z", pendingQuestionIds: [], spend: { usd: 3.7, tokens: 910_000, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null },
+      { id: "s-1", tool: "claude-code", projectId: "p-shop", title: "audit checkout", state: "running", control: "full", model: "claude-opus-5-5", effort: "high", lastActivityAt: "2026-09-28T15:40:00Z", pendingQuestionIds: [], spend: { usd: 1.82, tokens: 412_000, unpricedTokens: 0 }, helpers: helpers("s-1", 3), pets: [{ id: "pet-1", kind: "shell", label: "pnpm dev --port 5183" }, { id: "pet-2", kind: "monitor", label: "deploy errors" }], worktree: false, branch: null, lastReply: "Checkout audit is done: 3 findings filed to TODO.md." },
+      { id: "s-2", tool: "codex", projectId: "p-shop", title: "orders ingest fix", state: "waiting-human", control: "full", model: "gpt-6-astra", effort: "xhigh", lastActivityAt: "2026-09-28T15:38:00Z", pendingQuestionIds: ["q-1"], spend: { usd: 0.44, tokens: 96_000, unpricedTokens: 0 }, helpers: [], pets: [{ id: "pet-3", kind: "browser", label: "node_repl" }, { id: "pet-4", kind: "process", label: "devserver" }], worktree: true, branch: "fix/orders-ingest", lastReply: "Should I persist EventType onto entries, or keep it prefill-only?" },
+      { id: "s-3", tool: "opencode", projectId: "p-shop", title: "map-tiles mirror", state: "error", control: "raise-window", model: null, effort: null, lastActivityAt: "2026-09-28T15:20:00Z", pendingQuestionIds: ["q-2"], spend: { usd: 0.12, tokens: 22_000, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null, lastReply: null },
+      { id: "s-4", tool: "claude-code", projectId: "p-office", title: "isometric floors", state: "thinking", control: "full", model: "claude-fable-5-1", effort: "max", lastActivityAt: "2026-09-28T15:41:00Z", pendingQuestionIds: [], spend: { usd: 2.05, tokens: 508_000, unpricedTokens: 0 }, helpers: helpers("s-4", 250), pets: [], worktree: false, branch: null, lastReply: null },
+      { id: "s-5", tool: "antigravity", projectId: "p-office", title: "character sprites", state: "idle", control: "read-only", model: null, effort: null, lastActivityAt: "2026-09-28T14:55:00Z", pendingQuestionIds: [], spend: { usd: 0.0, tokens: 0, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null, lastReply: null },
+      { id: "s-6", tool: "codex", projectId: "p-arcade", title: "netcode prototype", state: "idle", control: "full", model: "gpt-5.6-terra", effort: "medium", lastActivityAt: "2026-09-28T13:10:00Z", pendingQuestionIds: [], spend: { usd: 3.7, tokens: 910_000, unpricedTokens: 0 }, helpers: [], pets: [], worktree: false, branch: null, lastReply: "The rollback netcode prototype runs at 60 ticks." },
     ],
     ended: [
-      { id: "e-1", tool: "claude-code", projectId: "p-shop", title: "refund emails", endedAt: "2026-09-28T15:10:00Z", model: "claude-sonnet-5-5", effort: "medium" },
-      { id: "e-2", tool: "codex", projectId: "p-shop", title: "price import", endedAt: "2026-09-28T12:00:00Z", model: "gpt-6-astra", effort: "high" },
+      { id: "e-1", tool: "claude-code", projectId: "p-shop", title: "refund emails", endedAt: "2026-09-28T15:10:00Z", model: "claude-sonnet-5-5", effort: "medium", lastReply: "Refund emails now go out in the customer's language." },
+      { id: "e-2", tool: "codex", projectId: "p-shop", title: "price import", endedAt: "2026-09-28T12:00:00Z", model: "gpt-6-astra", effort: "high", lastReply: null },
     ],
     questions: [
       { id: "q-2", projectId: "p-shop", sessionId: "s-3", prompt: "The tile mirror keeps returning 429. Switch to the paid endpoint or back off?", options: [ { id: "o-1", label: "Use the paid endpoint (TILE_ENDPOINTS)" }, { id: "o-2", label: "Exponential back-off, keep the free mirrors" } ], allowOther: true, answerVia: "terminal", priority: 0, askedAt: "2026-09-28T15:21:00Z", context: "", sourceFile: null },
@@ -46,13 +46,13 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "d-3", projectId: "p-shop", title: "Checkout audit runs weekly", detail: "Scheduled every Monday; findings filed to TODO.md.", decidedAt: "2026-09-27T09:00:00Z", by: "ai" },
     ],
     todos: [
-      { id: "t-1", projectId: "p-office", text: "Evaluate the CCC HTTP API on the Mac", done: false, assignee: "human", source: { kind: "app" } },
-      { id: "t-2", projectId: "p-office", text: "Generate the app icons", done: false, assignee: "human", source: { kind: "app" } },
-      { id: "t-3", projectId: "p-office", text: "Scaffold the mock UI", done: true, assignee: "ai", source: { kind: "app" } },
-      { id: "t-4", projectId: "p-office", text: "Wire tauri-plugin-pty for spawned sessions", done: false, assignee: "ai", source: { kind: "app" } },
-      { id: "t-5", projectId: "p-shop", text: "Rotate the tile API key", done: false, assignee: "human", source: { kind: "app" } },
-      { id: "t-6", projectId: "p-shop", text: "Refresh map-tiles visual baselines", done: true, assignee: "ai", source: { kind: "app" } },
-      { id: "t-7", projectId: "p-shop", text: "Fix the orders ingest dedupe", done: false, assignee: "ai", source: { kind: "app" } },
+      { id: "t-1", projectId: "p-office", text: "Evaluate the CCC HTTP API on the Mac", done: false, assignee: "human", source: { kind: "app" }, projectTag: null },
+      { id: "t-2", projectId: "p-office", text: "Generate the app icons", done: false, assignee: "human", source: { kind: "app" }, projectTag: null },
+      { id: "t-3", projectId: "p-office", text: "Scaffold the mock UI", done: true, assignee: "ai", source: { kind: "app" }, projectTag: null },
+      { id: "t-4", projectId: "p-office", text: "Wire tauri-plugin-pty for spawned sessions", done: false, assignee: "ai", source: { kind: "app" }, projectTag: null },
+      { id: "t-5", projectId: "p-shop", text: "Rotate the tile API key", done: false, assignee: "human", source: { kind: "app" }, projectTag: null },
+      { id: "t-6", projectId: "p-shop", text: "Refresh map-tiles visual baselines", done: true, assignee: "ai", source: { kind: "app" }, projectTag: null },
+      { id: "t-7", projectId: "p-shop", text: "Fix the orders ingest dedupe", done: false, assignee: "ai", source: { kind: "app" }, projectTag: null },
     ],
     messages: [],
     setupProjectId: "p-setup",
@@ -63,6 +63,18 @@ export function makeSeedSnapshot(): OfficeSnapshot {
     chatDesks: [],
     queued: [],
     handover: makeHandoverView(),
+    sharedBoards: [
+      {
+        id: "board:~/Desktop/MY-ACTIONS.md",
+        path: "~/Desktop/MY-ACTIONS.md",
+        name: "MY-ACTIONS.md",
+        items: [
+          { id: "board:~/Desktop/MY-ACTIONS.md|1", projectId: "board:~/Desktop/MY-ACTIONS.md", text: "Post the release note | corner_shop | 2026-09-28 | #shop", done: false, assignee: "human", source: { kind: "file", file: "~/Desktop/MY-ACTIONS.md" }, projectTag: "corner_shop" },
+          { id: "board:~/Desktop/MY-ACTIONS.md|2", projectId: "board:~/Desktop/MY-ACTIONS.md", text: "Approve the sprite pack | Office Building | 2026-09-28", done: false, assignee: "human", source: { kind: "file", file: "~/Desktop/MY-ACTIONS.md" }, projectTag: "Office Building" },
+          { id: "board:~/Desktop/MY-ACTIONS.md|3", projectId: "board:~/Desktop/MY-ACTIONS.md", text: "Renew the domain", done: false, assignee: "human", source: { kind: "file", file: "~/Desktop/MY-ACTIONS.md" }, projectTag: null },
+        ],
+      },
+    ],
   };
 }
 
