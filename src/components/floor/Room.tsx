@@ -9,9 +9,12 @@ import type { PlanPoint } from "../../lib/iso";
 import { DESK, ROOM, doorOf, floorSpotOf, managerSeat, podFor, podSeatOf, qaDeskSlot, roomDeskSlot, seatOf } from "../../lib/layout";
 import type { Seat, Slot } from "../../lib/layout";
 import { MANAGER_LOOK, lookFor } from "../../lib/looks";
+import type { Look } from "../../lib/looks";
 import { Billboard, CameraContext, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
+import type { FloorLook } from "../../scene/Desk";
+import { Beach, CAMP, Hut, ISLAND_MANAGER_LOOK } from "../../scene/Camp";
 import { materialsFor } from "../../scene/materials";
 import { Duct, Tank, fuseBoxTop, toolboxTop } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
@@ -68,6 +71,7 @@ interface RoomProps {
   readonly onOpenSection: (section: Section) => void;
   readonly onOpenSettings: () => void;
   readonly onHire: () => void;
+  readonly look?: FloorLook;
 }
 
 interface MenuState {
@@ -130,7 +134,7 @@ const ACTION_WORDS: Record<Session["control"], string> = {
 };
 
 /** The open-plan floor: one desk per session, the hire desk, and the manager's objects. */
-export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, handovers, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire }: RoomProps): React.ReactElement {
+export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, handovers, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire, look = "office" }: RoomProps): React.ReactElement {
   const reduced = useReducedMotion() ?? false;
   const placements = useMemo<readonly Placement[]>(
     () => [...sessions.map((session, i) => ({ session, desk: roomDeskSlot(i) })), ...(reviewer === undefined ? [] : [{ session: reviewer, desk: qaDeskSlot(depth) }])],
@@ -210,6 +214,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
 
   return (
     <>
+      {look === "island" ? <Beach width={ROOM.width} depth={depth} /> : null}
       <IsoBox x={0} y={0} w={ROOM.width} d={depth} h={ROOM.slab} top={materialsFor(objects.plant).floor} front="var(--room-slab, var(--concrete))" side="var(--room-slab-shade, var(--concrete-shade))" />
       <BackWall model={objects} depth={depth} onOpen={onOpenSection} />
       {objects.plant ? (
@@ -230,10 +235,10 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
         </>
       ) : null}
       <LeftWall model={objects} depth={depth} onOpen={onOpenSection} />
-      <ManagerOffice model={objects} depth={depth} onOpen={onOpenSection} away={managerId !== null && walking.has(managerId)} />
+      <ManagerOffice model={objects} depth={depth} onOpen={onOpenSection} away={managerId !== null && walking.has(managerId)} look={look} />
       <SignOutStand model={objects} depth={depth} onOpen={onOpenSection} />
 
-      {qa === null ? null : <QaDesk qa={qa} depth={depth} occupied={reviewer !== undefined} now={now} onOpen={() => onOpenSection("info")} />}
+      {qa === null ? null : <QaDesk qa={qa} depth={depth} occupied={reviewer !== undefined} now={now} onOpen={() => onOpenSection("info")} look={look} />}
 
       {placements.map(({ session: s, desk }) => {
         const seat = s.state === "error" ? floorSpotOf(desk, depth - 4) : seatOf(desk);
@@ -242,7 +247,8 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
         const handed = handoverOf(handovers, s.id);
         return (
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
-            <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} />
+            <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} look={look} />
+            {look === "island" ? <Hut x={desk.x} y={desk.y} z={ROOM.slab} /> : null}
             <Pod
               desk={desk}
               z={ROOM.slab}
@@ -296,7 +302,18 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
         );
       })}
 
-      <IsoBox x={hireSlot.x} y={hireSlot.y} z={ROOM.slab} w={DESK.w} d={DESK.d} h={DESK.h} top="var(--paper)" front="var(--rule)" side="var(--concrete)" className="hire-desk" />
+      <IsoBox
+        x={hireSlot.x}
+        y={hireSlot.y}
+        z={ROOM.slab}
+        w={DESK.w}
+        d={DESK.d}
+        h={DESK.h}
+        top={look === "island" ? CAMP.wood : "var(--paper)"}
+        front={look === "island" ? CAMP.woodFront : "var(--rule)"}
+        side={look === "island" ? CAMP.woodSide : "var(--concrete)"}
+        className="hire-desk"
+      />
       <Billboard x={hireSlot.x + 18} y={hireSlot.y} z={ROOM.slab + DESK.h}>
         <button type="button" className="hire-sign" data-testid="hire-desk" disabled={hiring} onClick={onHire}>
           <span aria-hidden>+</span> {hiring ? "Hiring" : "Hire an agent"}
@@ -330,17 +347,17 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
       )}
 
       {walks.map((w) => (
-        <WalkView key={w.id} walk={w} depth={depth} managerId={managerId} onDone={(id) => setWalks((cur) => cur.filter((x) => x.id !== id))} />
+        <WalkView key={w.id} walk={w} depth={depth} managerId={managerId} managerLook={look === "island" ? ISLAND_MANAGER_LOOK : MANAGER_LOOK} onDone={(id) => setWalks((cur) => cur.filter((x) => x.id !== id))} />
       ))}
     </>
   );
 }
 
-function WalkView({ walk, depth, managerId, onDone }: { readonly walk: Walk; readonly depth: number; readonly managerId: string | null; readonly onDone: (id: string) => void }): React.ReactElement {
+function WalkView({ walk, depth, managerId, managerLook, onDone }: { readonly walk: Walk; readonly depth: number; readonly managerId: string | null; readonly managerLook: Look; readonly onDone: (id: string) => void }): React.ReactElement {
   const cam = useContext(CameraContext);
   const first = walk.via ?? walk.to;
   const left = headsLeft(cam, ROOM.width, depth, walk.from, first);
-  const walker = <Walker look={walk.walkerId === managerId ? MANAGER_LOOK : lookFor(walk.walkerId)} carrying={CARRIES[walk.kind]} />;
+  const walker = <Walker look={walk.walkerId === managerId ? managerLook : lookFor(walk.walkerId)} carrying={CARRIES[walk.kind]} />;
   const style: StyleWithVars = {
     "--fx": `${walk.from.x}px`,
     "--fy": `${walk.from.y}px`,

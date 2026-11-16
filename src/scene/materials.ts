@@ -10,8 +10,8 @@ export interface Materials {
 // The --room-* tokens are unset in the office and set by the island view's beach camp (archipelago/camp.css).
 const OFFICE: Materials = {
   floor: "var(--room-floor, var(--boards))",
-  backWall: "var(--room-back, var(--window-wall))",
-  leftWall: "var(--room-left, var(--plaster-shade))",
+  backWall: "var(--window-wall)",
+  leftWall: "var(--plaster-shade)",
   backClass: "wall-windows",
 };
 const PLANT: Materials = { floor: "var(--plant-floor)", backWall: "var(--pipe-wall)", leftWall: "var(--pegboard)", backClass: "wall-pipes" };

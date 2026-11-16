@@ -446,6 +446,7 @@ export function App({ api }: Props): React.ReactElement {
               onNewShell={() => newShell(project.id)}
               onEndShell={(id) => api.endShell(id)}
               setup={setup}
+              look={viewMode === "islands" ? "island" : "office"}
             />
           </motion.div>
         )}

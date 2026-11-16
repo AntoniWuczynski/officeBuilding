@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { FLOOR_CAMERA, billboardTransform } from "../lib/iso";
+import { FLOOR_CAMERA, billboardTransform, project } from "../lib/iso";
 import type { Camera } from "../lib/iso";
 
 /** Inline style that may also carry CSS custom properties. */
@@ -45,6 +45,26 @@ export function IsoBox({ x, y, z = 0, w, d, h, top, front, side, className, topC
       <i className="iso-side" style={{ background: side }} />
     </div>
   );
+}
+
+interface Point3 {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+/**
+ * How far a tag reaches above its anchor on screen, in px, as laid out in the app (CSS bottom plus height): a worker's
+ * name tag (scene.css, 38 + 14.6), the "managed" mark over it (manager.css, 56 + 13.9), the tallest tag a seated worker
+ * carries, and the hire sign (23.7).
+ */
+export const TAG_TOP = { name: 52.6, managed: 69.9, hire: 23.7 } as const;
+
+/** How high a point (or a billboard's foot) over floor point `at` must be to show `gap` px above `mark` on screen. */
+export function heightToClear(cam: Camera, mark: Point3, at: { readonly x: number; readonly y: number }, gap: number): number {
+  const foot = project(cam, 0, 0, at.x, at.y, 0).y;
+  const target = project(cam, 0, 0, mark.x, mark.y, mark.z).y - gap;
+  return (foot - target) / Math.sin((cam.tilt * Math.PI) / 180);
 }
 
 /**
