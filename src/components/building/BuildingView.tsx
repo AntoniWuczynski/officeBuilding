@@ -1,6 +1,7 @@
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import type { OfficeSnapshot, Project, Session, ToolUsage } from "../../types";
+import type { QuestionAnswer } from "../../api/DiscoveryApi";
+import type { OfficeSnapshot, Project, Question, Session, ToolUsage } from "../../types";
 import type { ViewMode } from "../../state/useViewMode";
 import { PLACE } from "../../state/placeWords";
 import {
@@ -8,6 +9,7 @@ import {
   matchesQuery,
   qaFor,
   questionsForProject,
+  sessionById,
   sessionCounts,
   sessionsForProject,
 } from "../../state/selectors";
@@ -19,6 +21,8 @@ import { Stage } from "../../scene/Stage";
 import { AddFloorDialog } from "./AddFloorDialog";
 import { DemolishDialog } from "./DemolishDialog";
 import { EditableSign } from "./EditableSign";
+import { NeedsYou } from "./NeedsYou";
+import { PLACE_PANEL_ID, PlacePanel } from "./PlacePanel";
 import { UsageSigns } from "./UsageSigns";
 import { Building, buildingHeight } from "./Building";
 import type { FloorModel } from "./Storey";
@@ -44,26 +48,37 @@ interface Props {
   readonly viewSwitch?: React.ReactNode;
   /** Draw the floors as a building (default) or as islands; everything around the drawing stays the same. */
   readonly mode?: ViewMode;
-  /** Islands only: open one agent's terminal or conversation from the island panel. */
-  readonly onOpenSession?: (session: Session) => void;
-  /** Islands only: name an island, or move an agent to another one. */
-  readonly overrideActions?: OverrideActions;
+  /** Open one agent's terminal or conversation, from a place's panel or the Needs-you list. */
+  readonly onOpenSession: (session: Session) => void;
+  /** Name a place, or move an agent to another one. */
+  readonly overrideActions: OverrideActions;
+  /** Answer a waiting question from the Needs-you list. */
+  readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
 }
 
 // The island map pulls in three.js (a 596 kB chunk, 152 kB gzipped): load it only when Islands is chosen.
 const Archipelago = lazy(() => import("../../archipelago/Archipelago").then((m) => ({ default: m.Archipelago })));
 
+/** The stage's side pads in camera units; the left one is where the floors' nameplates stand, 16 of it clear of the building. */
+const PAD = { left: 210, right: 187 } as const;
+const PLATE_CLEAR = 16;
+
 /** The roof sign's default reads as the place you are looking at; a name of your own shows in both. */
 const ISLANDS_DEFAULT_NAME = "The Islands";
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions, onAnswer }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
   const animate = !(useReducedMotion() ?? false);
   const [buildingName, renameBuilding] = useBuildingName();
   const viewRef = useRef<HTMLDivElement>(null);
+  /** Office: the floor whose place panel is open. Islands keeps its own selection with its camera. */
+  const [placeId, setPlaceId] = useState<string | null>(null);
+  const panelHeading = useRef<HTMLHeadingElement>(null);
+  /** How far the left pad must grow so the widest nameplate stands inside the window: a long name or a stamp widens its plate, not the pad. */
+  const [plateRoom, setPlateRoom] = useState(0);
 
   const floors: FloorModel[] = snapshot.projects.map((project) => {
     const sessions = sessionsForProject(snapshot, project.id);
@@ -102,6 +117,37 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
     if (el === null || view === undefined) return { x: 0, y: 0 };
     const r = el.getBoundingClientRect();
     return { x: r.left + r.width / 2 - view.left, y: r.top + r.height / 2 - view.top };
+  };
+
+  const plateSignature = floors.map((f) => `${f.project.name}\u0000${f.stamp ?? ""}\u0000${f.counts.total}`).join("\u0001");
+  useLayoutEffect(() => {
+    const root = viewRef.current;
+    if (root === null || islands) return;
+    const measure = (): void => {
+      const zoom = parseFloat(getComputedStyle(root.querySelector(".stage-camera") ?? root).zoom) || 1;
+      const widest = Math.max(0, ...[...root.querySelectorAll(".storey .nameplate")].map((p) => p.getBoundingClientRect().width / zoom));
+      setPlateRoom(Math.max(0, Math.ceil(widest + PLATE_CLEAR) - PAD.left));
+    };
+    measure();
+    // A web font arriving after first paint changes every plate's width.
+    const watch = new ResizeObserver(measure);
+    for (const plate of root.querySelectorAll(".storey .nameplate")) watch.observe(plate);
+    return () => watch.disconnect();
+  }, [islands, plateSignature]);
+  const placed = mode === "office" ? standing.list.find((e) => e.key === placeId) : undefined;
+  useEffect(() => {
+    if (placed === undefined) return;
+    panelHeading.current?.focus();
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setPlaceId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [placed?.key]);
+  const openAsk = (q: Question): void => {
+    const asker = sessionById(snapshot, q.sessionId);
+    if (asker !== undefined) onOpenSession(asker);
+    else onEnter(q.projectId, originOf(viewRef.current?.querySelector<HTMLElement>(`[data-project="${q.projectId}"]`) ?? null));
   };
 
   return (
@@ -148,6 +194,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             ))}
           </span>
         ) : null}
+        <NeedsYou snapshot={snapshot} onOpen={openAsk} onAnswer={onAnswer} />
       </header>
 
       {floors.length === 0 ? (
@@ -163,7 +210,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
         </p>
       ) : null}
 
-      <div className={islands ? "building-body is-islands" : "building-body"}>
+      <div className={islands ? "building-body is-islands" : placed === undefined ? "building-body" : "building-body has-place-panel"}>
         {islands ? (
           <Suspense fallback={null}>
             <Archipelago
@@ -172,9 +219,9 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
               onGone={standing.done}
               animate={animate}
               onEnter={(projectId) => onEnter(projectId, originOf(viewRef.current))}
-              onOpenSession={(s) => onOpenSession?.(s)}
-              onRenameIsland={(projectId, next) => overrideActions?.renameFloor(projectId, next)}
-              onMoveSession={(sessionId, projectId) => overrideActions?.moveSession(sessionId, projectId)}
+              onOpenSession={onOpenSession}
+              onRenameIsland={overrideActions.renameFloor}
+              onMoveSession={overrideActions.moveSession}
               onAddFloor={openAdding}
               onDemolish={openDemolishing}
             />
@@ -185,7 +232,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           width={width}
           depth={STOREY.depth}
           height={buildingHeight(standing.list.length)}
-          pad={{ left: 210, right: 187, top: 48, bottom: 28 }}
+          pad={{ left: PAD.left + plateRoom, right: PAD.right + plateRoom, top: 48, bottom: 28 }}
           fit="width"
           maxScale={1.7}
           className="building-stage"
@@ -197,13 +244,37 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             name={buildingName}
             onRename={renameBuilding}
             onEnter={(projectId, el) => onEnter(projectId, originOf(el))}
+            onOpenSession={onOpenSession}
+            onShow={setPlaceId}
+            panelOpenId={placed?.key ?? null}
             onAddFloor={openAdding}
             onDemolish={openDemolishing}
             onGone={standing.done}
           />
         </Stage>
         )}
-        <UsageSigns loadUsage={loadUsage} collapsible={islands} />
+        {placed === undefined ? null : (
+          <PlacePanel
+            id={PLACE_PANEL_ID}
+            className="office-panel"
+            projectId={placed.key}
+            name={placed.item.project.name}
+            noun={words.noun}
+            enterLabel="Enter floor"
+            sessions={placed.item.sessions}
+            counts={placed.item.counts}
+            asks={questionsForProject(snapshot, placed.key)}
+            moveTargets={standing.list.filter((e) => e.key !== placed.key && !e.item.plant && e.phase !== "leaving").map((e) => ({ id: e.key, name: e.item.project.name }))}
+            leaving={placed.phase === "leaving"}
+            headingRef={panelHeading}
+            onRename={overrideActions.renameFloor}
+            onMove={overrideActions.moveSession}
+            onOpenSession={onOpenSession}
+            onEnter={(projectId) => onEnter(projectId, originOf(viewRef.current?.querySelector<HTMLElement>(`[data-testid="storey"][data-project="${projectId}"]`) ?? null))}
+            onClose={() => setPlaceId(null)}
+          />
+        )}
+        <UsageSigns loadUsage={loadUsage} collapsible view={{ name: mode, startOpen: !islands }} />
       </div>
 
       {adding ? (

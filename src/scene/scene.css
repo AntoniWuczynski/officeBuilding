@@ -113,6 +113,10 @@
 .storey-hit > i {
   background: transparent;
 }
+/* Its front face stands in front of the people at their desks and would take their clicks. */
+.storey-hit > .iso-front {
+  pointer-events: none;
+}
 /* Only the room slides out like a drawer; the nameplate stays put so it is a stable target. */
 .storey-slide {
   position: absolute;

@@ -21,7 +21,9 @@ import {
   matchesQuery,
   openCount,
   projectCounts,
+  needsYouQueue,
   questionQueue,
+  tripTag,
   questionsForProject,
   qaFor,
   qaLine,
@@ -339,5 +341,30 @@ describe("QA selectors", () => {
       expect(splitReviewer(sessions, floor())).toEqual({ seated: sessions, reviewer: undefined });
       expect(splitReviewer(sessions, undefined)).toEqual({ seated: sessions, reviewer: undefined });
     });
+  });
+});
+
+describe("the Needs-you queue", () => {
+  const file = (id: string, askedAt: string) => ({ ...question(id, 0, askedAt), sessionId: "", answerVia: "file" as const });
+  it("puts live session asks before decisions-file calls, whatever their priority, newest first within each", () => {
+    const snap = {
+      ...makeSeedSnapshot(),
+      questions: [file("f-new", "2026-09-30T10:00:00Z"), question("live-old", 5, "2026-09-28T09:00:00Z"), file("f-old", "2026-09-01T10:00:00Z"), question("live-new", 9, "2026-09-29T09:00:00Z")],
+    };
+    expect(needsYouQueue(snap).map((q) => q.id)).toEqual(["live-new", "live-old", "f-new", "f-old"]);
+  });
+  it("leaves the floor's own order and the building's urgency order alone", () => {
+    const snap = makeSeedSnapshot();
+    expect(needsYouQueue(snap).map((q) => q.id)).toEqual(["q-1", "q-2", "q-3"]);
+    expect(questionQueue(snap).map((q) => q.id)).toEqual(["q-2", "q-3", "q-1"]);
+    expect(questionsForProject(snap, "p-shop").map((q) => q.id)).toEqual(["q-2", "q-1"]);
+  });
+});
+
+describe("tripTag", () => {
+  it("names sender and recipient, cut to fit", () => {
+    const [a, b] = makeSeedSnapshot().sessions;
+    if (a === undefined || b === undefined) throw new Error("seed");
+    expect(tripTag(a, b)).toBe("audit checkout to orders ingest\u2026");
   });
 });

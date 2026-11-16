@@ -1,3 +1,4 @@
+import type { Session } from "../../types";
 import { STOREY } from "../../lib/layout";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
@@ -14,6 +15,11 @@ interface BuildingProps {
   readonly name: string;
   readonly onRename: (name: string) => void;
   readonly onEnter: (projectId: string, from: HTMLElement) => void;
+  readonly onOpenSession: (session: Session) => void;
+  /** A floor's nameplate was clicked: open its place panel. */
+  readonly onShow: (projectId: string) => void;
+  /** The floor whose place panel is open. */
+  readonly panelOpenId: string | null;
   readonly onAddFloor: () => void;
   readonly onDemolish: (projectId: string) => void;
   readonly onGone: (projectId: string) => void;
@@ -28,7 +34,7 @@ export function buildingHeight(floorCount: number): number {
  * The cutaway: the setup floor's plant room in the basement, then the lobby,
  * one storey per project, and the roof on top.
  */
-export function Building({ floors, animate, width, name, onRename, onEnter, onAddFloor, onDemolish, onGone }: BuildingProps): React.ReactElement {
+export function Building({ floors, animate, width, name, onRename, onEnter, onOpenSession, onShow, panelOpenId, onAddFloor, onDemolish, onGone }: BuildingProps): React.ReactElement {
   const n = floors.length;
   const basement = floors.filter((f) => f.item.plant);
   const above = floors.filter((f) => !f.item.plant);
@@ -42,6 +48,9 @@ export function Building({ floors, animate, width, name, onRename, onEnter, onAd
       phase={phase}
       animate={animate}
       onEnter={onEnter}
+      onOpenSession={onOpenSession}
+      onShow={onShow}
+      panelOpen={panelOpenId === key}
       onDemolish={onDemolish}
       onGone={onGone}
     />
@@ -97,7 +106,7 @@ function Roof({
       <Billboard x={width / 2 + 20} y={STOREY.depth / 2} z={8}>
         <EditableSign name={name} onRename={onRename} />
       </Billboard>
-      <Billboard x={width - 30} y={STOREY.depth - 10} z={8}>
+      <Billboard x={width - 30} y={STOREY.depth - 2} z={8}>
         <button type="button" className="add-floor-sign" data-testid="add-floor" onClick={onAddFloor}>
           <span aria-hidden>+</span> Add a floor
         </button>

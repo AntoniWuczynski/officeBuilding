@@ -406,6 +406,7 @@ export function App({ api }: Props): React.ReactElement {
               onDemolishFloor={demolishFloor}
               loadUsage={loadUsage}
               onOpenPlate={closeSettings}
+              onAnswer={answer}
               mode={viewMode}
               viewSwitch={<ViewSwitch mode={viewMode} onChange={setViewMode} />}
               onOpenSession={(s) => {

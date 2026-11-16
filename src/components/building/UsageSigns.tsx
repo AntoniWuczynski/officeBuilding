@@ -4,13 +4,16 @@ import { TOOL_LABEL } from "../../state/selectors";
 import { useNow } from "../../state/useNow";
 import { message } from "../../lib/errors";
 import { relativeTime, resetsLabel } from "../../lib/time";
+import { readPref, writePref } from "../../lib/prefs";
 
 const REFRESH_MS = 60_000;
 
 interface Props {
   readonly loadUsage: (refresh: boolean) => Promise<readonly ToolUsage[]>;
-  /** Start as a one-line headline that opens to the full signs. The office keeps them open. */
+  /** Start as a one-line headline that opens to the full signs. */
   readonly collapsible?: boolean;
+  /** Each view keeps its own last choice under this name; it starts open or folded as `startOpen` says. */
+  readonly view?: { readonly name: string; readonly startOpen: boolean };
 }
 
 /** The window nearest its limit, as one line: the number that matters when the signs are folded away. */
@@ -76,9 +79,17 @@ function Sign({ usage, now }: { readonly usage: ToolUsage; readonly now: Date })
 }
 
 /** Standing signs beside the building: each installed tool's usage limits, as the tool last measured them. Re-check has Claude Code measure again. */
-export function UsageSigns({ loadUsage, collapsible = false }: Props): React.ReactElement | null {
-  // Only meaningful while `collapsible`: the same signs stay mounted when the view switches to the office, which never folds them.
-  const [unfolded, setUnfolded] = useState(false);
+export function UsageSigns({ loadUsage, collapsible = false, view }: Props): React.ReactElement | null {
+  // Only meaningful while `collapsible`. The same signs stay mounted when the view switches, so a choice is kept per view name.
+  const [chosen, setChosen] = useState<Readonly<Record<string, boolean>>>({});
+  const name = view?.name ?? "";
+  const prefKey = view === undefined ? null : `office-building:usage-open:${name}`;
+  const stored = prefKey === null ? null : readPref(prefKey);
+  const unfolded = chosen[name] ?? (stored === null ? (view?.startOpen ?? false) : stored === "1");
+  const setUnfolded = (open: boolean): void => {
+    setChosen({ ...chosen, [name]: open });
+    if (prefKey !== null) writePref(prefKey, open ? "1" : "0");
+  };
   const [usage, setUsage] = useState<readonly ToolUsage[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

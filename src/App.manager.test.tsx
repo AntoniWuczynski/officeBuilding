@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { MockApi } from "./api/mockApi";
@@ -8,7 +8,7 @@ async function enter(projectId: string): Promise<void> {
   const storeys = await screen.findAllByTestId("storey");
   const storey = storeys.find((s) => s.getAttribute("data-project") === projectId);
   if (storey === undefined) throw new Error(`no storey ${projectId}`);
-  await userEvent.click(within(storey).getByTestId("floor-nameplate"));
+  await userEvent.click(storey);
   await screen.findByTestId("back-button");
 }
 

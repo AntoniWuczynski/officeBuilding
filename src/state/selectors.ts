@@ -28,6 +28,7 @@ import type {
   Verdict,
 } from "../types";
 import { relativeTime } from "../lib/time";
+import { shortName } from "../archipelago/islands";
 
 /** Worst→best ordering; higher number = more urgent. */
 export const SESSION_STATE_SEVERITY: Record<SessionState, number> = {
@@ -153,6 +154,19 @@ function byUrgency(a: Question, b: Question): number {
 /** The whole building's question queue, most-urgent first. */
 export function questionQueue(snapshot: OfficeSnapshot): Question[] {
   return [...snapshot.questions].sort(byUrgency);
+}
+
+/** Asked by a live session (a formal question or a prose ask), not found in a repo's decisions file. */
+export const isSessionAsk = (q: Question): boolean => q.sessionId !== "";
+
+/** The Needs-you list: live session asks before decisions-file calls, newest first within each. */
+export function needsYouQueue(snapshot: OfficeSnapshot): Question[] {
+  return [...snapshot.questions].sort((a, b) => Number(isSessionAsk(b)) - Number(isSessionAsk(a)) || b.askedAt.localeCompare(a.askedAt));
+}
+
+/** "A to B": the tag a message carries on its way between two agents. */
+export function tripTag(from: Session, to: Session): string {
+  return `${shortName(from.title)} to ${shortName(to.title)}`;
 }
 
 /** One floor's question queue (its agents' questions and its decisions file), most-urgent first. */

@@ -18,6 +18,9 @@ function view(snapshot: OfficeSnapshot, onDemolishFloor: Demolish = () => Promis
       onDemolishFloor={onDemolishFloor}
       loadUsage={() => Promise.resolve([])}
       onOpenPlate={() => {}}
+      onOpenSession={() => {}}
+      overrideActions={{ renameFloor: () => {}, moveSession: () => {} }}
+      onAnswer={() => Promise.resolve()}
     />
   );
 }

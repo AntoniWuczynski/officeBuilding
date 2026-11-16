@@ -101,16 +101,6 @@
 .arch-add:hover {
   background: var(--paper);
 }
-.arch-pending {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border: 2px solid var(--ink);
-  border-radius: 10px;
-  background: var(--wait);
-  font: 700 12px/17px var(--font-num);
-  text-align: center;
-}
 /* Scoped: the office uses .is-dim on storeys and desks, where opacity would flatten their 3D. */
 .arch-list-row.is-dim {
   opacity: 0.35;
@@ -243,7 +233,7 @@
   transform-origin: 70% 90%;
 }
 
-/* The selected island's plate: paper and ink, like the floor screen's panels. */
+/* The selected island's plate (the shared place panel's look is in components/building/place.css): it stands beside the signs. */
 .arch-panel {
   position: absolute;
   top: 16px;
@@ -251,94 +241,6 @@
   width: 260px;
   /* Room for the hint below: 16 top + 16 bottom + the hint (about 30 tall) + 32 clear = 94. */
   max-height: calc(100% - 94px);
-  display: flex;
-  flex-direction: column;
-  padding: 12px 14px;
-  border: 2px solid var(--ink);
-  border-radius: 2px;
-  background: var(--paper);
-  color: var(--ink);
-}
-.arch-panel h2 {
-  margin: 0 0 2px;
-  font: 700 20px/1 var(--font-sign);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.arch-panel p {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 13px;
-}
-.arch-panel ul {
-  list-style: none;
-  margin: 10px 0;
-  padding: 0;
-  display: grid;
-  gap: 4px;
-  min-height: 0;
-  overflow-y: auto;
-}
-.arch-panel li button {
-  width: 100%;
-  display: grid;
-  gap: 2px;
-  padding: 6px 8px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--paper);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.arch-panel li button:hover {
-  background: var(--paper-hover);
-}
-.arch-panel li span {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-.arch-open {
-  width: 100%;
-  flex: none;
-}
-/* Naming an island (the name is the rename button), and putting an agent on another one. */
-.arch-panel .roof-sign {
-  position: static;
-  transform: none;
-  max-width: 100%;
-  padding: 0 2px;
-  border: 2px solid transparent;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  letter-spacing: inherit;
-  text-align: left;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-/* A pencil says the name can be changed; the panel lost its Rename button when it took the shared sign. */
-.arch-panel .roof-sign::after {
-  content: " \270E";
-  color: var(--ink-soft);
-}
-.arch-panel .roof-sign:hover {
-  border-bottom-color: var(--ink-soft);
-}
-.arch-panel .roof-sign-input {
-  border-color: var(--ink);
-  background: var(--paper);
-}
-.arch-move {
-  width: 100%;
-  margin-top: 2px;
-  padding: 2px 4px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--paper);
-  color: var(--ink-soft);
-  font: 12px var(--font-ui);
 }
 
 /* Compass and hint: small paper plates, clear of the list. */

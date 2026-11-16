@@ -3,15 +3,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { MapControls } from "three/examples/jsm/controls/MapControls.js";
 import type { OfficeSnapshot, Project, Session } from "../types";
-import { lightWords, poseForState } from "../lib/animation";
+import { poseForState } from "../lib/animation";
 import { hashString, lookFor } from "../lib/looks";
 import { Person } from "../scene/Person";
-import { STAMP_WORDS, STATE_LABEL, TOOL_LABEL, helpersLine } from "../state/selectors";
+import { questionsForProject, tripTag } from "../state/selectors";
+import { useNewMessages } from "../state/useNewMessages";
 import type { Present } from "../state/usePresence";
-import { EditableSign } from "../components/building/EditableSign";
+import { PlaceNameplate } from "../components/building/PlaceNameplate";
+import { PLACE_PANEL_ID, PlacePanel } from "../components/building/PlacePanel";
 import type { FloorModel } from "../components/building/Storey";
-import { SinkIcon } from "../components/icons";
-import { QaStamp } from "../components/qa/QaStamp";
 import { PLACE } from "../state/placeWords";
 import { COUNTER_H, OCEAN_SIZE, buildBoat, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
 import { agentSlots, assignSeats, clampToBounds, layoutIslands, MAX_SLOTS, mergeOrder, shortName, worldBounds } from "./islands";
@@ -207,8 +207,9 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
   const people = placePeople(rows, seats.current);
   // Read by the render loop, which must not restart (and rebuild the scene) on every snapshot push.
   const dimmed = new Set(rows.filter((r) => r.floor.dimmed).map((r) => r.spec.projectId));
-  const live = useRef({ people, messages: snapshot.messages, dimmed });
-  live.current = { people, messages: snapshot.messages, dimmed };
+  const live = useRef({ people, dimmed });
+  live.current = { people, dimmed };
+  const takeNewMessages = useNewMessages(snapshot.messages);
 
   // Choosing an island opens its panel: take focus there, so its agents and Open island come next in Tab order.
   useEffect(() => {
@@ -519,7 +520,6 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
 
     // A message between two agents on one island is a parrot flying from sender to receiver; between islands it is a
     // boat sailing from one shore to the other.
-    const seenMsgs = new Set(live.current.messages.map((m) => m.id));
     const notes: { readonly el: HTMLElement; readonly tag: HTMLElement; readonly wing: SVGElement | null; readonly from: THREE.Vector3; readonly to: THREE.Vector3; readonly t0: number }[] = [];
     const voyages: { readonly boat: THREE.Group; readonly tag: HTMLElement; readonly route: Route; readonly t0: number; readonly ms: number }[] = [];
     /** Where each island's label stands on screen this frame, so a boat passing under it can be seen through it. */
@@ -697,9 +697,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
         tag.style.opacity = String(shade);
       }
 
-      for (const m of live.current.messages) {
-        if (seenMsgs.has(m.id)) continue;
-        seenMsgs.add(m.id);
+      for (const m of takeNewMessages()) {
         const a = byKey.get(m.fromSessionId);
         const b = byKey.get(m.toSessionId);
         if (a === undefined || b === undefined || !moving) continue;
@@ -712,7 +710,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
           boat.scale.setScalar(BOAT_SCALE);
           scene.add(boat);
           const tag = makeTag("arch-trip");
-          tag.textContent = `${shortName(a.owner.title)} to ${shortName(b.owner.title)}`;
+          tag.textContent = tripTag(a.owner, b.owner);
           voyages.push({ boat, tag, route, t0: t, ms: Math.max(BOAT_MIN_MS, (Math.hypot(route.to.x - route.from.x, route.to.z - route.from.z) / BOAT_SPEED) * 1000) });
           continue;
         }
@@ -721,7 +719,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
         note.innerHTML = PARROT_SVG;
         el.appendChild(note);
         const tag = makeTag("arch-trip");
-        tag.textContent = `${shortName(a.owner.title)} to ${shortName(b.owner.title)}`;
+        tag.textContent = tripTag(a.owner, b.owner);
         notes.push({ el: note, tag, wing: note.querySelector<SVGElement>(".wing"), from: new THREE.Vector3(a.x, a.y + PERSON_UNITS, a.z), to: new THREE.Vector3(b.x, b.y + PERSON_UNITS, b.z), t0: t });
       }
       for (let i = notes.length - 1; i >= 0; i--) {
@@ -873,42 +871,24 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
           </button>
         ))}
         {picked === undefined ? null : (
-          <aside id="arch-panel" className="arch-panel" aria-label={`${picked.spec.name} island`}>
-            <h2 ref={panelHeading} tabIndex={-1}>
-              <EditableSign key={picked.spec.projectId} name={picked.spec.name} onRename={(next) => onRenameIsland(picked.spec.projectId, next)} noun="island" />
-            </h2>
-            <p>
-              {picked.floor.counts.total} {picked.floor.counts.total === 1 ? "agent" : "agents"}, {picked.floor.counts.active} working
-              {picked.floor.pending > 0 ? `, ${picked.floor.pending} waiting on you` : ""}
-            </p>
-            <ul>
-              {picked.floor.sessions.map((s) => (
-                <li key={s.id}>
-                  <button type="button" onClick={() => onOpenSession(s)}>
-                    <b>{s.title}</b>
-                    <span>
-                      {STATE_LABEL[s.state]} · {TOOL_LABEL[s.tool]}
-                      {helpersLine(s) === null ? "" : ` · ${helpersLine(s)}`}
-                      {s.worktree ? " · in a worktree" : ""}
-                    </span>
-                  </button>
-                  {moveTargets.length > 0 ? (
-                    <select className="arch-move" aria-label={`Move ${s.title} to another island`} value={picked.spec.projectId} onChange={(e) => onMoveSession(s.id, e.target.value)}>
-                      <option value={picked.spec.projectId}>Move to...</option>
-                      {moveTargets.map((r) => (
-                        <option key={r.spec.projectId} value={r.spec.projectId}>
-                          {r.spec.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-            <button type="button" className="btn btn-primary arch-open" disabled={picked.phase === "leaving"} onClick={() => onEnter(picked.spec.projectId)}>
-              Open island
-            </button>
-          </aside>
+          <PlacePanel
+            id={PLACE_PANEL_ID}
+            className="arch-panel"
+            projectId={picked.spec.projectId}
+            name={picked.spec.name}
+            noun={PLACE.islands.noun}
+            enterLabel="Open island"
+            sessions={picked.floor.sessions}
+            counts={picked.floor.counts}
+            asks={questionsForProject(snapshot, picked.spec.projectId)}
+            moveTargets={moveTargets.map((r) => ({ id: r.spec.projectId, name: r.spec.name }))}
+            leaving={picked.phase === "leaving"}
+            headingRef={panelHeading}
+            onRename={onRenameIsland}
+            onMove={onMoveSession}
+            onOpenSession={onOpenSession}
+            onEnter={onEnter}
+          />
         )}
       </div>
       <nav className="arch-list" aria-label="Islands">
@@ -924,44 +904,25 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
               if (hover.current === spec.projectId) hover.current = null;
             }}
           >
-            <button
-              type="button"
-              className="nameplate"
-              data-testid="island-nameplate"
-              data-project={spec.projectId}
-              aria-label={`${spec.name}: ${floor.counts.active} of ${floor.counts.total} active, ${lightWords(floor.light)}${floor.pending > 0 ? `, ${floor.pending} waiting on you` : ""}${floor.stamp === null ? "" : `, ${STAMP_WORDS[floor.stamp].spoken}`}. Show island.`}
-              aria-expanded={spec.projectId === selected}
-              aria-controls={spec.projectId === selected ? "arch-panel" : undefined}
-              onClick={() => {
+            <PlaceNameplate
+              mode="islands"
+              projectId={spec.projectId}
+              name={spec.name}
+              light={floor.light}
+              counts={floor.counts}
+              pending={floor.pending}
+              overflow={Math.max(0, floor.sessions.length - MAX_SLOTS)}
+              plant={floor.plant}
+              stamp={floor.stamp}
+              leaving={phase === "leaving"}
+              expanded={spec.projectId === selected}
+              panelId={PLACE_PANEL_ID}
+              onShow={() => {
                 setSelected(spec.projectId);
                 flyTo.current(spec);
               }}
-            >
-              <i className="lamp" aria-hidden />
-              <span className="nameplate-name">{spec.name}</span>
-              {floor.plant ? <span className="nameplate-kind">Lighthouse</span> : null}
-              <span className="nameplate-count">
-                {floor.counts.active}/{floor.counts.total}
-              </span>
-              {floor.stamp === null ? null : <QaStamp verdict={floor.stamp} />}
-              {floor.pending > 0 ? (
-                <span className="arch-pending" aria-label={`${floor.pending} waiting on you`}>
-                  {floor.pending}
-                </span>
-              ) : null}
-            </button>
-            {floor.plant ? null : (
-              <button
-                type="button"
-                className="demolish-btn"
-                aria-label={PLACE.islands.removeLabel(spec.name)}
-                title="Sink this island"
-                disabled={phase === "leaving"}
-                onClick={() => onDemolish(spec.projectId)}
-              >
-                <SinkIcon />
-              </button>
-            )}
+              onRemove={() => onDemolish(spec.projectId)}
+            />
           </div>
         ))}
         <button type="button" className="arch-add" data-testid="add-island" onClick={onAddFloor}>
