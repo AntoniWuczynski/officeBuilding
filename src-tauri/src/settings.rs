@@ -354,6 +354,7 @@ impl SettingsStore {
         settings.manager = settings.manager.clamped();
         settings.routing = settings.routing.clamped();
         settings.handover = settings.handover.clamped();
+        settings.boards = settings.boards.clamped();
         Self {
             path,
             current: Mutex::new(settings),
@@ -506,6 +507,26 @@ mod tests {
         assert!(store.update(cooldown_patch(601)).is_err());
         assert_eq!(fs::read_to_string(&path).expect("file"), before);
         assert_eq!(store.get().notifications.cooldown_secs, 600);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_hand_edited_file_keeps_only_the_boards_that_pass_the_check() {
+        let path = with_file("boards-load", "");
+        let dir = path.parent().expect("dir").to_path_buf();
+        let board = dir.join("board.md");
+        fs::write(&board, "- [ ] a\n").expect("board");
+        let link = dir.join("link.md");
+        std::os::unix::fs::symlink(&board, &link).expect("symlink");
+        let json = serde_json::json!({ "boards": { "sharedFiles": [
+            "relative/board.md", board, "/nowhere/board.md", dir, "/tmp/a|b.md", link,
+        ] } });
+        fs::write(&path, json.to_string()).expect("write");
+        let store = SettingsStore::open(path.clone());
+        assert_eq!(
+            store.get().boards.shared_files,
+            vec![board.to_string_lossy().into_owned()]
+        );
         cleanup(&path);
     }
 

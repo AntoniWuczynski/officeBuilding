@@ -551,7 +551,7 @@ impl Office {
         let boards: Vec<SharedBoard> = shared
             .iter()
             .flatten()
-            .filter_map(|path| project_files::read_board(path))
+            .map(|path| project_files::read_board(path))
             .collect();
         let canonical: Vec<PathBuf> = boards
             .iter()

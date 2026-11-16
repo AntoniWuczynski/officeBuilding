@@ -271,3 +271,122 @@ fn a_new_prompt_keeps_the_last_reply_on_a_desk_and_on_its_sign_out_line() {
     assert_eq!(signed_out.last_reply.as_deref(), Some("Shipped it."));
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn a_board_whose_file_goes_missing_stays_with_no_items() {
+    let (office, dir, board, store) = with_board("board-missing");
+    store.update(boards_patch(&[&board])).expect("allowed");
+    office.refresh();
+    assert_eq!(office.snapshot().shared_boards[0].items.len(), 3);
+    fs::remove_file(&board).expect("delete");
+    assert!(office.refresh(), "the emptied board is a visible change");
+    let boards = office.snapshot().shared_boards;
+    assert_eq!(boards.len(), 1, "the board is kept");
+    assert_eq!(boards[0].id, format!("board:{}", board.display()));
+    assert_eq!(
+        (boards[0].path.as_str(), boards[0].name.as_str()),
+        (board.to_str().expect("utf8"), "board.md")
+    );
+    assert!(boards[0].items.is_empty());
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn only_a_shared_board_line_carries_a_project_tag() {
+    let (office, dir, floor) = floor_office("board-tag");
+    let line = "- [ ] handle a | b in the parser\n";
+    fs::write(dir.join("home/code/app/TODO.md"), line).expect("floor file");
+    let board = dir.join("board.md");
+    fs::write(&board, line).expect("board");
+    let store = Arc::new(SettingsStore::open(dir.join("settings.json")));
+    let office = office.with_settings(Arc::clone(&store));
+    store.update(boards_patch(&[&board])).expect("allowed");
+    office.refresh();
+    let snapshot = office.snapshot();
+    let on_floor: Vec<_> = snapshot
+        .todos
+        .iter()
+        .filter(|t| t.project_id == floor.id)
+        .collect();
+    assert_eq!(on_floor.len(), 1);
+    assert_eq!(on_floor[0].project_tag, None);
+    assert_eq!(
+        snapshot.shared_boards[0].items[0].project_tag.as_deref(),
+        Some("b in the parser")
+    );
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn a_board_that_is_a_floors_agent_or_human_file_lists_each_line_once() {
+    let (office, dir, floor) = floor_office("board-double-both");
+    let root = dir.join("home/code/app");
+    let mut boards = Vec::new();
+    for (name, link) in [("TODO.md", "agent.md"), ("HUMAN_TODO.md", "human.md")] {
+        fs::write(root.join(name), BOARD).expect("file");
+        let link = dir.join(link);
+        std::os::unix::fs::symlink(root.join(name), &link).expect("symlink");
+        boards.push(link);
+    }
+    let store = Arc::new(SettingsStore::open(dir.join("settings.json")));
+    let office = office.with_settings(Arc::clone(&store));
+    let paths: Vec<&Path> = boards.iter().map(PathBuf::as_path).collect();
+    store.update(boards_patch(&paths)).expect("allowed");
+    office.refresh();
+    let snapshot = office.snapshot();
+    assert_eq!(
+        snapshot
+            .todos
+            .iter()
+            .filter(|t| t.project_id == floor.id)
+            .count(),
+        0
+    );
+    let listed: usize = snapshot.shared_boards.iter().map(|b| b.items.len()).sum();
+    assert_eq!(listed, 6, "three lines per file, each shown once");
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn two_paths_to_one_file_make_one_board() {
+    let (_office, dir, board, store) = with_board("board-same-file");
+    let link = dir.join("link.md");
+    std::os::unix::fs::symlink(&board, &link).expect("symlink");
+    store
+        .update(boards_patch(&[&board, &link]))
+        .expect("allowed");
+    assert_eq!(store.get().boards.shared_files.len(), 1);
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn a_resumed_transcript_repeating_a_msg_id_adds_no_second_message() {
+    let (office, dir) = office("peer-resume");
+    let me = std::process::id();
+    let sessions = dir.join("home/.claude/sessions");
+    fs::create_dir_all(&sessions).expect("sessions");
+    fs::write(
+        sessions.join(format!("{me}.json")),
+        format!(r#"{{"pid":{me},"sessionId":"sender","cwd":"/code/app","status":"idle"}}"#),
+    )
+    .expect("registry");
+    let project = dir.join("home/.claude/projects/-code-app");
+    fs::create_dir_all(&project).expect("project");
+    fs::create_dir_all(dir.join("home/code/app")).expect("cwd");
+    for name in ["first", "resumed"] {
+        fs::write(
+            project.join(format!("{name}.jsonl")),
+            format!("{}\n", peer_line(1, "ping")),
+        )
+        .expect("transcript");
+    }
+    office.refresh();
+    let ids: Vec<String> = office
+        .snapshot()
+        .messages
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+    assert_eq!(ids, ["m-1"]);
+    fs::remove_dir_all(dir).expect("cleanup");
+}

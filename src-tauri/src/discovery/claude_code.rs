@@ -534,6 +534,7 @@ impl ParserState {
             if peer
                 && let (Some(dir), Some(origin)) = (&self.peers, origin)
                 && let Some(message) = dir.message(&rec, origin, &at)
+                && !self.t.peer_messages.iter().any(|m| m.id == message.id)
             {
                 self.t.peer_messages.push(message);
                 let excess = self.t.peer_messages.len().saturating_sub(MESSAGE_HISTORY);

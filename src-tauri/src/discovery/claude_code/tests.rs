@@ -741,6 +741,31 @@ fn a_line_appended_later_is_resolved_against_the_registry_of_that_scan() {
 }
 
 #[test]
+fn a_repeated_msg_id_in_a_transcript_is_one_message() {
+    let (home, _) = peer_home(
+        "peer-repeat",
+        &[
+            peer_prompt("m-1", me(), "s", "ping", "2026-11-16T10:01:00Z"),
+            peer_prompt("m-2", me(), "s", "pong", "2026-11-16T10:02:00Z"),
+            peer_prompt("m-1", me(), "s", "ping", "2026-11-16T10:03:00Z"),
+        ],
+    );
+    let found = ClaudeSource::new(home.clone()).scan(SystemTime::now());
+    let ids: Vec<&str> = found[0]
+        .transcript
+        .peer_messages
+        .iter()
+        .map(|m| m.id.as_str())
+        .collect();
+    assert_eq!(ids, ["m-1", "m-2"]);
+    assert_eq!(
+        found[0].transcript.peer_messages[0].sent_at,
+        "2026-11-16T10:01:00Z"
+    );
+    fs::remove_dir_all(&home).expect("cleanup");
+}
+
+#[test]
 fn a_session_keeps_only_its_latest_twenty_peer_messages() {
     let lines: Vec<String> = (0..25)
         .map(|i| {

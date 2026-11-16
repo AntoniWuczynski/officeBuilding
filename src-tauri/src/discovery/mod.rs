@@ -225,6 +225,9 @@ impl Discovery {
             .flat_map(|f| f.transcript.peer_messages.iter().cloned())
             .collect();
         peer_messages.sort_by_cached_key(|m| sent_at(&m.sent_at));
+        // A resumed transcript repeats the records of the one it continues.
+        let mut seen = std::collections::HashSet::new();
+        peer_messages.retain(|m| seen.insert(m.id.clone()));
         let inputs = claude
             .into_iter()
             .filter_map(|f| from_claude(f, &table))
