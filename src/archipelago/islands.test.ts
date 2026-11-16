@@ -62,6 +62,27 @@ describe("mergeOrder", () => {
   });
 });
 
+describe("agentSlots spread", () => {
+  it("spreads a few agents evenly round the island instead of bunching them on one side", () => {
+    for (const spec of layoutIslands(PROJECTS, "8")) {
+      for (let n = 2; n <= MAX_SLOTS; n++) {
+        const slots = agentSlots(spec, n);
+        expect(slots).toHaveLength(n);
+        let nearest = Infinity;
+        for (let i = 0; i < n; i++)
+          for (let j = i + 1; j < n; j++) {
+            const a = slots[i];
+            const b = slots[j];
+            if (a !== undefined && b !== undefined) nearest = Math.min(nearest, Math.hypot(a.x - b.x, a.z - b.z));
+          }
+        // Evenly spaced on the ring: the chord between neighbours.
+        const ring = spec.radius * 0.58;
+        expect(nearest, `${n} agents on ${spec.name}`).toBeCloseTo(2 * ring * Math.sin(Math.PI / n), 5);
+      }
+    }
+  });
+});
+
 describe("agentSlots", () => {
   it("seats every agent on the grass, apart from each other", () => {
     for (const spec of layoutIslands(PROJECTS, "8")) {

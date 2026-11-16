@@ -78,7 +78,7 @@ interface Placed {
 function placePeople(rows: readonly { readonly spec: IslandSpec; readonly floor: FloorModel }[]): Placed[] {
   const out: Placed[] = [];
   for (const { spec, floor } of rows) {
-    const slots = agentSlots(spec);
+    const slots = agentSlots(spec, floor.sessions.length);
     floor.sessions.slice(0, MAX_SLOTS).forEach((session, i) => {
       const slot = slots[i];
       if (slot === undefined) return;

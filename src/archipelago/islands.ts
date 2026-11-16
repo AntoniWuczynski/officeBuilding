@@ -76,11 +76,16 @@ export interface Slot {
   readonly z: number;
 }
 
-/** World positions of an island's seats on a ring, offset by its seed so islands do not look alike. */
-export function agentSlots(spec: IslandSpec): Slot[] {
+/**
+ * World positions of `count` seats spaced evenly on a ring, offset by the island's seed so islands do not look alike.
+ * Three agents sit a third of the way round from each other, not on three neighbouring seats of eight, where their
+ * huts stacked up in the tilted view.
+ */
+export function agentSlots(spec: IslandSpec, count: number = MAX_SLOTS): Slot[] {
   const offset = (spec.seed % 628) / 100;
-  return Array.from({ length: MAX_SLOTS }, (_, i) => {
-    const a = offset + (i / MAX_SLOTS) * Math.PI * 2;
+  const n = Math.max(1, Math.min(count, MAX_SLOTS));
+  return Array.from({ length: n }, (_, i) => {
+    const a = offset + (i / n) * Math.PI * 2;
     return { x: spec.x + Math.cos(a) * spec.radius * SLOT_RING, z: spec.z + Math.sin(a) * spec.radius * SLOT_RING };
   });
 }
