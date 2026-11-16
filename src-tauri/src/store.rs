@@ -30,6 +30,9 @@ pub struct Records {
     /// before then stays hidden, and a session started there since brings them back.
     #[serde(default)]
     pub demolished_floors: BTreeMap<String, String>,
+    /// Sessions the human moved to another floor: session id to the floor's project id.
+    #[serde(default)]
+    pub moved_sessions: BTreeMap<String, String>,
     /// What feeds each floor from outside (absolute repo roots, like `pinned_floors`).
     #[serde(default)]
     pub connectors: BTreeMap<String, Vec<Link>>,

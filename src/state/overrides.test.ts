@@ -1,11 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { makeDemoSnapshot } from "../api/mockData";
-import { applyOverrides, NO_OVERRIDES, withMove, withName } from "./overrides";
+import { applyOverrides, NO_OVERRIDES, takeLegacyMoves, withName } from "./overrides";
 
 const snap = makeDemoSnapshot();
-const [a, b] = snap.projects;
-// s-2 has an open question (q-1), so the move test can see it follow.
-const mover = snap.sessions.find((s) => s.id === "s-2");
+const [a] = snap.projects;
 
 describe("applyOverrides", () => {
   it("changes nothing without overrides", () => {
@@ -25,31 +23,22 @@ describe("applyOverrides", () => {
     const named = withName(NO_OVERRIDES, a.id, "Home base");
     expect(withName(named, a.id, "  ")).toEqual(NO_OVERRIDES);
   });
+});
 
-  it("moves a session to another island: its project id, both islands' lists and its questions follow", () => {
-    if (a === undefined || b === undefined || mover === undefined) throw new Error("demo has two projects and a session");
-    const out = applyOverrides(snap, withMove(NO_OVERRIDES, mover.id, b.id));
-    expect(out.sessions.find((s) => s.id === mover.id)?.projectId).toBe(b.id);
-    expect(out.projects.find((p) => p.id === a.id)?.sessionIds).not.toContain(mover.id);
-    expect(out.projects.find((p) => p.id === b.id)?.sessionIds).toContain(mover.id);
-    const asked = out.questions.filter((x) => x.sessionId === mover.id);
-    expect(asked.length).toBeGreaterThan(0);
-    for (const q of asked) expect(q.projectId).toBe(b.id);
-    // Nothing else moved.
-    expect(out.sessions.filter((s) => s.id !== mover.id)).toEqual(snap.sessions.filter((s) => s.id !== mover.id));
+describe("takeLegacyMoves", () => {
+  const KEY = "office-building:overrides";
+  beforeEach(() => localStorage.clear());
+
+  it("hands over the moves an earlier version stored and leaves the names", () => {
+    localStorage.setItem(KEY, JSON.stringify({ names: { p1: "Home base" }, moves: { s1: "p2" } }));
+    expect(takeLegacyMoves()).toEqual({ s1: "p2" });
+    expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual({ names: { p1: "Home base" } });
+    expect(takeLegacyMoves()).toEqual({});
   });
 
-  it("a moved session's sign-out entry is on the island it was moved to", () => {
-    const left = snap.ended[0];
-    if (left === undefined || b === undefined) throw new Error("demo has an ended session");
-    const to = snap.projects.find((p) => p.id !== left.projectId)?.id ?? b.id;
-    const out = applyOverrides(snap, withMove(NO_OVERRIDES, left.id, to));
-    expect(out.ended.find((e) => e.id === left.id)?.projectId).toBe(to);
-  });
-
-  it("ignores a move to an island that is gone, and moving back clears it", () => {
-    if (mover === undefined || b === undefined) throw new Error("demo has a session");
-    expect(applyOverrides(snap, withMove(NO_OVERRIDES, mover.id, "no-such-island")).sessions).toEqual(snap.sessions);
-    expect(withMove(withMove(NO_OVERRIDES, mover.id, b.id), mover.id, null)).toEqual(NO_OVERRIDES);
+  it("forgets the whole entry when nothing else was kept in it", () => {
+    localStorage.setItem(KEY, JSON.stringify({ names: {}, moves: { s1: "p2" } }));
+    takeLegacyMoves();
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 });

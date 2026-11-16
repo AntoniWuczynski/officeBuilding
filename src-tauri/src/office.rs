@@ -32,6 +32,8 @@ struct Inner {
     /// Events from the hooks of agents the app launched.
     feed: Feed,
     found: Discovered,
+    /// Where each moved session was discovered, by session id: what a move back restores.
+    moved_from: BTreeMap<String, String>,
     /// Decisions and TODOs from each floor's own files, by project id.
     files: BTreeMap<String, ProjectFiles>,
     store: Store,
@@ -131,6 +133,51 @@ fn owning_terminal(
         }
     }
     None
+}
+
+/// Put each session the human moved on the floor they chose, wherever it signs out too, and
+/// say where each one was found. A move to a floor that is not here is ignored.
+fn apply_moves(
+    found: &mut Discovered,
+    moves: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut from = BTreeMap::new();
+    for (id, to) in moves {
+        if !found.projects.iter().any(|p| p.id == *to) {
+            continue;
+        }
+        let live = found
+            .sessions
+            .iter_mut()
+            .find(|s| s.id == *id)
+            .map(|s| std::mem::replace(&mut s.project_id, to.clone()));
+        let signed_out = found
+            .ended
+            .iter_mut()
+            .find(|e| e.id == *id)
+            .map(|e| std::mem::replace(&mut e.project_id, to.clone()));
+        let Some(was) = live.clone().or(signed_out) else {
+            continue;
+        };
+        if was == *to {
+            continue;
+        }
+        from.insert(id.clone(), was.clone());
+        if live.is_none() {
+            continue;
+        }
+        for p in &mut found.projects {
+            if p.id == was {
+                p.session_ids.retain(|s| s != id);
+            } else if p.id == *to {
+                p.session_ids.push(id.clone());
+            }
+        }
+        for q in found.questions.iter_mut().filter(|q| q.session_id == *id) {
+            q.project_id.clone_from(to);
+        }
+    }
+    from
 }
 
 /// Bind live sessions to the terminals we started them in, then give every
@@ -335,6 +382,7 @@ impl Office {
                 discovery,
                 feed,
                 found: Discovered::default(),
+                moved_from: BTreeMap::new(),
                 files: BTreeMap::new(),
                 store,
                 owned: BTreeMap::new(),
@@ -375,6 +423,21 @@ impl Office {
         let inner = &mut *guard;
         let mut found = inner.discovery.scan(SystemTime::now());
         let pinned = inner.store.records.pinned_floors.clone();
+        // An empty pinned floor can be a move's target, and a sunk floor's drop must see where sessions now sit.
+        add_pinned_floors(&mut found, &pinned, &self.home);
+        inner.moved_from = apply_moves(&mut found, &inner.store.records.moved_sessions);
+        let desk_ids: Vec<String> = inner.desks.keys().map(|t| desk_session_id(t)).collect();
+        let moves = &mut inner.store.records.moved_sessions;
+        let held = moves.len();
+        moves.retain(|id, _| {
+            desk_ids.contains(id)
+                || found.sessions.iter().any(|s| s.id == *id)
+                || found.ended.iter().any(|e| e.id == *id)
+        });
+        // A failed save only leaves the entry to be pruned again by the next scan.
+        if moves.len() != held {
+            let _ = inner.store.save();
+        }
         drop_demolished(&mut found, &inner.store.records.demolished_floors);
         if let Some(data) = inner.store.path().parent() {
             reviewers::hide_ended_reviewers(&mut found, &qa::worktrees_dir(data));
@@ -413,6 +476,10 @@ impl Office {
                 .insert(session.id.clone(), desk.root.clone());
             found.sessions.push(session);
         }
+        // Desks exist only now; the moves of discovered sessions are already applied.
+        inner
+            .moved_from
+            .extend(apply_moves(&mut found, &inner.store.records.moved_sessions));
         let discovery = &inner.discovery;
         let elsewhere = claim_owned(
             &mut found.sessions,
@@ -662,12 +729,63 @@ impl Office {
         stop_agents(&agents, STOP_WAIT)?;
         self.hang_up_shells(project_id);
         {
-            let mut inner = self.lock();
+            let mut guard = self.lock();
+            let inner = &mut *guard;
             let key = root.to_string_lossy().into_owned();
-            inner.desks.retain(|_, d| d.project_id != project_id);
+            let found = &inner.found;
+            inner.desks.retain(|terminal, d| {
+                let floor = found
+                    .sessions
+                    .iter()
+                    .find(|s| s.id == desk_session_id(terminal))
+                    .map_or(&d.project_id, |s| &s.project_id);
+                floor != project_id
+            });
             inner.store.records.pinned_floors.retain(|k| *k != key);
             let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             inner.store.records.demolished_floors.insert(key, at);
+            inner.store.save()?;
+        }
+        self.refresh();
+        Ok(())
+    }
+
+    /// Put a session on another floor, or back on the one it was found on (`None`, or that floor).
+    /// The move outlives the session only as long as the session stays on the building's books.
+    pub fn move_session(&self, session_id: &str, project_id: Option<&str>) -> Result<(), String> {
+        {
+            let mut inner = self.lock();
+            let sits = |p: &str| inner.found.projects.iter().any(|x| x.id == p);
+            let now = inner
+                .found
+                .sessions
+                .iter()
+                .find(|s| s.id == session_id)
+                .map(|s| &s.project_id)
+                .or_else(|| {
+                    inner
+                        .found
+                        .ended
+                        .iter()
+                        .find(|e| e.id == session_id)
+                        .map(|e| &e.project_id)
+                })
+                .ok_or_else(|| format!("{session_id} is not a session of this building"))?;
+            let home = inner.moved_from.get(session_id).unwrap_or(now);
+            let target = match project_id {
+                Some(to) if to != home => {
+                    if !sits(to) {
+                        return Err(format!("{to} is not a floor of this building"));
+                    }
+                    Some(to.to_string())
+                }
+                _ => None,
+            };
+            let moves = &mut inner.store.records.moved_sessions;
+            match target {
+                Some(to) => moves.insert(session_id.to_string(), to),
+                None => moves.remove(session_id),
+            };
             inner.store.save()?;
         }
         self.refresh();

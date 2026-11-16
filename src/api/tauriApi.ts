@@ -237,6 +237,10 @@ export class TauriApi implements DiscoveryApi {
     await call("demolish_floor", { projectId });
   }
 
+  async moveSession(sessionId: string, projectId: string | null): Promise<void> {
+    await call("move_session", { sessionId, projectId });
+  }
+
   /** macOS's own picker (osascript `choose folder`) via src-tauri/src/focus.rs. */
   readonly canPickFolder = true;
 

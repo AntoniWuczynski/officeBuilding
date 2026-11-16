@@ -83,6 +83,8 @@ export class MockApi implements DiscoveryApi {
   private setup: SetupView = makeSetupView();
   private settings: Settings = makeSettings();
   private installedEditors: readonly Editor[] = ["cursor", "vs-code"];
+  /** Where each moved session was found, by session id, so moving it back is a move to that floor. */
+  private readonly movedFrom = new Map<string, string>();
   private readonly goneFolders = new Set<string>();
   private readonly openLog: { readonly place: Place; readonly editor: Editor }[] = [];
   private openDeskId: string | null = null;
@@ -558,7 +560,10 @@ export class MockApi implements DiscoveryApi {
       return Promise.reject(new Error(`${projectId} is not a floor of this building`));
     }
     const leaving = new Set(this.snapshot.sessions.filter((s) => s.projectId === projectId).map((s) => s.id));
-    for (const id of leaving) this.shells.delete(id);
+    for (const id of leaving) {
+      this.shells.delete(id);
+      this.movedFrom.delete(id);
+    }
     this.commit({
       ...this.snapshot,
       projects: this.snapshot.projects.filter((p) => p.id !== projectId),
@@ -567,6 +572,30 @@ export class MockApi implements DiscoveryApi {
       questions: this.snapshot.questions.filter((q) => q.projectId !== projectId),
       connections: this.snapshot.connections.filter((c) => c.projectId !== projectId),
       managers: this.snapshot.managers.filter((m) => m.projectId !== projectId),
+    });
+    return Promise.resolve();
+  }
+
+  moveSession(sessionId: string, projectId: string | null): Promise<void> {
+    const snap = this.snapshot;
+    const now = snap.sessions.find((s) => s.id === sessionId)?.projectId ?? snap.ended.find((e) => e.id === sessionId)?.projectId;
+    if (now === undefined) return Promise.reject(new Error(`${sessionId} is not a session of this building`));
+    const home = this.movedFrom.get(sessionId) ?? now;
+    const to = projectId ?? home;
+    if (!snap.projects.some((p) => p.id === to)) return Promise.reject(new Error(`${to} is not a floor of this building`));
+    if (to === now) return Promise.resolve();
+    if (to === home) this.movedFrom.delete(sessionId);
+    else this.movedFrom.set(sessionId, home);
+    const live = snap.sessions.some((s) => s.id === sessionId);
+    this.commit({
+      ...snap,
+      projects: snap.projects.map((p) => ({
+        ...p,
+        sessionIds: !live ? p.sessionIds : p.id === to ? [...p.sessionIds, sessionId] : p.sessionIds.filter((id) => id !== sessionId),
+      })),
+      sessions: snap.sessions.map((s) => (s.id === sessionId ? { ...s, projectId: to } : s)),
+      ended: snap.ended.map((e) => (e.id === sessionId ? { ...e, projectId: to } : e)),
+      questions: snap.questions.map((q) => (q.sessionId === sessionId ? { ...q, projectId: to } : q)),
     });
     return Promise.resolve();
   }

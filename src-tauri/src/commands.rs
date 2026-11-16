@@ -252,6 +252,18 @@ pub async fn demolish_floor(
 }
 
 #[tauri::command]
+pub fn move_session(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    session_id: String,
+    project_id: Option<String>,
+) -> Result<(), String> {
+    office.move_session(&session_id, project_id.as_deref())?;
+    push_snapshot(&app, &office);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn add_floor(app: AppHandle, office: OfficeState<'_>, path: String) -> Result<Project, String> {
     let project = office.add_floor(&path)?;
     push_snapshot(&app, &office);

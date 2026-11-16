@@ -144,6 +144,12 @@ export interface DiscoveryApi {
    */
   demolishFloor(projectId: string): Promise<void>;
 
+  /**
+   * Put a session on another floor, or with `null` (or its own floor) back where it was
+   * found. Rejects for a session or floor the building does not have.
+   */
+  moveSession(sessionId: string, projectId: string | null): Promise<void>;
+
   /** Whether {@link pickFolder} can open a native folder picker here. */
   readonly canPickFolder: boolean;
 

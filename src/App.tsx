@@ -9,7 +9,8 @@ import { useOffice } from "./state/useOffice";
 import { ViewSwitch } from "./components/ViewSwitch";
 import { PLACE } from "./state/placeWords";
 import { useViewMode } from "./state/useViewMode";
-import { applyOverrides, useOverrides } from "./state/overrides";
+import { applyOverrides, takeLegacyMoves, useOverrides } from "./state/overrides";
+import type { OverrideActions } from "./state/overrides";
 import { BuildingView } from "./components/building/BuildingView";
 import type { ScreenOrigin } from "./components/building/BuildingView";
 import { FloorView } from "./components/floor/FloorView";
@@ -42,8 +43,8 @@ const TOAST_MS = 4500;
 /** Root view-state machine: building ↔ floor, plus the floor's panels and toasts. */
 export function App({ api }: Props): React.ReactElement {
   const { state: discovered, retry } = useOffice(api);
-  // Your names for floors and the floors you moved sessions to, applied once so every view agrees.
-  const [overrides, overrideActions] = useOverrides();
+  // Your names for floors, applied once so every view agrees. Moves of sessions live in the backend.
+  const [overrides, nameActions] = useOverrides();
   const state = useMemo(
     () => (discovered.status === "ready" ? { ...discovered, snapshot: applyOverrides(discovered.snapshot, overrides) } : discovered),
     [discovered, overrides],
@@ -246,6 +247,23 @@ export function App({ api }: Props): React.ReactElement {
     },
     [api, snapshot, toast, words],
   );
+
+  const overrideActions: OverrideActions = useMemo(
+    () => ({
+      ...nameActions,
+      moveSession: (sessionId, projectId) => {
+        api.moveSession(sessionId, projectId).catch((err: unknown) => toast("error", `Could not move that agent: ${message(err)}.`));
+      },
+    }),
+    [api, nameActions, toast],
+  );
+
+  const ready = discovered.status === "ready";
+  useEffect(() => {
+    if (!ready) return;
+    // Moves an earlier version kept in the webview: send them once, whether or not they still apply.
+    for (const [sessionId, projectId] of Object.entries(takeLegacyMoves())) api.moveSession(sessionId, projectId).catch(() => undefined);
+  }, [api, ready]);
 
   const demolishFloor = useCallback(
     (projectId: string) => {

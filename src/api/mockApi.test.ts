@@ -370,6 +370,45 @@ describe("MockApi floors", () => {
     await expect(api.demolishFloor("p-shop")).rejects.toThrow(/not a floor/);
   });
 
+  describe("moving a session", () => {
+    const seed = makeSeedSnapshot();
+    const mover = seed.sessions.find((s) => s.pendingQuestionIds.length > 0);
+    const from = mover?.projectId ?? "";
+    const to = seed.projects.find((p) => p.id !== from)?.id ?? "";
+    const where = async (api: MockApi) => (await api.getSnapshot()).sessions.find((s) => s.id === mover?.id)?.projectId;
+
+    it("puts the session, its place on both floors and its questions on the new floor", async () => {
+      const api = new MockApi();
+      await api.moveSession(mover?.id ?? "", to);
+      const snap = await api.getSnapshot();
+      expect(await where(api)).toBe(to);
+      expect(snap.projects.find((p) => p.id === from)?.sessionIds).not.toContain(mover?.id);
+      expect(snap.projects.find((p) => p.id === to)?.sessionIds).toContain(mover?.id);
+      expect(snap.questions.filter((q) => q.sessionId === mover?.id).every((q) => q.projectId === to)).toBe(true);
+    });
+
+    it("sinking the old floor leaves it, and sinking the new floor takes it", async () => {
+      const api = new MockApi();
+      await api.moveSession(mover?.id ?? "", to);
+      await api.demolishFloor(from);
+      expect(await where(api)).toBe(to);
+      await api.demolishFloor(to);
+      expect(await where(api)).toBeUndefined();
+    });
+
+    it("moving it back, or to null, returns it to the floor it was found on, and a stranger is refused", async () => {
+      const api = new MockApi();
+      await api.moveSession(mover?.id ?? "", to);
+      await api.moveSession(mover?.id ?? "", from);
+      expect(await where(api)).toBe(from);
+      await api.moveSession(mover?.id ?? "", to);
+      await api.moveSession(mover?.id ?? "", null);
+      expect(await where(api)).toBe(from);
+      await expect(api.moveSession(mover?.id ?? "", "p-nowhere")).rejects.toThrow(/not a floor/);
+      await expect(api.moveSession("no-such", to)).rejects.toThrow(/not a session/);
+    });
+  });
+
   describe("editors", () => {
     const place = { kind: "session", sessionId: "s-1" } as const;
 
