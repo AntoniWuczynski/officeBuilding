@@ -521,6 +521,8 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
     const voyages: { readonly boat: THREE.Group; readonly tag: HTMLElement; readonly route: Route; readonly t0: number; readonly ms: number }[] = [];
     /** Where each island's label stands on screen this frame, so a boat passing under it can be seen through it. */
     const labelAt = new Map<string, { px: number; py: number }>();
+    /** Screen boxes of the name tags shown this frame. */
+    const tagsAt: { x0: number; x1: number; y0: number; y1: number }[] = [];
 
     const v = new THREE.Vector3();
     const head = new THREE.Vector3();
@@ -536,6 +538,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
     let raf = 0;
     const loop = (t: number): void => {
       raf = requestAnimationFrame(loop);
+      tagsAt.length = 0;
       const moving = animateRef.current;
       if (moving) ocean.tick(t / 1000);
       ocean.mesh.position.set(controls.target.x, 0.4, controls.target.z);
@@ -678,6 +681,10 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
         const name = shortName(p.session.title);
         if (tag.textContent !== name) tag.textContent = name;
         tag.style.display = shown && scale >= TAG_SCALE && s.px >= 0 && s.px <= el.clientWidth && s.py >= 0 && s.py <= el.clientHeight ? "block" : "none";
+        if (tag.style.display === "block") {
+          const bottom = s.py - PERSON_PX * scale;
+          tagsAt.push({ x0: s.px - tag.offsetWidth / 2, x1: s.px + tag.offsetWidth / 2, y0: bottom - tag.offsetHeight, y1: bottom });
+        }
         tag.style.transform = `translate(${s.px}px, ${s.py - PERSON_PX * scale}px) translate(-50%, -100%)`;
         tag.style.zIndex = pe.style.zIndex;
         tag.style.opacity = String(shade);
@@ -758,14 +765,20 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
         vy.tag.style.transform = `translate(${bs.px}px, ${bs.py}px) translate(-50%, 8px)`;
         boatsAt.push(bs);
       }
-      // Labels are page elements over the canvas, so a boat sailing behind one would vanish: let it show through.
-      if (boatsAt.length > 0)
+      // Labels are page elements over the canvas, so a boat sailing behind one would vanish, and a name tag would
+      // collide with it: let them show through.
+      if (boatsAt.length > 0 || tagsAt.length > 0)
         for (const [id, b] of labels.current) {
           const at = labelAt.get(id);
           if (at === undefined || b.style.display === "none") continue;
           const w = b.offsetWidth;
           const h = b.offsetHeight;
-          if (boatsAt.some((q) => q.px > at.px - w / 2 && q.px < at.px + w / 2 && q.py > at.py - h && q.py < at.py)) b.style.opacity = String(Math.min(Number(b.style.opacity), SEE_THROUGH));
+          const x0 = at.px - w / 2;
+          const x1 = at.px + w / 2;
+          const y0 = at.py - h;
+          const boat = boatsAt.some((q) => q.px > x0 && q.px < x1 && q.py > y0 && q.py < at.py);
+          const tag = tagsAt.some((r) => r.x0 < x1 && x0 < r.x1 && r.y0 < at.py && y0 < r.y1);
+          if (boat || tag) b.style.opacity = String(Math.min(Number(b.style.opacity), SEE_THROUGH));
         }
       renderer.render(scene, camera);
     };
