@@ -1,7 +1,7 @@
 /* An island's inside: the floor view as a beach camp. Only the room's materials and the sea behind it change; every
    panel, desk and control is the office's own. Scoped to .arch-floor, which App puts on the floor in the island view. */
 .arch-floor {
-  --room-floor: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.14) 0 2px, transparent 2px 38px), #ecd7a2;
+  --room-floor: #f1deaa;
   --room-slab: #d8bd82;
   --room-slab-shade: #b99a60;
   --room-left: repeating-linear-gradient(90deg, #d7b26a 0 15px, #a67c3b 15px 18px);
@@ -17,6 +17,21 @@
   --leaf: #3f9b4a;
   --leaf-shade: #2d7a38;
 }
+/* The sea all round the island: a pale lagoon around the sand fading to deep water, with wave streaks. */
 .arch-floor .floor-main {
-  background: linear-gradient(#bfe7fa, #7fcaef 80%);
+  background:
+    radial-gradient(ellipse 47% 42% at 50% 56%, #f3e2b4 0 90%, #fff 91% 93%, rgba(255, 255, 255, 0) 94%),
+    radial-gradient(ellipse 70% 64% at 50% 56%, rgba(155, 232, 226, 0.95) 0 60%, rgba(155, 232, 226, 0) 100%),
+    radial-gradient(ellipse 100% 100% at 50% 56%, #4fbde6 0 40%, #2a95d6 78%, #1478bd 100%);
+}
+
+/* Open air: no walls and no glass office. Their boards (Human TODO, TODO, Spend, Info) are all on the rail at the
+   right, and wall text sat on a skewed plane at a size nobody could read. */
+.arch-floor .iso-wall {
+  display: none;
+}
+
+/* Office chairs in a wicker tone. */
+.arch-floor .pp-chair {
+  filter: sepia(1) saturate(1.6) brightness(1.05);
 }
