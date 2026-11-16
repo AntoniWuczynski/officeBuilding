@@ -371,3 +371,23 @@
   line-height: 1.3;
   pointer-events: none;
 }
+
+/* A person's name over their head once the island is close; flat and upright, placed by Archipelago.tsx each frame. */
+.arch-tag,
+.arch-trip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 1px 5px 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 700 11px/1.3 var(--font-ui);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* Boat and parrot tags sit above the island labels and the parrot itself. */
+.arch-trip {
+  z-index: 100000;
+}
