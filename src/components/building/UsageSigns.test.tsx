@@ -58,4 +58,25 @@ describe("UsageSigns", () => {
     expect(loadUsage).toHaveBeenLastCalledWith(true);
     expect(await screen.findByRole("button", { name: "Re-check" })).toBeEnabled();
   });
+
+  it("folds to one headline carrying the fullest window when collapsible, and opens and closes on request", async () => {
+    const user = userEvent.setup();
+    render(<UsageSigns loadUsage={load} collapsible />);
+    const headline = await screen.findByRole("button", { name: "Claude Code Week 40%" });
+    expect(headline).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("meter", { name: "Session" })).not.toBeInTheDocument();
+    await user.click(headline);
+    expect(screen.getByRole("meter", { name: "Session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Re-check" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hide" }));
+    expect(screen.getByRole("button", { name: "Claude Code Week 40%" })).toBeInTheDocument();
+  });
+
+  it("never folds outside a collapsible view, even if it was folded a moment ago", async () => {
+    const { rerender } = render(<UsageSigns loadUsage={load} collapsible />);
+    await screen.findByRole("button", { name: "Claude Code Week 40%" });
+    rerender(<UsageSigns loadUsage={load} />);
+    expect(screen.getByRole("meter", { name: "Session" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide" })).not.toBeInTheDocument();
+  });
 });
