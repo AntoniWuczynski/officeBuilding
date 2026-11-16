@@ -33,6 +33,10 @@ pub struct Records {
     /// Sessions the human moved to another floor: session id to the floor's project id.
     #[serde(default)]
     pub moved_sessions: BTreeMap<String, String>,
+    /// Per move, whether its session is on the building's books: `None` while it is, the time it
+    /// first was not otherwise. A move with no entry has never been confirmed. Old stores have none.
+    #[serde(default)]
+    pub move_seen: BTreeMap<String, Option<String>>,
     /// What feeds each floor from outside (absolute repo roots, like `pinned_floors`).
     #[serde(default)]
     pub connectors: BTreeMap<String, Vec<Link>>,
@@ -176,6 +180,17 @@ mod tests {
             Store::open(path.clone()).expect("reopen").records,
             store.records
         );
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn a_store_with_only_the_plain_move_map_loads_with_every_move_unconfirmed() {
+        let path = temp_path("moves");
+        fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+        fs::write(&path, r#"{"movedSessions":{"s1":"p2"}}"#).expect("write");
+        let store = Store::open(path.clone()).expect("open");
+        assert_eq!(store.records.moved_sessions["s1"], "p2");
+        assert!(store.records.move_seen.is_empty());
         fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
     }
 

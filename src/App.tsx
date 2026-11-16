@@ -9,7 +9,7 @@ import { useOffice } from "./state/useOffice";
 import { ViewSwitch } from "./components/ViewSwitch";
 import { PLACE } from "./state/placeWords";
 import { useViewMode } from "./state/useViewMode";
-import { applyOverrides, takeLegacyMoves, useOverrides } from "./state/overrides";
+import { applyOverrides, dropLegacyMoves, legacyMoves, useOverrides } from "./state/overrides";
 import type { OverrideActions } from "./state/overrides";
 import { BuildingView } from "./components/building/BuildingView";
 import type { ScreenOrigin } from "./components/building/BuildingView";
@@ -258,12 +258,17 @@ export function App({ api }: Props): React.ReactElement {
     [api, nameActions, toast],
   );
 
-  const ready = discovered.status === "ready";
+  const legacySent = useRef(false);
   useEffect(() => {
-    if (!ready) return;
-    // Moves an earlier version kept in the webview: send them once, whether or not they still apply.
-    for (const [sessionId, projectId] of Object.entries(takeLegacyMoves())) api.moveSession(sessionId, projectId).catch(() => undefined);
-  }, [api, ready]);
+    if (snapshot === null || legacySent.current) return;
+    legacySent.current = true;
+    // Moves an earlier version kept in the webview: one the backend takes, or whose session is not here, is done with. The rest wait for the next launch.
+    const moves = Object.entries(legacyMoves());
+    const here = new Set([...snapshot.sessions, ...snapshot.ended].map((s) => s.id));
+    void Promise.all(moves.map(([sessionId, projectId]) => api.moveSession(sessionId, projectId).then(() => true, () => false))).then((taken) =>
+      dropLegacyMoves(moves.flatMap(([sessionId], i) => (taken[i] === true || !here.has(sessionId) ? [sessionId] : []))),
+    );
+  }, [api, snapshot]);
 
   const demolishFloor = useCallback(
     (projectId: string) => {

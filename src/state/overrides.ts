@@ -46,14 +46,18 @@ function load(): Overrides {
   return { names: rec(stored().names) };
 }
 
-/** Moves an earlier version kept in this storage, taken out of it so they are sent to the backend once. */
-export function takeLegacyMoves(): Record<string, string> {
-  const moves = rec(stored().moves);
-  if (Object.keys(moves).length > 0) {
-    const kept = load();
-    writePref(KEY, isEmpty(kept) ? null : JSON.stringify(kept));
-  }
-  return moves;
+/** Moves an earlier version kept in this storage. They stay there until the backend has taken them or they can no longer apply. */
+export const legacyMoves = (): Record<string, string> => rec(stored().moves);
+
+/** Take these sessions' legacy moves out of storage, keeping the rest of it. */
+export function dropLegacyMoves(sessionIds: readonly string[]): void {
+  save(load(), Object.fromEntries(Object.entries(legacyMoves()).filter(([id]) => !sessionIds.includes(id))));
+}
+
+/** The names, and any legacy moves not yet settled: a rename must not lose them. */
+function save(o: Overrides, moves: Record<string, string>): void {
+  const keepMoves = Object.keys(moves).length > 0;
+  writePref(KEY, isEmpty(o) && !keepMoves ? null : JSON.stringify(keepMoves ? { ...o, moves } : o));
 }
 
 export interface OverrideActions {
@@ -69,7 +73,7 @@ export function useOverrides(): readonly [Overrides, NameActions] {
   const change = useCallback((next: (o: Overrides) => Overrides) => {
     setOverrides((o) => {
       const n = next(o);
-      writePref(KEY, isEmpty(n) ? null : JSON.stringify(n));
+      save(n, legacyMoves());
       return n;
     });
   }, []);

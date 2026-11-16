@@ -1111,6 +1111,107 @@ fn a_stored_move_for_a_session_that_is_gone_is_pruned_on_refresh() {
 }
 
 #[test]
+fn a_move_survives_a_scan_that_misses_its_session_and_goes_once_it_is_unseen_past_the_window() {
+    let (office, dir) = office("moved-gap");
+    let pid = live_claude_session(&dir, "alpha", "s1");
+    std::fs::create_dir_all(dir.join("home/code/beta/.git")).expect("mkdir");
+    let b = office.add_floor("~/code/beta").expect("add beta").id;
+    office.refresh();
+    office.move_session("s1", Some(&b)).expect("move");
+    let moves = |office: &Office| office.lock().store.records.moved_sessions.clone();
+    stop_agents(&[("s1".to_string(), pid)], Duration::from_secs(5)).expect("stop");
+    std::fs::remove_dir_all(dir.join("home/.claude")).expect("session files vanish");
+    office.refresh();
+    assert_eq!(moves(&office).get("s1"), Some(&b), "one gap keeps the move");
+    let at = |hours: i64| {
+        (chrono::Utc::now() - chrono::Duration::hours(hours))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    };
+    let unseen_since = |office: &Office, when: String| {
+        office
+            .lock()
+            .store
+            .records
+            .move_seen
+            .insert("s1".to_string(), Some(when));
+    };
+    unseen_since(&office, at(11));
+    office.refresh();
+    assert_eq!(moves(&office).get("s1"), Some(&b), "inside the window");
+    unseen_since(&office, at(13));
+    office.refresh();
+    assert!(moves(&office).is_empty(), "past it the move is dropped");
+    assert!(office.lock().store.records.move_seen.is_empty());
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn a_move_whose_session_comes_back_is_seen_again() {
+    let (office, dir) = office("moved-back-seen");
+    let pid = live_claude_session(&dir, "alpha", "s1");
+    std::fs::create_dir_all(dir.join("home/code/beta/.git")).expect("mkdir");
+    let b = office.add_floor("~/code/beta").expect("add beta").id;
+    office.refresh();
+    office.move_session("s1", Some(&b)).expect("move");
+    office.lock().store.records.move_seen.insert(
+        "s1".to_string(),
+        Some("2020-01-01T00:00:00.000Z".to_string()),
+    );
+    office.refresh();
+    assert_eq!(office.lock().store.records.move_seen["s1"], None);
+    assert_eq!(office.lock().store.records.moved_sessions.len(), 1);
+    stop_agents(&[("s1".to_string(), pid)], Duration::from_secs(5)).expect("stop");
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn a_session_cannot_be_moved_onto_the_setup_floor() {
+    let (office, dir) = office("moved-setup");
+    let pid = live_claude_session(&dir, "alpha", "s1");
+    office.ensure_setup_floor().expect("setup floor");
+    office.refresh();
+    let setup = office.setup_project_id.clone();
+    let err = office
+        .move_session("s1", Some(&setup))
+        .expect_err("refused");
+    assert!(err.contains("Setup"), "{err}");
+    assert!(office.lock().store.records.moved_sessions.is_empty());
+    stop_agents(&[("s1".to_string(), pid)], Duration::from_secs(5)).expect("stop");
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn clearing_a_move_whose_home_floor_was_sunk_is_refused_and_the_agent_stays_visible() {
+    let (office, dir) = office("moved-clear-sunk");
+    let pid = live_claude_session(&dir, "alpha", "s1");
+    let a = discovery::project_id(&discovery::project_root(&dir.join("home/code/alpha")));
+    std::fs::create_dir_all(dir.join("home/code/beta/.git")).expect("mkdir");
+    let b = office.add_floor("~/code/beta").expect("add beta").id;
+    office.refresh();
+    office.move_session("s1", Some(&b)).expect("move");
+    office.demolish_floor(&a).expect("sink alpha");
+    let visible = |office: &Office| {
+        office
+            .snapshot()
+            .sessions
+            .iter()
+            .any(|s| s.id == "s1" && s.project_id == b)
+    };
+    assert!(visible(&office));
+    for target in [None, Some(a.as_str())] {
+        let err = office.move_session("s1", target).expect_err("refused");
+        assert!(err.contains("sunk"), "{err}");
+    }
+    assert_eq!(
+        office.lock().store.records.moved_sessions.get("s1"),
+        Some(&b)
+    );
+    assert!(visible(&office), "still on beta");
+    stop_agents(&[("s1".to_string(), pid)], Duration::from_secs(5)).expect("stop");
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
 fn a_move_takes_a_signed_out_session_and_ignores_a_floor_that_is_not_there() {
     let ended = EndedSession {
         id: "gone".to_string(),

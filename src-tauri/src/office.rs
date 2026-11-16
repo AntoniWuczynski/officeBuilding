@@ -15,7 +15,7 @@ use crate::pty::{self, Terminals};
 use crate::qa;
 use crate::settings::SettingsStore;
 use crate::setup::{Launch, Library};
-use crate::store::Store;
+use crate::store::{Records, Store};
 use crate::structured::{self, desks::Desks};
 use launch::{
     CLAUDE_SUBCOMMANDS, DESK_ACTIVE, Desk, Launched, chosen_model, desk_session, desk_session_id,
@@ -133,6 +133,52 @@ fn owning_terminal(
         }
     }
     None
+}
+
+/// How long a move outlasts its session's absence: the sign-out sheet's window
+/// (`keep_finished` in the discovery sources, which do not share a constant).
+const MOVE_KEPT_UNSEEN: Duration = Duration::from_hours(12);
+
+/// Forget the moves whose session has been off the books too long, and note which are off it now.
+/// A move never confirmed (no `move_seen` entry) goes at its first miss. True when anything changed.
+fn prune_moves(
+    records: &mut Records,
+    on_books: impl Fn(&str) -> bool,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    let before = (records.moved_sessions.len(), records.move_seen.clone());
+    let stamp = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let Records {
+        moved_sessions,
+        move_seen,
+        ..
+    } = records;
+    moved_sessions.retain(|id, _| {
+        if on_books(id) {
+            move_seen.insert(id.clone(), None);
+            return true;
+        }
+        match move_seen.get(id).cloned() {
+            None => false,
+            Some(None) => {
+                move_seen.insert(id.clone(), Some(stamp.clone()));
+                true
+            }
+            Some(Some(since)) => chrono::DateTime::parse_from_rfc3339(&since).map_or_else(
+                |_| {
+                    move_seen.insert(id.clone(), Some(stamp.clone()));
+                    true
+                },
+                |t| {
+                    (now - t.to_utc())
+                        .to_std()
+                        .is_ok_and(|gone| gone <= MOVE_KEPT_UNSEEN)
+                },
+            ),
+        }
+    });
+    move_seen.retain(|id, _| moved_sessions.contains_key(id));
+    before != (moved_sessions.len(), move_seen.clone())
 }
 
 /// Put each session the human moved on the floor they chose, wherever it signs out too, and
@@ -427,15 +473,13 @@ impl Office {
         add_pinned_floors(&mut found, &pinned, &self.home);
         inner.moved_from = apply_moves(&mut found, &inner.store.records.moved_sessions);
         let desk_ids: Vec<String> = inner.desks.keys().map(|t| desk_session_id(t)).collect();
-        let moves = &mut inner.store.records.moved_sessions;
-        let held = moves.len();
-        moves.retain(|id, _| {
-            desk_ids.contains(id)
-                || found.sessions.iter().any(|s| s.id == *id)
-                || found.ended.iter().any(|e| e.id == *id)
-        });
-        // A failed save only leaves the entry to be pruned again by the next scan.
-        if moves.len() != held {
+        let on_books = |id: &str| {
+            desk_ids.iter().any(|d| d == id)
+                || found.sessions.iter().any(|s| s.id == id)
+                || found.ended.iter().any(|e| e.id == id)
+        };
+        // A failed save only leaves the change to be made again by the next scan.
+        if prune_moves(&mut inner.store.records, on_books, chrono::Utc::now()) {
             let _ = inner.store.save();
         }
         drop_demolished(&mut found, &inner.store.records.demolished_floors);
@@ -774,6 +818,9 @@ impl Office {
             let home = inner.moved_from.get(session_id).unwrap_or(now);
             let target = match project_id {
                 Some(to) if to != home => {
+                    if to == self.setup_project_id {
+                        return Err("the Setup floor holds the library, not agents".to_string());
+                    }
                     if !sits(to) {
                         return Err(format!("{to} is not a floor of this building"));
                     }
@@ -781,11 +828,27 @@ impl Office {
                 }
                 _ => None,
             };
+            let home_sunk = !sits(home);
             let moves = &mut inner.store.records.moved_sessions;
+            if target.is_none() && home_sunk && moves.contains_key(session_id) {
+                return Err(
+                    "the island it came from was sunk, so the agent has nowhere to go back to"
+                        .to_string(),
+                );
+            }
             match target {
-                Some(to) => moves.insert(session_id.to_string(), to),
-                None => moves.remove(session_id),
-            };
+                Some(to) => {
+                    moves.insert(session_id.to_string(), to);
+                    inner
+                        .store
+                        .records
+                        .move_seen
+                        .insert(session_id.to_string(), None);
+                }
+                None => {
+                    moves.remove(session_id);
+                }
+            }
             inner.store.save()?;
         }
         self.refresh();

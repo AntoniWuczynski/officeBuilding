@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeDemoSnapshot } from "../api/mockData";
-import { applyOverrides, NO_OVERRIDES, takeLegacyMoves, withName } from "./overrides";
+import { act, renderHook } from "@testing-library/react";
+import { applyOverrides, dropLegacyMoves, legacyMoves, NO_OVERRIDES, useOverrides, withName } from "./overrides";
 
 const snap = makeDemoSnapshot();
 const [a] = snap.projects;
@@ -25,20 +26,35 @@ describe("applyOverrides", () => {
   });
 });
 
-describe("takeLegacyMoves", () => {
+describe("legacy moves", () => {
   const KEY = "office-building:overrides";
+  const stored = (): unknown => JSON.parse(localStorage.getItem(KEY) ?? "null");
   beforeEach(() => localStorage.clear());
 
-  it("hands over the moves an earlier version stored and leaves the names", () => {
+  it("are read without being taken out of storage", () => {
     localStorage.setItem(KEY, JSON.stringify({ names: { p1: "Home base" }, moves: { s1: "p2" } }));
-    expect(takeLegacyMoves()).toEqual({ s1: "p2" });
-    expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual({ names: { p1: "Home base" } });
-    expect(takeLegacyMoves()).toEqual({});
+    expect(legacyMoves()).toEqual({ s1: "p2" });
+    expect(legacyMoves()).toEqual({ s1: "p2" });
   });
 
-  it("forgets the whole entry when nothing else was kept in it", () => {
+  it("leave storage one by one, the names staying", () => {
+    localStorage.setItem(KEY, JSON.stringify({ names: { p1: "Home base" }, moves: { s1: "p2", s2: "p3" } }));
+    dropLegacyMoves(["s1"]);
+    expect(stored()).toEqual({ names: { p1: "Home base" }, moves: { s2: "p3" } });
+    dropLegacyMoves(["s2"]);
+    expect(stored()).toEqual({ names: { p1: "Home base" } });
+  });
+
+  it("forget the whole entry when nothing else was kept in it", () => {
     localStorage.setItem(KEY, JSON.stringify({ names: {}, moves: { s1: "p2" } }));
-    takeLegacyMoves();
+    dropLegacyMoves(["s1"]);
     expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("stay in storage through a rename", () => {
+    localStorage.setItem(KEY, JSON.stringify({ names: {}, moves: { s1: "p2" } }));
+    const { result } = renderHook(() => useOverrides());
+    act(() => result.current[1].renameFloor("p1", "Home base"));
+    expect(stored()).toEqual({ names: { p1: "Home base" }, moves: { s1: "p2" } });
   });
 });

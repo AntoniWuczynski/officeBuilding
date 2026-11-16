@@ -89,8 +89,11 @@ interface Placed {
 }
 
 /** Real sessions on their seats, each session's subagents standing beside it. `seats` remembers who sits where between calls. */
-function placePeople(rows: readonly { readonly spec: IslandSpec; readonly floor: FloorModel }[], seats: Map<string, ReadonlyMap<string, number>>): Placed[] {
+export function placePeople(rows: readonly { readonly spec: IslandSpec; readonly floor: Pick<FloorModel, "sessions" | "dimmed"> }[], seats: Map<string, ReadonlyMap<string, number>>): Placed[] {
   const out: Placed[] = [];
+  // A sunk island's seats would otherwise stay for as long as this view is open.
+  const standing = new Set(rows.map((r) => r.spec.projectId));
+  for (const id of seats.keys()) if (!standing.has(id)) seats.delete(id);
   for (const { spec, floor } of rows) {
     const slots = agentSlots(spec);
     const own = assignSeats(seats.get(spec.projectId) ?? new Map(), floor.sessions.map((s) => s.id));
