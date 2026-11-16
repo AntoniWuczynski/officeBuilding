@@ -387,7 +387,7 @@ export function App({ api }: Props): React.ReactElement {
         ) : (
           <motion.div
             key={`floor-${project.id}`}
-            className="view-frame"
+            className={viewMode === "islands" ? "view-frame arch-floor" : "view-frame"}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}

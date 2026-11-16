@@ -1,0 +1,22 @@
+/* An island's inside: the floor view as a beach camp. Only the room's materials and the sea behind it change; every
+   panel, desk and control is the office's own. Scoped to .arch-floor, which App puts on the floor in the island view. */
+.arch-floor {
+  --room-floor: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.14) 0 2px, transparent 2px 38px), #ecd7a2;
+  --room-slab: #d8bd82;
+  --room-slab-shade: #b99a60;
+  --room-left: repeating-linear-gradient(90deg, #d7b26a 0 15px, #a67c3b 15px 18px);
+  --room-back:
+    radial-gradient(circle at 82% 26%, #fff6bf 0 5%, rgba(255, 246, 191, 0) 5.5%),
+    linear-gradient(#c8ecfb 0 44%, #7cc9ef 44% 66%, #2f9fdc 66% 92%, #f0dca6 92%);
+}
+/* Desks, counters and posts read as driftwood and bamboo. */
+.arch-floor {
+  --timber: #c9a468;
+  --timber-front: #a97f43;
+  --timber-side: #8a6532;
+  --leaf: #3f9b4a;
+  --leaf-shade: #2d7a38;
+}
+.arch-floor .floor-main {
+  background: linear-gradient(#bfe7fa, #7fcaef 80%);
+}

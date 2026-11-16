@@ -210,7 +210,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
 
   return (
     <>
-      <IsoBox x={0} y={0} w={ROOM.width} d={depth} h={ROOM.slab} top={materialsFor(objects.plant).floor} front="var(--concrete)" side="var(--concrete-shade)" />
+      <IsoBox x={0} y={0} w={ROOM.width} d={depth} h={ROOM.slab} top={materialsFor(objects.plant).floor} front="var(--room-slab, var(--concrete))" side="var(--room-slab-shade, var(--concrete-shade))" />
       <BackWall model={objects} depth={depth} onOpen={onOpenSection} />
       {objects.plant ? (
         <>
