@@ -44,6 +44,8 @@
   gap: 12px;
   overflow-y: auto;
   scrollbar-width: none;
+  /* A scroll box clips what is drawn outside it, so the selected plate's ring (2px line + 2px offset) needs this much room inside. */
+  padding: 4px;
 }
 /* The sink button sits in the row beside the nameplate, so it never covers the badge or leaves the list. */
 .arch-list-row {
