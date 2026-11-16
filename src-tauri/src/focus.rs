@@ -166,9 +166,38 @@ fn osascript(script: &str) -> Result<String, String> {
     }
 }
 
-/// Bring the terminal window running `pid` to the front.
+/// The job id of a Claude Code background session, read from its `~/.claude/sessions/<pid>.json`. A background
+/// session lives in Claude Code's own service with no terminal window; `claude attach <id>` opens it in one.
+/// None for any other session, or an id that is not plain letters, digits and dashes (it goes into a shell line).
+#[must_use]
+pub fn background_job_id(session_file: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(session_file).ok()?;
+    if v.get("kind")?.as_str()? != "bg" {
+        return None;
+    }
+    let id = v.get("jobId")?.as_str()?;
+    (!id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')).then(|| id.to_string())
+}
+
+/// Open a Terminal window attached to a background session.
+#[must_use]
+pub fn attach_script(job_id: &str) -> String {
+    format!("tell application \"Terminal\"\n  activate\n  do script \"claude attach {job_id}\"\nend tell\nreturn \"ok\"")
+}
+
+/// Bring the terminal window running `pid` to the front. A background session has none, so one is opened on it.
 pub fn focus_pid(pid: i32) -> Result<(), String> {
-    let app = terminal_app_of(pid).ok_or("its terminal app could not be identified")?;
+    let Some(app) = terminal_app_of(pid) else {
+        let file = dirs::home_dir()
+            .map(|h| h.join(".claude/sessions").join(format!("{pid}.json")))
+            .and_then(|p| std::fs::read_to_string(p).ok());
+        let job = file
+            .as_deref()
+            .and_then(background_job_id)
+            .ok_or("its terminal app could not be identified")?;
+        osascript(&attach_script(&job))?;
+        return Ok(());
+    };
     let script = match tty_of(pid) {
         Some(tty) => focus_script(app, &tty),
         None => format!("tell application \"{app}\" to activate\nreturn \"ok\""),
@@ -255,6 +284,20 @@ mod tests {
             focus_script("Warp", "/dev/ttys004"),
             "tell application \"Warp\" to activate\nreturn \"ok\""
         );
+    }
+
+    #[test]
+    fn a_background_session_is_attached_to_by_its_job_id() {
+        let file = r#"{"pid":96159,"kind":"bg","jobId":"9c4967e5","name":"bugfixer-7"}"#;
+        assert_eq!(background_job_id(file), Some("9c4967e5".to_string()));
+        // An ordinary terminal session has a window to raise instead.
+        assert_eq!(background_job_id(r#"{"pid":1,"kind":"interactive","jobId":"abc"}"#), None);
+        assert_eq!(background_job_id(r#"{"pid":1}"#), None);
+        // The id goes into a shell line, so anything but a plain id is refused.
+        assert_eq!(background_job_id(r#"{"kind":"bg","jobId":"x; rm -rf ~"}"#), None);
+        let script = attach_script("9c4967e5");
+        assert!(script.contains("do script \"claude attach 9c4967e5\""));
+        assert!(script.contains("activate"));
     }
 
     #[test]
