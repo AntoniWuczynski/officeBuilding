@@ -4,7 +4,8 @@ import { applyOverrides, NO_OVERRIDES, withMove, withName } from "./overrides";
 
 const snap = makeDemoSnapshot();
 const [a, b] = snap.projects;
-const mover = snap.sessions.find((s) => s.projectId === a?.id);
+// s-2 has an open question (q-1), so the move test can see it follow.
+const mover = snap.sessions.find((s) => s.id === "s-2");
 
 describe("applyOverrides", () => {
   it("changes nothing without overrides", () => {
@@ -31,9 +32,19 @@ describe("applyOverrides", () => {
     expect(out.sessions.find((s) => s.id === mover.id)?.projectId).toBe(b.id);
     expect(out.projects.find((p) => p.id === a.id)?.sessionIds).not.toContain(mover.id);
     expect(out.projects.find((p) => p.id === b.id)?.sessionIds).toContain(mover.id);
-    for (const q of out.questions.filter((x) => x.sessionId === mover.id)) expect(q.projectId).toBe(b.id);
+    const asked = out.questions.filter((x) => x.sessionId === mover.id);
+    expect(asked.length).toBeGreaterThan(0);
+    for (const q of asked) expect(q.projectId).toBe(b.id);
     // Nothing else moved.
     expect(out.sessions.filter((s) => s.id !== mover.id)).toEqual(snap.sessions.filter((s) => s.id !== mover.id));
+  });
+
+  it("a moved session's sign-out entry is on the island it was moved to", () => {
+    const left = snap.ended[0];
+    if (left === undefined || b === undefined) throw new Error("demo has an ended session");
+    const to = snap.projects.find((p) => p.id !== left.projectId)?.id ?? b.id;
+    const out = applyOverrides(snap, withMove(NO_OVERRIDES, left.id, to));
+    expect(out.ended.find((e) => e.id === left.id)?.projectId).toBe(to);
   });
 
   it("ignores a move to an island that is gone, and moving back clears it", () => {

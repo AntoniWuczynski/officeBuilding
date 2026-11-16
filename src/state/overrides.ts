@@ -46,7 +46,16 @@ export function applyOverrides(s: OfficeSnapshot, o: Overrides): OfficeSnapshot 
     sessionIds: moved.size === 0 ? p.sessionIds : [...p.sessionIds.filter((id) => !moved.has(id)), ...[...moved].filter(([, to]) => to === p.id).map(([id]) => id)],
   }));
   const questions = moved.size === 0 ? s.questions : s.questions.map((q) => (moved.has(q.sessionId) ? { ...q, projectId: moved.get(q.sessionId) ?? q.projectId } : q));
-  return { ...s, projects, sessions, questions };
+  // A moved session that has since ended signs out on the island it was moved to.
+  const endedTo = (id: string): string | undefined => {
+    const to = o.moves[id];
+    return to !== undefined && known.has(to) ? to : undefined;
+  };
+  const ended = s.ended.map((e) => {
+    const to = endedTo(e.id);
+    return to === undefined || to === e.projectId ? e : { ...e, projectId: to };
+  });
+  return { ...s, projects, sessions, questions, ended };
 }
 
 const KEY = "office-building:overrides";
