@@ -182,7 +182,8 @@ pub fn background_job_id(session_file: &str) -> Option<String> {
 /// Open a Terminal window attached to a background session.
 #[must_use]
 pub fn attach_script(job_id: &str) -> String {
-    format!("tell application \"Terminal\"\n  activate\n  do script \"claude attach {job_id}\"\nend tell\nreturn \"ok\"")
+    let id = applescript_literal(job_id);
+    format!("tell application \"Terminal\"\n  activate\n  do script \"claude attach {id}\"\nend tell\nreturn \"ok\"")
 }
 
 /// Bring the terminal window running `pid` to the front. A background session has none, so one is opened on it.

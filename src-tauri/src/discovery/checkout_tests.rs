@@ -212,6 +212,8 @@ fn a_removed_worktree_is_remembered_while_the_session_stays_inside_it() {
 #[test]
 fn a_session_started_above_a_repo_sits_on_the_repo_it_works_in() {
     let repo = Repo::new("above");
+    let plain = repo.base.join("downloads").join("x");
+    fs::create_dir_all(&plain).expect("mkdir");
     let main_web = repo.main.join("web");
     let tree_server = repo.tree.join("server");
     let d = run(
@@ -223,6 +225,8 @@ fn a_session_started_above_a_repo_sits_on_the_repo_it_works_in() {
             input("above", &repo.base, &repo.base, true),
             // Wandered outside the folder it started in: stays where it started.
             input("away", &main_web, &repo.base, true),
+            // Into a plain subfolder that is no repo: stays where it started, no floor of its own.
+            input("plain", &repo.base, &plain, true),
         ],
         &BTreeMap::new(),
     );
@@ -231,6 +235,7 @@ fn a_session_started_above_a_repo_sits_on_the_repo_it_works_in() {
     assert_eq!(floor("in-tree"), Some(project_id(&repo.main)));
     assert_eq!(floor("above"), Some(project_id(&repo.base)));
     assert_eq!(floor("away"), Some(project_id(&repo.main)));
+    assert_eq!(floor("plain"), Some(project_id(&repo.base)));
     let worktree = |id: &str| d.sessions.iter().find(|s| s.id == id).map(|s| s.worktree);
     assert_eq!(worktree("in-tree"), Some(true));
     assert_eq!(worktree("in-repo"), Some(false));

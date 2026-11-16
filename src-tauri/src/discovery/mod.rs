@@ -432,7 +432,11 @@ fn assemble(
         // A session launched above a repo (from the folder that holds several) sits on the repo it is working
         // in now. One that wanders outside the folder it started in stays on its first floor: a stray `cd`
         // does not move it.
-        let moved_in = now_in.root != started.root && now_in.root.starts_with(&started.root);
+        // Only into a real checkout: `locate` returns a plain folder as its own root, and a `cd ~/Downloads/x`
+        // must not raise a floor called "x".
+        let moved_in = now_in.root != started.root
+            && now_in.root.starts_with(&started.root)
+            && now_in.root.join(".git").exists();
         let same_repo = moved_in || now_in.root == started.root;
         let worktree = now_in.worktree && same_repo;
         let branch = if worktree {
