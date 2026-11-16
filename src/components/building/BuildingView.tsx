@@ -18,6 +18,7 @@ import { usePresence } from "../../state/usePresence";
 import { Stage } from "../../scene/Stage";
 import { AddFloorDialog } from "./AddFloorDialog";
 import { DemolishDialog } from "./DemolishDialog";
+import { EditableSign } from "./EditableSign";
 import { UsageSigns } from "./UsageSigns";
 import { Building, buildingHeight } from "./Building";
 import type { FloorModel } from "./Storey";
@@ -106,7 +107,13 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   return (
     <div ref={viewRef} className="view building-view">
       <header className="topbar" data-tauri-drag-region>
-        <span className="topbar-sign">{shownName}</span>
+        <span className="topbar-sign">
+          {islands ? (
+            <EditableSign name={shownName} onRename={(next) => renameBuilding(next.trim() === ISLANDS_DEFAULT_NAME ? DEFAULT_BUILDING_NAME : next)} noun="map" />
+          ) : (
+            shownName
+          )}
+        </span>
         <label className="search">
           <span className="sr-only">Search {words.noun}s</span>
           <input
@@ -163,9 +170,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
               snapshot={snapshot}
               entries={standing.list}
               onGone={standing.done}
-              name={shownName}
               animate={animate}
-              onRename={(next) => renameBuilding(next.trim() === ISLANDS_DEFAULT_NAME ? DEFAULT_BUILDING_NAME : next)}
               onEnter={(projectId) => onEnter(projectId, originOf(viewRef.current))}
               onOpenSession={(s) => onOpenSession?.(s)}
               onRenameIsland={(projectId, next) => overrideActions?.renameFloor(projectId, next)}
@@ -198,7 +203,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           />
         </Stage>
         )}
-        <UsageSigns loadUsage={loadUsage} />
+        <UsageSigns loadUsage={loadUsage} collapsible={islands} />
       </div>
 
       {adding ? (

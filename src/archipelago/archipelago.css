@@ -8,6 +8,9 @@
   overflow: hidden;
   /* Keep the high z-indexes below inside this view, so toasts and dialogs still sit above it. */
   isolation: isolate;
+  /* One width for the list and one for the signs; the compass, hint and panel stand clear of them by these. */
+  --arch-list-w: 264px;
+  --arch-signs-w: 232px;
 }
 .arch {
   position: absolute;
@@ -33,8 +36,8 @@
   position: absolute;
   left: 16px;
   top: 16px;
-  bottom: 16px;
-  width: 224px;
+  max-height: calc(100% - 32px);
+  width: var(--arch-list-w);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -42,31 +45,31 @@
   overflow-y: auto;
   scrollbar-width: none;
 }
-.arch-list .roof-sign {
-  position: static;
-  transform: none;
-  align-self: flex-start;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 20px;
-}
+/* The sink button sits in the row beside the nameplate, so it never covers the badge or leaves the list. */
 .arch-list-row {
-  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .arch-list .nameplate {
   position: static;
   transform: none;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
   background: var(--paper);
   border-color: var(--ink);
 }
+/* A long name wraps rather than being cut off; the count, stamp and badge drop to a second line if they must. */
 .arch-list .nameplate-name {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
   text-align: left;
+}
+.arch-list .qa-stamp {
+  font-size: 11px;
 }
 .arch-list .nameplate:hover,
 .arch-list-row[data-selected] .nameplate {
@@ -77,10 +80,9 @@
   outline-offset: 2px;
 }
 .arch-list .demolish-btn {
-  top: 50%;
-  right: 6px;
-  bottom: auto;
-  transform: translate(50%, -50%);
+  position: static;
+  transform: none;
+  flex: none;
 }
 .arch-list-row:hover .demolish-btn,
 .arch-list .demolish-btn:focus-visible {
@@ -114,6 +116,21 @@
   opacity: 0.35;
 }
 
+/* The map's name is the top bar's sign; clicking it renames the map (the building's roof sign, set into the bar). */
+.app.is-islands .topbar-sign .roof-sign {
+  position: static;
+  transform: none;
+  padding: 0 4px;
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.app.is-islands .topbar-sign .roof-sign-input {
+  border-color: var(--signage);
+}
+
 /* Toasts sit where the island list is; in this view they show over the sea at the bottom instead. */
 .app.is-islands .toasts {
   left: 50%;
@@ -129,6 +146,32 @@
   right: 16px;
   top: 16px;
   bottom: 16px;
+  width: var(--arch-signs-w);
+}
+/* Room for "Resets Thu" beside the label and the percentage on one line. */
+.building-body.is-islands > .usage-signs small {
+  white-space: nowrap;
+}
+.building-body.is-islands > .usage-signs .usage-bar {
+  display: flex;
+  gap: 8px;
+  align-self: flex-start;
+  margin-left: 22px;
+}
+/* Folded: one line carrying the number that matters, so the sea stays open under it. */
+.building-body.is-islands > .usage-signs.is-folded {
+  bottom: auto;
+  width: auto;
+}
+.building-body.is-islands > .usage-signs.is-folded::before,
+.building-body.is-islands > .usage-signs.is-folded::after {
+  display: none;
+}
+.building-body.is-islands > .usage-signs .usage-headline {
+  align-self: flex-end;
+  margin-left: 0;
+  white-space: nowrap;
+  font-size: 12px;
 }
 
 /* Labels over the islands: the office nameplate shape. */
@@ -204,7 +247,7 @@
 .arch-panel {
   position: absolute;
   top: 16px;
-  right: calc(clamp(190px, 17vw, 232px) + 32px);
+  right: calc(var(--arch-signs-w) + 32px);
   width: 260px;
   /* Room for the hint below: 16 top + 16 bottom + the hint (about 30 tall) + 32 clear = 94. */
   max-height: calc(100% - 94px);
@@ -260,36 +303,24 @@
   width: 100%;
   flex: none;
 }
-/* Naming an island, and putting an agent on another one. */
-.arch-panel-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.arch-rename-btn {
-  padding: 1px 6px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--paper);
-  color: var(--ink-soft);
-  font: 600 11px/1.4 var(--font-ui);
-  letter-spacing: 0;
-  text-transform: none;
-  cursor: pointer;
-}
-.arch-rename-btn:hover {
-  background: var(--paper-hover);
-}
-.arch-rename {
-  width: 100%;
-  margin: 0 0 2px;
-  padding: 2px 4px;
-  border: 2px solid var(--ink);
-  background: var(--paper);
+/* Naming an island (the name is the rename button), and putting an agent on another one. */
+.arch-panel .roof-sign {
+  position: static;
+  transform: none;
+  max-width: 100%;
+  padding: 0 2px;
+  border: 2px solid transparent;
+  background: transparent;
   color: var(--ink);
-  font: 700 18px/1.1 var(--font-sign);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.arch-panel .roof-sign-input {
+  border-color: var(--ink);
+  background: var(--paper);
 }
 .arch-move {
   width: 100%;
@@ -305,7 +336,7 @@
 /* Compass and hint: small paper plates, clear of the list. */
 .arch-compass {
   position: absolute;
-  left: 256px;
+  left: calc(var(--arch-list-w) + 32px);
   top: 16px;
   width: 40px;
   height: 40px;
@@ -328,7 +359,7 @@
 }
 .arch-hint {
   position: absolute;
-  left: 256px;
+  left: calc(var(--arch-list-w) + 32px);
   bottom: 16px;
   margin: 0;
   padding: 5px 10px;

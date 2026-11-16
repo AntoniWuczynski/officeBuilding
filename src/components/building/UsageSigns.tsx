@@ -9,6 +9,20 @@ const REFRESH_MS = 60_000;
 
 interface Props {
   readonly loadUsage: (refresh: boolean) => Promise<readonly ToolUsage[]>;
+  /** Start as a one-line headline that opens to the full signs. The office keeps them open. */
+  readonly collapsible?: boolean;
+}
+
+/** The window nearest its limit, as one line: the number that matters when the signs are folded away. */
+function headline(usage: readonly ToolUsage[]): string {
+  let worst: { readonly tool: string; readonly label: string; readonly percent: number } | null = null;
+  for (const u of usage) {
+    for (const w of u.windows) {
+      const percent = Math.round(Math.min(100, Math.max(0, w.percent)));
+      if (worst === null || percent > worst.percent) worst = { tool: TOOL_LABEL[u.tool], label: w.label, percent };
+    }
+  }
+  return worst === null ? "Usage limits" : `${worst.tool} ${worst.label} ${worst.percent}%`;
 }
 
 /** Meter colour by how much of the window is used: green, amber from 70%, red from 90%. */
@@ -62,7 +76,9 @@ function Sign({ usage, now }: { readonly usage: ToolUsage; readonly now: Date })
 }
 
 /** Standing signs beside the building: each installed tool's usage limits, as the tool last measured them. Re-check has Claude Code measure again. */
-export function UsageSigns({ loadUsage }: Props): React.ReactElement | null {
+export function UsageSigns({ loadUsage, collapsible = false }: Props): React.ReactElement | null {
+  // Only meaningful while `collapsible`: the same signs stay mounted when the view switches to the office, which never folds them.
+  const [unfolded, setUnfolded] = useState(false);
   const [usage, setUsage] = useState<readonly ToolUsage[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,11 +102,32 @@ export function UsageSigns({ loadUsage }: Props): React.ReactElement | null {
   }, [refresh]);
 
   if (usage === null && error === null) return null;
+  const recheck = (
+    <button type="button" className="btn" disabled={busy} onClick={() => void refresh(true)}>
+      {busy ? "Checking" : "Re-check"}
+    </button>
+  );
+  if (collapsible && !unfolded) {
+    return (
+      <aside className="usage-signs is-folded" aria-label="Usage limits">
+        <button type="button" className="btn usage-headline" aria-expanded={false} onClick={() => setUnfolded(true)}>
+          {headline(usage ?? [])}
+        </button>
+      </aside>
+    );
+  }
   return (
     <aside className="usage-signs" aria-label="Usage limits">
-      <button type="button" className="btn" disabled={busy} onClick={() => void refresh(true)}>
-        {busy ? "Checking" : "Re-check"}
-      </button>
+      {collapsible ? (
+        <div className="usage-bar">
+          {recheck}
+          <button type="button" className="btn" aria-expanded onClick={() => setUnfolded(false)}>
+            Hide
+          </button>
+        </div>
+      ) : (
+        recheck
+      )}
       {/* Scrolls when the window is too short for every sign; the posts stay put. */}
       <div className="usage-signs-list">
         {(usage ?? []).map((u) => (

@@ -16,8 +16,8 @@ import { PLACE } from "../state/placeWords";
 import { COUNTER_H, OCEAN_SIZE, buildBoat, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
 import { agentSlots, clampToBounds, layoutIslands, MAX_SLOTS, mergeOrder, worldBounds } from "./islands";
 import type { IslandSpec } from "./islands";
-import { boxAt } from "./pick";
-import type { Box } from "./pick";
+import { boxAt, roomFor } from "./pick";
+import type { Box, Rect } from "./pick";
 import { bezierAt, sailRoute } from "./routes";
 import type { Route } from "./routes";
 import "./archipelago.css";
@@ -32,8 +32,16 @@ const PERSON_UNITS = 7.5;
 const PERSON_PX = 30;
 /** Below this on-screen scale a figure is mush; the label's counts say it instead. */
 const MIN_SCALE = 0.7;
-/** Where a selected island's camera ends up, in world units from its centre. */
+/** How close a selected island's camera comes, in world units from its centre; it backs off if the island does not fit the free room. */
 const FOCUS_DISTANCE = 52;
+/** The list, signs and panel float 16 px off the edges; framed islands keep the same clear space round them. */
+const FRAME_GAP = 16;
+/** The coastline swings up to 23% past an island's radius (islands.ts closestPair, build.ts blob). */
+const COAST_REACH = 1.23;
+/** How high a label hangs above its island's centre, as the render loop places it. */
+const LABEL_Y = 26;
+/** North up with the opening tilt: the camera looks at the middle of the map from this side. */
+const OPENING = new THREE.Vector3(0, 1, 1).normalize();
 /** Open sea kept around the islands: the camera target cannot leave this box. */
 const SEA_PAD = 40;
 /** A parrot flies a message between two huts on one island. */
@@ -120,10 +128,8 @@ interface Props {
   readonly entries: readonly Present<FloorModel>[];
   /** An island that has finished sinking. */
   readonly onGone: (projectId: string) => void;
-  readonly name: string;
   /** False under prefers-reduced-motion. */
   readonly animate: boolean;
-  readonly onRename: (name: string) => void;
   /** Go inside an island: the floor view, with Hire, the terminal, decisions and the rest. */
   readonly onEnter: (projectId: string) => void;
   readonly onOpenSession: (session: Session) => void;
@@ -137,7 +143,7 @@ interface Props {
 
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
-export function Archipelago({ snapshot, entries, onGone, name, animate, onRename, onEnter, onOpenSession, onRenameIsland, onMoveSession, onAddFloor, onDemolish }: Props): React.ReactElement {
+export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpenSession, onRenameIsland, onMoveSession, onAddFloor, onDemolish }: Props): React.ReactElement {
   const host = useRef<HTMLDivElement>(null);
   const labels = useRef(new Map<string, HTMLButtonElement>());
   const personEls = useRef(new Map<string, HTMLDivElement>());
@@ -148,7 +154,11 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
   /** Islands that have already risen, so a rebuild for a new project does not make the rest rise again. */
   const risen = useRef(new Set<string>());
   const [selected, setSelected] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState(false);
+  const selectedRef = useRef<string | null>(null);
+  selectedRef.current = selected;
+  /** True until the user moves the camera: while it is, the view re-frames itself as the list and signs change size. */
+  const homed = useRef(true);
+  const focus = useRef<(projectId: string) => void>(() => undefined);
   const panelHeading = useRef<HTMLHeadingElement>(null);
   const [noWebGl, setNoWebGl] = useState(false);
   // Reduced motion: still sea, instant camera moves, no flying notes (as the building's walks and collapses).
@@ -192,7 +202,10 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
 
   // Choosing an island opens its panel: take focus there, so its agents and Open island come next in Tab order.
   useEffect(() => {
-    if (selected !== null) panelHeading.current?.focus();
+    if (selected === null) return;
+    panelHeading.current?.focus();
+    // The panel is in the page now, so the camera can leave room for it.
+    focus.current(selected);
   }, [selected]);
 
   // Without WebGL there is no render loop to finish a sink: let a removed island go at once.
@@ -252,7 +265,6 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
       huts.delete(key);
     };
 
-    // Frame every island; the camera may not back off past that (the zoom-out cap).
     const bounds = worldBounds(islands, SEA_PAD);
     const cx = (bounds.minX + bounds.maxX) / 2;
     const cz = (bounds.minZ + bounds.maxZ) / 2;
@@ -267,13 +279,19 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
     controls.minPolarAngle = 0;
     controls.maxPolarAngle = Math.PI * 0.47;
     controls.minDistance = 14;
-    controls.maxDistance = camera.position.distanceTo(controls.target);
-    // Fog, draw distance and sea all follow the fitted distance: from the opening view the farthest island is about
-    // 1.6 times as far as the centre (half the spread across, 1.13 spread away), so fog starts past that.
-    const reach = controls.maxDistance;
-    scene.fog = new THREE.Fog(0x8fd3f4, reach * 1.8, reach * 3.2);
-    camera.far = reach * 4;
-    ocean.mesh.scale.setScalar(Math.max(1, (camera.far * 2) / OCEAN_SIZE));
+    controls.addEventListener("start", () => {
+      homed.current = false;
+    });
+    // Fog, draw distance and sea all follow the fitted distance (the zoom-out cap): the farthest island is about
+    // 1.6 times as far as the centre, so fog starts past that.
+    const setReach = (reach: number): void => {
+      controls.maxDistance = reach;
+      scene.fog = new THREE.Fog(0x8fd3f4, reach * 1.8, reach * 3.2);
+      camera.far = reach * 4;
+      camera.updateProjectionMatrix();
+      ocean.mesh.scale.setScalar(Math.max(1, (camera.far * 2) / OCEAN_SIZE));
+    };
+    setReach(camera.position.distanceTo(controls.target));
     if (view.current !== null) {
       camera.position.copy(view.current.position);
       controls.target.copy(view.current.target);
@@ -288,17 +306,104 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
     const moveTo = (target: THREE.Vector3, cam: THREE.Vector3): void => {
       goal = { target, cam, fromTarget: controls.target.clone(), fromCam: camera.position.clone(), t0: null };
     };
-    flyTo.current = (spec) => {
-      const target = new THREE.Vector3(spec.x, 0, spec.z);
+    // Frame `specs` in the room the floating chrome leaves: the smallest distance (at least `want`) from which they
+    // fit, with the centre of the view moved so they sit in the middle of that room. The sums are done on a spare
+    // camera, so the live one never jumps.
+    const probe = camera.clone();
+    const labelSize = new Map<string, { readonly w: number; readonly h: number }>();
+    const spots = (specs: readonly IslandSpec[]): { at: THREE.Vector3; halfW: number; up: number }[] =>
+      specs.flatMap((spec) => {
+        // A label that has not risen yet is display: none and measures 0, so keep the last size it had.
+        const label = labels.current.get(spec.projectId);
+        if (label !== undefined && label.offsetWidth > 0) labelSize.set(spec.projectId, { w: label.offsetWidth, h: label.offsetHeight });
+        const size = labelSize.get(spec.projectId) ?? { w: 0, h: 0 };
+        const ring = Array.from({ length: 8 }, (_, i) => {
+          const a = (i / 8) * Math.PI * 2;
+          return { at: new THREE.Vector3(spec.x + Math.cos(a) * spec.radius * COAST_REACH, 0, spec.z + Math.sin(a) * spec.radius * COAST_REACH), halfW: 0, up: 0 };
+        });
+        return [...ring, { at: new THREE.Vector3(spec.x, LABEL_Y, spec.z), halfW: size.w / 2, up: size.h }];
+      });
+    const frame = (specs: readonly IslandSpec[], covers: readonly Rect[], dir: THREE.Vector3, from: THREE.Vector3, lo: number, hi: number, want: number, ref: number): { target: THREE.Vector3; cam: THREE.Vector3; d: number } => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      const pts = spots(specs);
+      probe.aspect = camera.aspect;
+      probe.updateProjectionMatrix();
+      const centre = from.clone();
+      const seen = (d: number): Rect => {
+        probe.position.copy(centre).addScaledVector(dir, d);
+        probe.lookAt(centre);
+        probe.updateMatrixWorld();
+        const box = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+        for (const p of pts) {
+          const n = p.at.clone().project(probe);
+          const x = ((n.x + 1) / 2) * w;
+          const y = ((1 - n.y) / 2) * h;
+          box.left = Math.min(box.left, x - p.halfW);
+          box.right = Math.max(box.right, x + p.halfW);
+          box.top = Math.min(box.top, y - p.up);
+          box.bottom = Math.max(box.bottom, y);
+        }
+        return box;
+      };
+      const first = seen(ref);
+      const room = roomFor({ left: 0, top: 0, right: w, bottom: h }, covers, FRAME_GAP, first.right - first.left, first.bottom - first.top) ?? { left: 0, top: 0, right: w, bottom: h };
+      // At distance d, slide the view until the islands' box is centred in the room, then report where the box ended up.
+      // Sliding changes the perspective a little, so the distance is searched on the slid view, not the unslid one.
+      const ground = new THREE.Raycaster();
+      const settle = (d: number): Rect => {
+        centre.copy(from);
+        for (let pass = 0; pass < 3; pass++) {
+          const box = seen(d);
+          const dx = (room.left + room.right) / 2 - (box.left + box.right) / 2;
+          const dy = (room.top + room.bottom) / 2 - (box.top + box.bottom) / 2;
+          ground.setFromCamera(new THREE.Vector2(((w / 2 - dx) / w) * 2 - 1, -(((h / 2 - dy) / h) * 2 - 1)), probe);
+          centre.copy(ground.ray.origin).addScaledVector(ground.ray.direction, -ground.ray.origin.y / ground.ray.direction.y);
+          centre.y = 0;
+        }
+        return seen(d);
+      };
+      let near = lo;
+      let far = hi;
+      for (let i = 0; i < 24; i++) {
+        const mid = (near + far) / 2;
+        const box = settle(mid);
+        if (box.right - box.left <= room.right - room.left && box.bottom - box.top <= room.bottom - room.top) far = mid;
+        else near = mid;
+      }
+      const d = Math.max(far, want);
+      settle(d);
+      return { target: centre.clone(), cam: centre.clone().addScaledVector(dir, d), d };
+    };
+    /** Rects of the floating chrome in the view's own pixels, for what is on the page now. */
+    const covering = (selectors: readonly string[]): Rect[] => {
+      const host = el.getBoundingClientRect();
+      return selectors.flatMap((selector) => {
+        const side = el.parentElement?.querySelector<HTMLElement>(selector);
+        if (side === null || side === undefined) return [];
+        const r = side.getBoundingClientRect();
+        return [{ left: r.left - host.left, top: r.top - host.top, right: r.right - host.left, bottom: r.bottom - host.top }];
+      });
+    };
+    // The panel is not on the page yet when the click lands; the effect on `selected` flies again once it is.
+    const flyToIsland = (spec: IslandSpec): void => {
+      homed.current = false;
       const dir = camera.position.clone().sub(controls.target).normalize();
-      moveTo(target, target.clone().addScaledVector(dir, FOCUS_DISTANCE));
-      setSelected(spec.projectId);
+      const f = frame([spec], covering([".arch-list", ".usage-signs", ".arch-panel"]), dir, new THREE.Vector3(spec.x, 0, spec.z), controls.minDistance, controls.maxDistance, FOCUS_DISTANCE, FOCUS_DISTANCE);
+      moveTo(f.target, f.cam);
+    };
+    flyTo.current = (spec) => {
+      if (selectedRef.current === spec.projectId) flyToIsland(spec);
+      else setSelected(spec.projectId);
+    };
+    focus.current = (projectId) => {
+      const spec = islands.find((i) => i.projectId === projectId);
+      if (spec !== undefined) flyToIsland(spec);
     };
     // Compass: north up and the opening tilt again, keeping the current zoom and place.
-    const opening = new THREE.Vector3(0, 1, 1).normalize();
     resetView.current = () => {
       const target = controls.target.clone();
-      moveTo(target, target.clone().addScaledVector(opening, camera.position.distanceTo(controls.target)));
+      moveTo(target, target.clone().addScaledVector(OPENING, camera.position.distanceTo(controls.target)));
     };
 
     const ray = new THREE.Raycaster();
@@ -357,24 +462,38 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
     renderer.domElement.addEventListener("pointermove", onMove);
     renderer.domElement.addEventListener("pointerleave", onLeave);
 
-    // The list and the usage signs float over the sea: shift the view so the islands sit in the open space between them.
+    // The list and the usage signs float over the sea: frame every island in the open room they leave, and let the
+    // camera back off no further than that.
     const resize = (): void => {
       const w = el.clientWidth;
       const h = el.clientHeight;
       renderer.setSize(w, h);
       camera.aspect = w / Math.max(h, 1);
-      const inset = (selector: string): number => {
-        const side = el.parentElement?.querySelector<HTMLElement>(selector);
-        return side === null || side === undefined ? 0 : side.offsetWidth + 32;
-      };
-      const left = inset(".arch-list");
-      const right = inset(".usage-signs");
-      camera.setViewOffset(w, h, -(left - right) / 2, 0, w, h);
       camera.updateProjectionMatrix();
+      const home = frame(islands, covering([".arch-list", ".usage-signs"]), OPENING, new THREE.Vector3(cx, 0, cz), controls.minDistance, spread * 3, 0, spread * 1.13);
+      setReach(home.d);
+      if (!homed.current) return;
+      camera.position.copy(home.cam);
+      controls.target.copy(home.target);
+      saved.position.copy(home.cam);
+      saved.target.copy(home.target);
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(el);
+    // The signs appear once their numbers load, and the list and signs change size: re-frame when they do.
+    const watch = (): void => {
+      for (const selector of [".arch-list", ".usage-signs"]) {
+        const side = el.parentElement?.querySelector<HTMLElement>(selector);
+        if (side !== null && side !== undefined) ro.observe(side);
+      }
+    };
+    watch();
+    const mo = new MutationObserver(() => {
+      watch();
+      resize();
+    });
+    if (el.parentElement !== null) mo.observe(el.parentElement, { childList: true });
 
     // A message between two agents on one island is a parrot flying from sender to receiver; between islands it is a
     // boat sailing from one shore to the other.
@@ -582,6 +701,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      mo.disconnect();
       controls.dispose();
       for (const n of notes) n.el.remove();
       for (const vy of voyages) scene.remove(vy.boat);
@@ -601,6 +721,8 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
   }, [islands]);
 
   const picked = rows.find((r) => r.spec.projectId === selected);
+  // The Setup island is not a place to work, and a sinking one is going: neither takes an agent.
+  const moveTargets = rows.filter((r) => r.spec.projectId !== picked?.spec.projectId && !r.floor.plant && r.phase !== "leaving");
   return (
     <>
       <div className="arch" ref={host} data-testid="archipelago">
@@ -651,36 +773,9 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         ))}
         {picked === undefined ? null : (
           <aside id="arch-panel" className="arch-panel" aria-label={`${picked.spec.name} island`}>
-            {renaming ? (
-              <input
-                className="arch-rename"
-                aria-label="Island name"
-                defaultValue={picked.spec.name}
-                // eslint-disable-next-line jsx-a11y/no-autofocus -- the Rename button was just pressed
-                autoFocus
-                onFocus={(e) => e.currentTarget.select()}
-                onBlur={(e) => {
-                  onRenameIsland(picked.spec.projectId, e.currentTarget.value);
-                  setRenaming(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    onRenameIsland(picked.spec.projectId, e.currentTarget.value);
-                    setRenaming(false);
-                  }
-                  if (e.key === "Escape") setRenaming(false);
-                }}
-              />
-            ) : (
-              <div className="arch-panel-head">
-                <h2 ref={panelHeading} tabIndex={-1}>
-                  {picked.spec.name}
-                </h2>
-                <button type="button" className="arch-rename-btn" onClick={() => setRenaming(true)}>
-                  Rename
-                </button>
-              </div>
-            )}
+            <h2 ref={panelHeading} tabIndex={-1}>
+              <EditableSign key={picked.spec.projectId} name={picked.spec.name} onRename={(next) => onRenameIsland(picked.spec.projectId, next)} noun="island" />
+            </h2>
             <p>
               {picked.floor.counts.total} {picked.floor.counts.total === 1 ? "agent" : "agents"}, {picked.floor.counts.active} working
               {picked.floor.pending > 0 ? `, ${picked.floor.pending} waiting on you` : ""}
@@ -696,11 +791,12 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
                       {s.worktree ? " · in a worktree" : ""}
                     </span>
                   </button>
-                  {rows.length > 1 ? (
+                  {moveTargets.length > 0 ? (
                     <select className="arch-move" aria-label={`Move ${s.title} to another island`} value={picked.spec.projectId} onChange={(e) => onMoveSession(s.id, e.target.value)}>
-                      {rows.map((r) => (
+                      <option value={picked.spec.projectId}>Move to...</option>
+                      {moveTargets.map((r) => (
                         <option key={r.spec.projectId} value={r.spec.projectId}>
-                          {r.spec.projectId === picked.spec.projectId ? "On this island" : `Move to ${r.spec.name}`}
+                          {r.spec.name}
                         </option>
                       ))}
                     </select>
@@ -715,7 +811,6 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         )}
       </div>
       <nav className="arch-list" aria-label="Islands">
-        <EditableSign name={name} onRename={onRename} noun="map" />
         {rows.map(({ spec, floor, phase }) => (
           <div
             key={spec.projectId}
@@ -743,7 +838,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
             >
               <i className="lamp" aria-hidden />
               <span className="nameplate-name">{spec.name}</span>
-              {floor.plant ? <span className="nameplate-kind">Plant room</span> : null}
+              {floor.plant ? <span className="nameplate-kind">Lighthouse</span> : null}
               <span className="nameplate-count">
                 {floor.counts.active}/{floor.counts.total}
               </span>
