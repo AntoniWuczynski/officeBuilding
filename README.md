@@ -22,10 +22,16 @@ sessions as an **office building**:
   remove, and the same floor screen with Hire, the terminal and the rail. In
   Islands each project is a low-poly island on one sea and each agent a person in
   their own hut (subagents in smaller huts in front, a palm beside an agent in a
-  git worktree, a stuck agent lying on the grass). A list on the left zooms to an
-  island; drag to move, Shift-drag to turn and tilt, scroll to zoom, compass to
+  git worktree, a stuck agent lying on the grass). The islands sit in a cluster;
+  a list on the left zooms to an island, and zoomed in each person carries their
+  name. Drag to move, Shift-drag to turn and tilt, scroll to zoom, compass to
   reset. Islands rise when the view opens, lift under the pointer and sink when
-  removed; a message between two agents flies as a note. The last view picked is
+  removed. A message between agents on two islands sails across as a boat, and
+  one within an island flies as a parrot, each tagged with who it is from and to.
+  Click an island's name in its panel (pencil) to rename it, and pick "Move to..."
+  under an agent to put it on another island; the backend keeps the move, so
+  sinking an island stops the agents on it now. Inside, an island is an open-air
+  camp on a beach. The last view picked is
   kept, and the island map loads `three` (a 596 kB chunk) only when first opened.
   ![The island view: a project's island with each agent in their own hut](docs/screenshots/islands.png)
 - **Desks = agent sessions.** Each desk has a live, animated employee whose pose
@@ -63,7 +69,8 @@ sessions as an **office building**:
   the other tool (below).
 - **Decisions and TODOs come from each repo's own files**: open and settled calls
   from `FOUNDER_DECISIONS.md` (or `HUMAN_DECISIONS.md`) plus the agents'
-  `DECISIONS.md` log, your actions from `FOUNDER_TODO.md` (or `HUMAN_TODO.md`),
+  `DECISIONS.md` log, your actions from `FOUNDER_TODO.md` (or `HUMAN_TODO.md`, or
+  `MY-ACTIONS.md`),
   agent work from `TODO.md`. A call is open until its `##` heading carries a
   status (`DECIDED <date>`, `CONFIRMED`, `VETOED`, `DEFAULT APPLIED`...). Under a
   heading that only groups calls, each `- [ ] **Title** …` item is a call and
@@ -369,11 +376,14 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
 - **Backend (Rust, `src-tauri/`):** discovers real **Claude Code** sessions from
   Claude's own files (`~/.claude/sessions/<pid>.json` for liveness and a
   session blocked on you, `~/.claude/projects/**.jsonl` for transcripts), groups
-  them into floors by the git root of the folder each session started in (a
-  later `cd` does not move it), derives each desk's state, queues open
+  them into floors by the git root of the repo each session is working in (a
+  later `cd` into another git checkout moves it there; a `cd` into a plain
+  folder does not), derives each desk's state, queues open
   questions, permission prompts and plain-prose asks, and pushes live updates to
   the webview. Clicking a running
-  desk focuses its exact iTerm2 or Terminal.app tab. Hiring starts the agent
+  desk focuses its exact iTerm2 or Terminal.app tab; a background session
+  (`claude --bg`, which has no window) opens in a new Terminal window with
+  `claude attach <id>`. Hiring starts the agent
   with the chosen model and effort in an in-app terminal: a pseudo-terminal
   (through your login shell, in the floor's folder) streamed to xterm.js, with
   the last 256 KiB kept for replay. Once the agent registers its session, its
