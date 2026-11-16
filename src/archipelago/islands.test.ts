@@ -152,4 +152,7 @@ describe("shortName", () => {
     expect(shortName("orders ingest fix for the new queue")).toBe("orders ingest…");
     expect(shortName("  hi  ")).toBe("hi");
   });
+  it("names a session with a blank title rather than leaving an empty tag", () => {
+    expect(shortName("   ")).toBe("Agent");
+  });
 });

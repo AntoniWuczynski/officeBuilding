@@ -119,7 +119,7 @@ export function assignSeats(prev: ReadonlyMap<string, number>, ids: readonly str
 
 /** What a tag says of an agent: its title, cut to fit beside others. */
 export function shortName(title: string, max = 14): string {
-  const t = title.trim();
+  const t = title.trim() || "Agent";
   return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}\u2026`;
 }
 

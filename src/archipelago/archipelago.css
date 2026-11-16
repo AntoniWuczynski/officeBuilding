@@ -318,6 +318,14 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* A pencil says the name can be changed; the panel lost its Rename button when it took the shared sign. */
+.arch-panel .roof-sign::after {
+  content: " \270E";
+  color: var(--ink-soft);
+}
+.arch-panel .roof-sign:hover {
+  border-bottom-color: var(--ink-soft);
+}
 .arch-panel .roof-sign-input {
   border-color: var(--ink);
   background: var(--paper);
