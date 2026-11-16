@@ -521,8 +521,12 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
     const voyages: { readonly boat: THREE.Group; readonly tag: HTMLElement; readonly route: Route; readonly t0: number; readonly ms: number }[] = [];
     /** Where each island's label stands on screen this frame, so a boat passing under it can be seen through it. */
     const labelAt = new Map<string, { px: number; py: number }>();
-    /** Screen boxes of the name tags shown this frame. */
+    /** Screen boxes of the name and trip tags shown this frame. */
     const tagsAt: { x0: number; x1: number; y0: number; y1: number }[] = [];
+    /** A tag centred on x whose top edge is at y. */
+    const tagBelow = (tag: HTMLElement, x: number, y: number): void => {
+      tagsAt.push({ x0: x - tag.offsetWidth / 2, x1: x + tag.offsetWidth / 2, y0: y, y1: y + tag.offsetHeight });
+    };
 
     const v = new THREE.Vector3();
     const head = new THREE.Vector3();
@@ -739,6 +743,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
         const size = Math.max(0.8, s.unit / 11);
         // The parrot is 24 px tall and centred on the point; the tag hangs just below its belly.
         n.tag.style.transform = `translate(${s.px}px, ${s.py}px) translate(-50%, ${12 * size + 3}px)`;
+        if (!s.behind) tagBelow(n.tag, s.px, s.py + 12 * size + 3);
         n.el.style.transform = `translate(${s.px}px, ${s.py}px) scale(${goingLeft ? -size : size}, ${size}) rotate(${Math.sin(k * 12) * 6}deg)`;
       }
 
@@ -763,6 +768,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
         const bs = screen(vy.boat.position);
         vy.tag.style.display = bs.behind ? "none" : "block";
         vy.tag.style.transform = `translate(${bs.px}px, ${bs.py}px) translate(-50%, 8px)`;
+        if (!bs.behind) tagBelow(vy.tag, bs.px, bs.py + 8);
         boatsAt.push(bs);
       }
       // Labels are page elements over the canvas, so a boat sailing behind one would vanish, and a name tag would
