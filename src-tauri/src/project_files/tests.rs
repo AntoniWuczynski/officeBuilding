@@ -279,6 +279,25 @@ fn answering_an_entry_marks_its_heading_decided() {
 }
 
 #[test]
+fn my_actions_is_the_human_todo_list_and_a_tick_changes_only_its_own_line() {
+    let root = std::env::temp_dir().join(format!("ob-actions-{}", std::process::id()));
+    fs::create_dir_all(&root).expect("mkdir");
+    let text = "# My actions\n\nIntro.\n\n## 1. Do now\n- [ ] 🚨 Look at the islands | office-building | 2026-11-16 | pnpm tauri:dev\n- [x] 🚨 Already done | p | 2026-11-15 | none\n\n## 2. Review\n- [ ] 🚨 Review a PR | p | 2026-11-16 | https://example.com/1\n";
+    fs::write(root.join("MY-ACTIONS.md"), text).expect("write");
+    let todos = read(&root, "p")
+        .human_todos
+        .expect("MY-ACTIONS.md is read as the human TODO file");
+    assert_eq!(todos.len(), 3);
+    assert!(todos[0].text.starts_with("🚨 Look at the islands | office-building"));
+    assert!(todos[1].done && !todos[0].done);
+
+    tick(&root, "MY-ACTIONS.md", 5).expect("tick");
+    let after = fs::read_to_string(root.join("MY-ACTIONS.md")).expect("read");
+    assert_eq!(after, text.replacen("- [ ] 🚨 Look", "- [x] 🚨 Look", 1));
+    fs::remove_dir_all(&root).expect("cleanup");
+}
+
+#[test]
 fn inline_options_follow_the_word_option() {
     // Lettered parts of the question itself are not options.
     assert!(

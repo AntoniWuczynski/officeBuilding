@@ -34,6 +34,7 @@ pub const HUMAN_TODO_FILES: &[&str] = &[
     "HUMAN_TODO.md",
     "FOUNDER-TODO.md",
     "HUMAN-TODO.md",
+    "MY-ACTIONS.md",
 ];
 pub const AGENT_TODO_FILES: &[&str] = &["TODO.md"];
 
