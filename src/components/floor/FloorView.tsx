@@ -25,6 +25,8 @@ import { FLOOR_CAMERA } from "../../lib/iso";
 import { ROOM, roomDepth } from "../../lib/layout";
 import { PLACE } from "../../state/placeWords";
 import { Stage } from "../../scene/Stage";
+import type { FloorLook } from "../../scene/Desk";
+import { beachSidePad } from "../../scene/Camp";
 import { LiftIcon } from "../icons";
 import { HireDialog } from "./HireDialog";
 import { Rail } from "./Rail";
@@ -62,6 +64,8 @@ interface Props {
   readonly onNewShell: () => Promise<void>;
   readonly onEndShell: (shellId: string) => Promise<void>;
   readonly setup: SetupProps;
+  /** An island's inside is drawn as a beach camp: the same room, objects and controls. */
+  readonly look?: FloorLook;
 }
 
 /** The sketch's project screen: the open-plan floor, its search and tally, the rail and panels. */
@@ -88,6 +92,9 @@ export function FloorView(props: Props): React.ReactElement {
   const { rest, managerSession } = splitManager(sessions, manager);
   const { seated, reviewer } = splitReviewer(rest, qa);
   const depth = roomDepth(seated.length + 1, qaDesk);
+  const look = props.look ?? "office";
+  // On an island the whole beach fits beside the room.
+  const side = look === "island" ? Math.max(24, beachSidePad(FLOOR_CAMERA, ROOM.width, depth)) : 24;
   const openSession = sessions.find((s) => s.id === openSessionId);
   const shells = snapshot.shells.filter((s) => s.projectId === project.id);
   const openShell = shells.find((s) => s.id === openSessionId);
@@ -155,7 +162,7 @@ export function FloorView(props: Props): React.ReactElement {
             width={ROOM.width}
             depth={depth}
             height={ROOM.wallHeight + ROOM.slab}
-            pad={{ left: 24, right: 24, top: 36, bottom: 40 }}
+            pad={{ left: side, right: side, top: 36, bottom: 40 }}
             fit="contain"
             zoomable
             className="room-stage"
@@ -175,6 +182,7 @@ export function FloorView(props: Props): React.ReactElement {
               onOpenSession={onOpenSession}
               onOpenSection={(s) => onSection(s)}
               onOpenSettings={onOpenSettings}
+              look={look}
               onHire={() => {
                 onOpenPlate();
                 setHireOpen(true);

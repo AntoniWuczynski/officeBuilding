@@ -1,13 +1,10 @@
-/* An island's inside: the floor view as a beach camp. Only the room's materials and the sea behind it change; every
-   panel, desk and control is the office's own. Scoped to .arch-floor, which App puts on the floor in the island view. */
+/* An island's inside: the floor view as a beach camp. The room's materials and the deep sea behind it change here; the
+   huts, palms and sand are drawn by FloorView's island look. Every panel and control is the office's own. Scoped to
+   .arch-floor, which App puts on the floor in the island view. */
 .arch-floor {
   --room-floor: #f1deaa;
   --room-slab: #d8bd82;
   --room-slab-shade: #b99a60;
-  --room-left: repeating-linear-gradient(90deg, #d7b26a 0 15px, #a67c3b 15px 18px);
-  --room-back:
-    radial-gradient(circle at 82% 26%, #fff6bf 0 5%, rgba(255, 246, 191, 0) 5.5%),
-    linear-gradient(#c8ecfb 0 44%, #7cc9ef 44% 66%, #2f9fdc 66% 92%, #f0dca6 92%);
 }
 /* Desks, counters and posts read as driftwood and bamboo. */
 .arch-floor {
@@ -17,12 +14,9 @@
   --leaf: #3f9b4a;
   --leaf-shade: #2d7a38;
 }
-/* The sea all round the island: a pale lagoon around the sand fading to deep water, with wave streaks. */
+/* Deep water all round; the sand and lagoon lie on the room's floor plane, so they zoom and pan with it. */
 .arch-floor .floor-main {
-  background:
-    radial-gradient(ellipse 47% 42% at 50% 56%, #f3e2b4 0 90%, #fff 91% 93%, rgba(255, 255, 255, 0) 94%),
-    radial-gradient(ellipse 70% 64% at 50% 56%, rgba(155, 232, 226, 0.95) 0 60%, rgba(155, 232, 226, 0) 100%),
-    radial-gradient(ellipse 100% 100% at 50% 56%, #4fbde6 0 40%, #2a95d6 78%, #1478bd 100%);
+  background: radial-gradient(ellipse 100% 100% at 50% 56%, #4fbde6 0 40%, #2a95d6 78%, #1478bd 100%);
 }
 
 /* Open air: no walls and no glass office. Their boards (Human TODO, TODO, Spend, Info) are all on the rail at the
@@ -31,7 +25,21 @@
   display: none;
 }
 
-/* Office chairs in a wicker tone. */
+/* No office chair: they stand behind a crate, as on the islands map. */
 .arch-floor .pp-chair {
-  filter: sepia(1) saturate(1.6) brightness(1.05);
+  display: none;
+}
+
+/* A front hut's roof may stand over a back-row person; a click goes through it to them. */
+.arch-floor .hut * {
+  pointer-events: none;
+}
+
+/* The next hut along a row stands 50px nearer the camera than this worker, and its roof's corner cut the end of a long
+   name tag. The tag stands 60px nearer, in front of it; the view has no perspective, so it keeps its size. */
+.arch-floor .worker {
+  transform-style: preserve-3d;
+}
+.arch-floor .worker .name-tag {
+  transform: translateX(-50%) translateZ(60px);
 }

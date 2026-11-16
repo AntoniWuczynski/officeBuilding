@@ -2,10 +2,13 @@ import type { SessionState, Spend, TodoItem } from "../../types";
 import type { Counts } from "../../state/selectors";
 import { formatTokens, formatUsd, plural } from "../../state/selectors";
 import { poseForState } from "../../lib/animation";
-import { DESK, MANAGER_DESK, ROOM, managerSeat } from "../../lib/layout";
+import { FLOOR_CAMERA } from "../../lib/iso";
+import { DESK, MANAGER_DESK, ROOM, managerSeat, roomDeskSlot, seatOf } from "../../lib/layout";
 import { MANAGER_LOOK } from "../../lib/looks";
-import { Billboard, IsoBox, Wall } from "../../scene/Iso";
+import { Billboard, IsoBox, TAG_TOP, Wall, heightToClear } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
+import type { FloorLook } from "../../scene/Desk";
+import { Hut, ISLAND_MANAGER_LOOK } from "../../scene/Camp";
 import { materialsFor } from "../../scene/materials";
 import { Person } from "../../scene/Person";
 import type { Section } from "./sections";
@@ -162,21 +165,35 @@ export function SignOutStand({ model, depth, onOpen }: ObjectsProps): React.Reac
   );
 }
 
-/** The manager's glass office: desk, manager and the pile of decisions waiting. `away`: the manager is walking a note. */
-export function ManagerOffice({ model, onOpen, away }: ObjectsProps & { readonly away: boolean }): React.ReactElement {
+/** Where the office's tags hang: over the manager's head, clear of the glass and of the walls. */
+const TAG_AT = { x: ROOM.width - 36, y: ROOM.managerDepth / 2 } as const;
+const BESIDE = roomDeskSlot(ROOM.columns - 1);
+/**
+ * The decisions tag's height above the slab: its foot shows 4px above the tallest tag at the desk beside the office,
+ * the hire sign or a seated worker's "managed" mark. Lower down the two overlapped.
+ */
+const TAG_Z = Math.max(
+  heightToClear(FLOOR_CAMERA, { x: BESIDE.x + 18, y: BESIDE.y, z: DESK.h }, TAG_AT, TAG_TOP.hire + 4),
+  heightToClear(FLOOR_CAMERA, { ...seatOf(BESIDE), z: 0 }, TAG_AT, TAG_TOP.managed + 4),
+);
+
+/**
+ * The manager's glass office (a thatched hut on an island): desk, manager and the pile of decisions waiting.
+ * `away`: the manager is walking a note.
+ */
+export function ManagerOffice({ model, onOpen, away, look = "office" }: ObjectsProps & { readonly away: boolean; readonly look?: FloorLook }): React.ReactElement {
   const x = ROOM.managerX;
   const deskX = MANAGER_DESK.x;
   const { manager } = model;
   const seat = managerSeat();
   const waiting = model.decisionsWaiting;
-  // The office's tags hang over the manager's head, above the glass and clear of
-  // its walls: lower down they covered the manager and cut through the glass.
-  const tagX = ROOM.width - 36;
-  const tagY = ROOM.managerDepth / 2;
-  const tagZ = ROOM.slab + ROOM.glassHeight + 4;
+  const tagX = TAG_AT.x;
+  const tagY = TAG_AT.y;
+  const tagZ = ROOM.slab + TAG_Z;
   return (
     <>
-      <Desk x={deskX} y={MANAGER_DESK.y} z={ROOM.slab} {...(manager?.hired ? { led: manager.lamp } : {})} />
+      <Desk x={deskX} y={MANAGER_DESK.y} z={ROOM.slab} look={look} {...(manager?.hired ? { led: manager.lamp } : {})} />
+      {look === "island" && manager !== null ? <Hut x={deskX} y={MANAGER_DESK.y} z={ROOM.slab} thatch /> : null}
       {manager === null || away ? null : manager.hired ? (
         <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
           <button
@@ -186,7 +203,7 @@ export function ManagerOffice({ model, onOpen, away }: ObjectsProps & { readonly
             aria-label={`The floor's manager: ${manager.line}. Open Manager.`}
             onClick={() => onOpen("manager")}
           >
-            <Person look={MANAGER_LOOK} pose={poseForState(manager.state)} />
+            <Person look={look === "island" ? ISLAND_MANAGER_LOOK : MANAGER_LOOK} pose={poseForState(manager.state)} />
           </button>
         </Billboard>
       ) : (
