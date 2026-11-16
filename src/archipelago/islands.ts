@@ -78,8 +78,8 @@ export interface Slot {
 
 /**
  * World positions of `count` seats spaced evenly on a ring, offset by the island's seed so islands do not look alike.
- * Three agents sit a third of the way round from each other, not on three neighbouring seats of eight, where their
- * huts stacked up in the tilted view.
+ * The island itself uses the full ring and assignSeats (a seat must not move when another agent comes or goes);
+ * a smaller `count` spreads that many evenly.
  */
 export function agentSlots(spec: IslandSpec, count: number = MAX_SLOTS): Slot[] {
   const offset = (spec.seed % 628) / 100;
@@ -88,6 +88,39 @@ export function agentSlots(spec: IslandSpec, count: number = MAX_SLOTS): Slot[] 
     const a = offset + (i / n) * Math.PI * 2;
     return { x: spec.x + Math.cos(a) * spec.radius * SLOT_RING, z: spec.z + Math.sin(a) * spec.radius * SLOT_RING };
   });
+}
+
+/** Seats in the order they are given out: opposite seats first, so a few agents still spread round the ring (bit-reversed 0..7). */
+export const SEAT_ORDER: readonly number[] = [0, 4, 2, 6, 1, 5, 3, 7];
+
+/**
+ * A seat on the ring for each agent that has one. An agent already seated keeps its seat; a newcomer takes the first
+ * free one, so one agent arriving or leaving moves nobody. An agent with no free seat is left out of the result.
+ */
+export function assignSeats(prev: ReadonlyMap<string, number>, ids: readonly string[]): Map<string, number> {
+  const seats = new Map<string, number>();
+  const taken = new Set<number>();
+  for (const id of ids) {
+    const seat = prev.get(id);
+    if (seat !== undefined && !taken.has(seat) && SEAT_ORDER.includes(seat)) {
+      seats.set(id, seat);
+      taken.add(seat);
+    }
+  }
+  for (const id of ids) {
+    if (seats.has(id)) continue;
+    const free = SEAT_ORDER.find((s) => !taken.has(s));
+    if (free === undefined) break;
+    seats.set(id, free);
+    taken.add(free);
+  }
+  return seats;
+}
+
+/** What a tag says of an agent: its title, cut to fit beside others. */
+export function shortName(title: string, max = 14): string {
+  const t = title.trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}\u2026`;
 }
 
 export interface Bounds {

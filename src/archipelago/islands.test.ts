@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Project } from "../types";
-import { agentSlots, clampToBounds, closestPair, layoutIslands, MAX_SLOTS, mergeOrder, worldBounds } from "./islands";
+import { agentSlots, assignSeats, clampToBounds, closestPair, layoutIslands, MAX_SLOTS, mergeOrder, shortName, worldBounds } from "./islands";
 
 const p = (id: string, name: string, path: string): Project => ({ id, name, path, sessionIds: [] });
 
@@ -105,5 +105,51 @@ describe("clampToBounds", () => {
     expect(clampToBounds(9999, -9999, b)).toEqual({ x: b.maxX, z: b.minZ });
     const mid = { x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 };
     expect(clampToBounds(mid.x, mid.z, b)).toEqual(mid);
+  });
+});
+
+describe("assignSeats", () => {
+  const spec = layoutIslands(PROJECTS, "8")[0];
+  const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `s${i + 1}`);
+  const where = (seats: ReadonlyMap<string, number>): Map<string, { x: number; z: number }> => {
+    const ring = agentSlots(spec as NonNullable<typeof spec>);
+    return new Map([...seats].map(([id, seat]) => [id, ring[seat] as { x: number; z: number }]));
+  };
+
+  it("keeps every other agent's seat when a 7th arrives and the 2nd leaves", () => {
+    const six = assignSeats(new Map(), ids(6));
+    const before = where(six);
+    const after = where(assignSeats(six, [...ids(7).filter((id) => id !== "s2")]));
+    for (const id of ["s1", "s3", "s4", "s5", "s6"]) expect(after.get(id), id).toEqual(before.get(id));
+    expect(after.has("s7")).toBe(true);
+  });
+
+  it("gives the newcomer the first free seat, which is the one the leaver left when it comes first", () => {
+    const six = assignSeats(new Map(), ids(6));
+    const next = assignSeats(six, [...ids(6).filter((id) => id !== "s2"), "s7"]);
+    expect(next.get("s7")).toBe(six.get("s2"));
+  });
+
+  it("seats at most MAX_SLOTS agents, each on its own seat, and seats a waiting agent once one frees", () => {
+    const full = assignSeats(new Map(), ids(MAX_SLOTS + 2));
+    expect(full.size).toBe(MAX_SLOTS);
+    expect(new Set(full.values()).size).toBe(MAX_SLOTS);
+    const freed = assignSeats(full, ids(MAX_SLOTS + 2).filter((id) => id !== "s1"));
+    expect(freed.size).toBe(MAX_SLOTS);
+    expect(freed.has("s9")).toBe(true);
+  });
+
+  it("spreads the first agents round the ring: two sit opposite, four sit a quarter apart", () => {
+    const seats = (n: number): number[] => [...assignSeats(new Map(), ids(n)).values()].sort((a, b) => a - b);
+    expect(seats(2)).toEqual([0, 4]);
+    expect(seats(4)).toEqual([0, 2, 4, 6]);
+  });
+});
+
+describe("shortName", () => {
+  it("leaves a short title alone and cuts a long one with an ellipsis", () => {
+    expect(shortName("audit checkout")).toBe("audit checkout");
+    expect(shortName("orders ingest fix for the new queue")).toBe("orders ingest…");
+    expect(shortName("  hi  ")).toBe("hi");
   });
 });

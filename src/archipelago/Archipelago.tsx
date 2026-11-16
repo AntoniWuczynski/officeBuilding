@@ -14,8 +14,10 @@ import { SinkIcon } from "../components/icons";
 import { QaStamp } from "../components/qa/QaStamp";
 import { PLACE } from "../state/placeWords";
 import { COUNTER_H, OCEAN_SIZE, buildBoat, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
-import { agentSlots, clampToBounds, layoutIslands, MAX_SLOTS, mergeOrder, worldBounds } from "./islands";
+import { agentSlots, assignSeats, clampToBounds, layoutIslands, MAX_SLOTS, mergeOrder, shortName, worldBounds } from "./islands";
 import type { IslandSpec } from "./islands";
+import { Occluder } from "./occlusion";
+import type { Subject } from "./occlusion";
 import { boxAt } from "./pick";
 import type { Box } from "./pick";
 import { bezierAt, sailRoute } from "./routes";
@@ -32,6 +34,10 @@ const PERSON_UNITS = 7.5;
 const PERSON_PX = 30;
 /** Below this on-screen scale a figure is mush; the label's counts say it instead. */
 const MIN_SCALE = 0.7;
+/** Names show from this on-screen scale: the figure is then as big as it is on a zoomed island (measured in the harness). */
+const TAG_SCALE = 1;
+/** How much of a label's opacity is left while a boat sails behind it. */
+const SEE_THROUGH = 0.3;
 /** Where a selected island's camera ends up, in world units from its centre. */
 const FOCUS_DISTANCE = 52;
 /** Open sea kept around the islands: the camera target cannot leave this box. */
@@ -44,9 +50,9 @@ const BOAT_MIN_MS = 3200;
 const BOAT_Y = 1.3;
 /** Drawn at 5.6 units a boat is about 11 px at the overview zoom, too small to read as a boat; huts are drawn oversize the same way. */
 const BOAT_SCALE = 3;
-/** A drawn parrot: green body, red head and wing, yellow beak. */
+/** A drawn parrot: deep blue body and tail, red head and wing, yellow beak. Its green body vanished on the grass; this one is 3:1 or more on both greens. */
 const PARROT_SVG =
-  '<svg viewBox="0 0 34 24" width="34" height="24" aria-hidden="true"><path class="wing" d="M14 12 L6 2 L20 8 Z" fill="#e0453a" stroke="#1d2433" stroke-width="1.2" stroke-linejoin="round"/><ellipse cx="17" cy="14" rx="9" ry="5" fill="#3fae49" stroke="#1d2433" stroke-width="1.2"/><circle cx="26" cy="10" r="4.2" fill="#e0453a" stroke="#1d2433" stroke-width="1.2"/><path d="M29 9 L34 11 L29.5 13 Z" fill="#f4c542" stroke="#1d2433" stroke-width="1"/><circle cx="26.8" cy="9" r="0.9" fill="#1d2433"/><path d="M8 14 L1 19 L9 17 Z" fill="#2f7fd0" stroke="#1d2433" stroke-width="1" stroke-linejoin="round"/></svg>';
+  '<svg viewBox="0 0 34 24" width="34" height="24" aria-hidden="true"><path class="wing" d="M14 12 L6 2 L20 8 Z" fill="#e0453a" stroke="#1d2433" stroke-width="1.2" stroke-linejoin="round"/><ellipse cx="17" cy="14" rx="9" ry="5" fill="#15216e" stroke="#1d2433" stroke-width="1.2"/><circle cx="26" cy="10" r="4.2" fill="#e0453a" stroke="#1d2433" stroke-width="1.2"/><path d="M29 9 L34 11 L29.5 13 Z" fill="#f4c542" stroke="#1d2433" stroke-width="1"/><circle cx="26.8" cy="9" r="0.9" fill="#1d2433"/><path d="M8 14 L1 19 L9 17 Z" fill="#15216e" stroke="#1d2433" stroke-width="1" stroke-linejoin="round"/></svg>';
 /** Islands rise from the sea one after another on open (as a storey is built), and sink when removed. */
 const RISE_MS = 1100;
 const RISE_STAGGER_MS = 110;
@@ -74,13 +80,15 @@ interface Placed {
   readonly dimmed: boolean;
 }
 
-/** Real sessions on their seats, each session's subagents standing beside it. */
-function placePeople(rows: readonly { readonly spec: IslandSpec; readonly floor: FloorModel }[]): Placed[] {
+/** Real sessions on their seats, each session's subagents standing beside it. `seats` remembers who sits where between calls. */
+function placePeople(rows: readonly { readonly spec: IslandSpec; readonly floor: FloorModel }[], seats: Map<string, ReadonlyMap<string, number>>): Placed[] {
   const out: Placed[] = [];
   for (const { spec, floor } of rows) {
-    const slots = agentSlots(spec, floor.sessions.length);
-    floor.sessions.slice(0, MAX_SLOTS).forEach((session, i) => {
-      const slot = slots[i];
+    const slots = agentSlots(spec);
+    const own = assignSeats(seats.get(spec.projectId) ?? new Map(), floor.sessions.map((s) => s.id));
+    seats.set(spec.projectId, own);
+    floor.sessions.forEach((session) => {
+      const slot = slots[own.get(session.id) ?? -1];
       if (slot === undefined) return;
       // A stuck agent lies on the grass in front of its hut, as it lies in front of its desk in the office.
       const stuck = session.state === "error";
@@ -168,23 +176,22 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
   for (const e of entries) known.current.set(e.key, e.item.project);
   order.current = mergeOrder(order.current, entries.map((e) => e.key));
   const signature = entries.map((e) => e.key).join("\u0000");
-  // A rename must reach the labels, so the names are part of what the layout is rebuilt on (positions do not change).
-  const names = entries.map((e) => e.item.project.name).join("\u0000");
   const islands = useMemo(() => {
     const present = new Set(signature.split("\u0000"));
     const placed = layoutIslands(order.current.flatMap((id) => known.current.get(id) ?? []), snapshot.setupProjectId);
     return placed.filter((i) => present.has(i.projectId));
-    // The layout depends on which projects exist and what they are called, not on their live counts.
-  }, [signature, names, snapshot.setupProjectId]);
+    // The layout depends on which projects exist, not on their live counts or names: a rename reaches the labels through `rows`.
+  }, [signature, snapshot.setupProjectId]);
   /** Where the camera was, so rebuilding the scene for a new island does not snap the view back home. */
   const view = useRef<{ readonly position: THREE.Vector3; readonly target: THREE.Vector3 } | null>(null);
   /** When each sinking island started to sink, so a rebuild mid-sink does not restart it. */
   const sinkStart = useRef(new Map<string, number>());
   const rows = islands.flatMap((spec) => {
     const entry = entries.find((e) => e.key === spec.projectId);
-    return entry === undefined ? [] : [{ spec, floor: entry.item, phase: entry.phase }];
+    return entry === undefined ? [] : [{ spec: { ...spec, name: entry.item.project.name }, floor: entry.item, phase: entry.phase }];
   });
-  const people = placePeople(rows);
+  const seats = useRef(new Map<string, ReadonlyMap<string, number>>());
+  const people = placePeople(rows, seats.current);
   // Read by the render loop, which must not restart (and rebuild the scene) on every snapshot push.
   const dimmed = new Set(rows.filter((r) => r.floor.dimmed).map((r) => r.spec.projectId));
   const live = useRef({ people, messages: snapshot.messages, dimmed });
@@ -246,10 +253,23 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
 
     // One hut per person, subagents included, made when they appear and removed when they go.
     const huts = new Map<string, { readonly group: THREE.Group; readonly worktree: boolean; readonly mats: THREE.Material[] }>();
+    // What can hide a person: the islands and every hut. Rebuilt only when a hut comes or goes.
+    let blockers: THREE.Object3D[] = [group];
+    let blockersStale = false;
     const dropHut = (key: string, hut: { readonly group: THREE.Group; readonly mats: THREE.Material[] }): void => {
       scene.remove(hut.group);
       release(hut.group, hut.mats);
       huts.delete(key);
+      blockersStale = true;
+    };
+    const occluder = new Occluder();
+    /** A name tag over each agent's head, and its twin on a boat or parrot; page elements, so text stays flat and upright. */
+    const tags = new Map<string, HTMLElement>();
+    const makeTag = (className: string): HTMLElement => {
+      const t = document.createElement("div");
+      t.className = className;
+      el.appendChild(t);
+      return t;
     };
 
     // Frame every island; the camera may not back off past that (the zoom-out cap).
@@ -302,7 +322,6 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
     };
 
     const ray = new THREE.Raycaster();
-    const occlusion = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
     const down = { x: 0, y: 0 };
     const pointer = { x: 0, y: 0, inside: false };
@@ -379,8 +398,10 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
     // A message between two agents on one island is a parrot flying from sender to receiver; between islands it is a
     // boat sailing from one shore to the other.
     const seenMsgs = new Set(live.current.messages.map((m) => m.id));
-    const notes: { readonly el: HTMLElement; readonly wing: SVGElement | null; readonly from: THREE.Vector3; readonly to: THREE.Vector3; readonly t0: number }[] = [];
-    const voyages: { readonly boat: THREE.Group; readonly route: Route; readonly t0: number; readonly ms: number }[] = [];
+    const notes: { readonly el: HTMLElement; readonly tag: HTMLElement; readonly wing: SVGElement | null; readonly from: THREE.Vector3; readonly to: THREE.Vector3; readonly t0: number }[] = [];
+    const voyages: { readonly boat: THREE.Group; readonly tag: HTMLElement; readonly route: Route; readonly t0: number; readonly ms: number }[] = [];
+    /** Where each island's label stands on screen this frame, so a boat passing under it can be seen through it. */
+    const labelAt = new Map<string, { px: number; py: number }>();
 
     const v = new THREE.Vector3();
     const head = new THREE.Vector3();
@@ -470,9 +491,11 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
           b.style.transform = `translate(-50%, -100%) translate(${s.px}px, ${s.py}px)`;
           b.style.display = s.behind || op <= 0.02 ? "none" : "flex";
           b.style.opacity = String(shade);
+          labelAt.set(spec.projectId, { px: s.px, py: s.py });
         }
       }
       const byKey = new Map<string, Placed>();
+      const subjects: Subject[] = [];
       for (const p of live.current.people) {
         byKey.set(p.key, p);
         const a = anim.get(p.island);
@@ -482,38 +505,64 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
           dropHut(p.key, hut);
           hut = undefined;
         }
+        // An agent's own hut and its subagents' small huts (keys `<session>/<helper>`) stand round it: they never hide it.
+        const family = p.key.split("/")[0] ?? p.key;
         if (hut === undefined) {
           const group = buildStall(worktree, hashString(p.key));
           if (p.helper) group.scale.setScalar(HELPER_SCALE);
+          group.userData["family"] = family;
           scene.add(group);
           hut = { group, worktree, mats: ownMaterials(group) };
           huts.set(p.key, hut);
+          blockersStale = true;
         }
         const op = a?.op ?? 1;
         const shade = op * (p.dimmed ? DIM : 1);
         hut.group.position.set(p.x, GRASS_Y + (a?.off ?? 0), p.z);
         hut.group.visible = op > 0.02;
         setOpacity(hut.mats, shade);
+        subjects.push({ key: p.key, family, chest: new THREE.Vector3(p.x, p.y + (a?.off ?? 0) + PERSON_UNITS * (p.helper ? HELPER_SCALE : 1) * 0.5, p.z) });
+      }
+      for (const [key, hut] of huts) if (!byKey.has(key)) dropHut(key, hut);
+      for (const [key, tag] of tags)
+        if (!byKey.has(key)) {
+          tag.remove();
+          tags.delete(key);
+        }
+      if (blockersStale) {
+        blockers = [group, ...[...huts.values()].map((h) => h.group)];
+        blockersStale = false;
+      }
+      // People are page elements painted over the scene, so one behind another hut (or the hill) would show
+      // through it: hide a person whose chest the camera cannot see past other huts and the islands.
+      const hiddenBy = occluder.update(camera.position, subjects, blockers);
+      for (const p of live.current.people) {
         const pe = personEls.current.get(p.key);
         if (pe === undefined) continue;
+        const a = anim.get(p.island);
+        const op = a?.op ?? 1;
+        const shade = op * (p.dimmed ? DIM : 1);
         const s = screen(new THREE.Vector3(p.x, p.y + (a?.off ?? 0), p.z));
         const scale = ((s.unit * PERSON_UNITS) / PERSON_PX) * (p.helper ? HELPER_SCALE : 1);
-        // People are page elements painted over the scene, so one behind another hut (or the hill) would show
-        // through it: hide a person whose chest the camera cannot see past other huts and the islands.
-        const chest = new THREE.Vector3(p.x, p.y + (a?.off ?? 0) + PERSON_UNITS * (p.helper ? HELPER_SCALE : 1) * 0.5, p.z);
-        const toChest = chest.clone().sub(camera.position);
-        occlusion.set(camera.position, toChest.clone().normalize());
-        occlusion.far = toChest.length() - 0.5;
-        // An agent's own hut and its subagents' small huts (keys `<session>/<helper>`) stand round it: they never hide it.
-        const family = p.key.split("/")[0] ?? p.key;
-        const blockers = [group, ...[...huts].filter(([k]) => (k.split("/")[0] ?? k) !== family).map(([, h]) => h.group)];
-        const hidden = occlusion.intersectObjects(blockers, true).some((hit) => hit.object.visible);
-        pe.style.display = s.behind || hidden || scale < MIN_SCALE || op <= 0.02 ? "none" : "block";
+        const shown = !(s.behind || hiddenBy.get(p.key) === true || scale < MIN_SCALE || op <= 0.02);
+        pe.style.display = shown ? "block" : "none";
         pe.style.transform = `translate(${s.px}px, ${s.py}px) scale(${scale})`;
         pe.style.zIndex = String(Math.round(s.py));
         pe.style.opacity = String(shade);
+        // Who is who, once the island is close enough to read; the overview stays clean. Subagents are not named.
+        if (p.helper) continue;
+        let tag = tags.get(p.key);
+        if (tag === undefined) {
+          tag = makeTag("arch-tag");
+          tags.set(p.key, tag);
+        }
+        const name = shortName(p.session.title);
+        if (tag.textContent !== name) tag.textContent = name;
+        tag.style.display = shown && scale >= TAG_SCALE && s.px >= 0 && s.px <= el.clientWidth && s.py >= 0 && s.py <= el.clientHeight ? "block" : "none";
+        tag.style.transform = `translate(${s.px}px, ${s.py - PERSON_PX * scale}px) translate(-50%, -100%)`;
+        tag.style.zIndex = pe.style.zIndex;
+        tag.style.opacity = String(shade);
       }
-      for (const [key, hut] of huts) if (!byKey.has(key)) dropHut(key, hut);
 
       for (const m of live.current.messages) {
         if (seenMsgs.has(m.id)) continue;
@@ -529,14 +578,18 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
           const boat = buildBoat();
           boat.scale.setScalar(BOAT_SCALE);
           scene.add(boat);
-          voyages.push({ boat, route, t0: t, ms: Math.max(BOAT_MIN_MS, (Math.hypot(route.to.x - route.from.x, route.to.z - route.from.z) / BOAT_SPEED) * 1000) });
+          const tag = makeTag("arch-trip");
+          tag.textContent = `${shortName(a.owner.title)} to ${shortName(b.owner.title)}`;
+          voyages.push({ boat, tag, route, t0: t, ms: Math.max(BOAT_MIN_MS, (Math.hypot(route.to.x - route.from.x, route.to.z - route.from.z) / BOAT_SPEED) * 1000) });
           continue;
         }
         const note = document.createElement("div");
         note.className = "arch-note";
         note.innerHTML = PARROT_SVG;
         el.appendChild(note);
-        notes.push({ el: note, wing: note.querySelector<SVGElement>(".wing"), from: new THREE.Vector3(a.x, a.y + PERSON_UNITS, a.z), to: new THREE.Vector3(b.x, b.y + PERSON_UNITS, b.z), t0: t });
+        const tag = makeTag("arch-trip");
+        tag.textContent = `${shortName(a.owner.title)} to ${shortName(b.owner.title)}`;
+        notes.push({ el: note, tag, wing: note.querySelector<SVGElement>(".wing"), from: new THREE.Vector3(a.x, a.y + PERSON_UNITS, a.z), to: new THREE.Vector3(b.x, b.y + PERSON_UNITS, b.z), t0: t });
       }
       for (let i = notes.length - 1; i >= 0; i--) {
         const n = notes[i];
@@ -544,6 +597,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         const k = (t - n.t0) / NOTE_MS;
         if (k >= 1) {
           n.el.remove();
+          n.tag.remove();
           notes.splice(i, 1);
           continue;
         }
@@ -551,21 +605,26 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         at.y += Math.sin(Math.PI * k) * (4 + n.from.distanceTo(n.to) * 0.25);
         const s = screen(at);
         n.el.style.display = s.behind ? "none" : "block";
+        n.tag.style.display = s.behind ? "none" : "block";
         // The wing beats from here, not a CSS keyframe: archipelago.css.test.ts allows only rules scoped to .arch.
         n.wing?.style.setProperty("transform", `scaleY(${Math.sin(t / 55) * 0.8})`);
         // The parrot faces the way it is flying on screen.
         const goingLeft = screen(n.to).px < screen(n.from).px;
         const size = Math.max(0.8, s.unit / 11);
+        // The parrot is 24 px tall and centred on the point; the tag hangs just below its belly.
+        n.tag.style.transform = `translate(${s.px}px, ${s.py}px) translate(-50%, ${12 * size + 3}px)`;
         n.el.style.transform = `translate(${s.px}px, ${s.py}px) scale(${goingLeft ? -size : size}, ${size}) rotate(${Math.sin(k * 12) * 6}deg)`;
       }
 
       // Boats: along the course, heading with it, bobbing on the swell; one that has arrived is taken out of the sea.
+      const boatsAt: { px: number; py: number }[] = [];
       for (let i = voyages.length - 1; i >= 0; i--) {
         const vy = voyages[i];
         if (vy === undefined) continue;
         const k = clamp01((t - vy.t0) / vy.ms);
         if (k >= 1) {
           scene.remove(vy.boat);
+          vy.tag.remove();
           voyages.splice(i, 1);
           continue;
         }
@@ -575,7 +634,20 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         vy.boat.position.set(at.x, BOAT_Y + Math.sin(t / 260 + i) * 0.25, at.z);
         vy.boat.rotation.y = -Math.atan2(ahead.z - at.z, ahead.x - at.x);
         vy.boat.rotation.z = Math.sin(t / 340 + i) * 0.06;
+        const bs = screen(vy.boat.position);
+        vy.tag.style.display = bs.behind ? "none" : "block";
+        vy.tag.style.transform = `translate(${bs.px}px, ${bs.py}px) translate(-50%, 8px)`;
+        boatsAt.push(bs);
       }
+      // Labels are page elements over the canvas, so a boat sailing behind one would vanish: let it show through.
+      if (boatsAt.length > 0)
+        for (const [id, b] of labels.current) {
+          const at = labelAt.get(id);
+          if (at === undefined || b.style.display === "none") continue;
+          const w = b.offsetWidth;
+          const h = b.offsetHeight;
+          if (boatsAt.some((q) => q.px > at.px - w / 2 && q.px < at.px + w / 2 && q.py > at.py - h && q.py < at.py)) b.style.opacity = String(Math.min(Number(b.style.opacity), SEE_THROUGH));
+        }
       renderer.render(scene, camera);
     };
     raf = requestAnimationFrame(loop);
@@ -583,8 +655,15 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
-      for (const n of notes) n.el.remove();
-      for (const vy of voyages) scene.remove(vy.boat);
+      for (const n of notes) {
+        n.el.remove();
+        n.tag.remove();
+      }
+      for (const vy of voyages) {
+        scene.remove(vy.boat);
+        vy.tag.remove();
+      }
+      for (const tag of tags.values()) tag.remove();
       renderer.domElement.removeEventListener("pointerdown", onDown);
       renderer.domElement.removeEventListener("pointerup", onUp);
       renderer.domElement.removeEventListener("pointermove", onMove);
