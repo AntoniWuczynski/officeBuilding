@@ -295,6 +295,7 @@ mod tests {
             control: ControlMode::Full,
             model: None,
             effort: None,
+            last_reply: None,
             last_activity_at: last.to_string(),
             pending_question_ids: Vec::new(),
             spend: Spend::default(),

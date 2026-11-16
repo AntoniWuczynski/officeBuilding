@@ -75,6 +75,7 @@ fn session(id: &str, control: ControlMode) -> Session {
         control,
         model: None,
         effort: None,
+        last_reply: None,
         last_activity_at: String::new(),
         pending_question_ids: Vec::new(),
         spend: Spend::default(),
@@ -544,6 +545,7 @@ fn resuming_runs_the_tools_own_resume_with_the_same_model_and_effort() {
         ended_at: String::new(),
         model: model.map(str::to_string),
         effort: effort.map(str::to_string),
+        last_reply: None,
     };
     let zsh = "/bin/zsh";
     assert_eq!(
@@ -633,6 +635,7 @@ fn a_demolished_floor_stays_down_until_new_work_and_then_keeps_its_sign_out_shee
         ended_at: when.to_string(),
         model: None,
         effort: None,
+        last_reply: None,
     };
     let floor = |session_ids: Vec<String>| Discovered {
         roots: BTreeMap::from([(id.clone(), PathBuf::from(root))]),
@@ -1221,6 +1224,7 @@ fn a_move_takes_a_signed_out_session_and_ignores_a_floor_that_is_not_there() {
         ended_at: "2026-10-06T09:00:00Z".to_string(),
         model: None,
         effort: None,
+        last_reply: None,
     };
     let floor = |id: &str| Project {
         id: id.to_string(),

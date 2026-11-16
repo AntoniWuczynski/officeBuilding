@@ -23,7 +23,7 @@ use crate::structured::desks::Backlog;
 use crate::watch::SNAPSHOT_EVENT;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 type OfficeState<'a> = State<'a, Arc<Office>>;
 type HubState<'a> = State<'a, Arc<Hub>>;
@@ -331,8 +331,10 @@ pub fn get_settings(settings: State<'_, Arc<SettingsStore>>) -> Settings {
 /// A changed agent label re-sorts the connectors' items, so it polls them again. Changed QA
 /// settings ask GitHub again at once. A routing connection that left takes its key with it, on a
 /// blocking thread that is not waited for: this runs on the main thread and the Keychain may block.
+/// Changed boards are read and pushed the same way, so a board shows without waiting for a rescan.
 #[tauri::command]
 pub fn update_settings(
+    app: AppHandle,
     settings: State<'_, Arc<SettingsStore>>,
     hub: HubState<'_>,
     watch: WatchState<'_>,
@@ -342,6 +344,7 @@ pub fn update_settings(
 ) -> Result<Settings, String> {
     let connectors_changed = patch.connectors.is_some();
     let qa_changed = patch.qa.is_some();
+    let boards_changed = patch.boards.is_some();
     let routing_before = patch.routing.is_some().then(|| settings.get().routing);
     let updated = settings.update(patch)?;
     if connectors_changed {
@@ -349,6 +352,13 @@ pub fn update_settings(
     }
     if qa_changed {
         watch.recheck();
+    }
+    if boards_changed {
+        let office = Arc::clone(&app.state::<Arc<Office>>());
+        drop(tauri::async_runtime::spawn_blocking(move || {
+            office.refresh();
+            push_snapshot(&app, &office);
+        }));
     }
     if let Some(before) = routing_before {
         // Memory only, so a withdrawn opt-in bites before this command returns.

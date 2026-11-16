@@ -108,6 +108,7 @@ pub(super) fn session(id: &str, tool: ToolKind, project_id: &str) -> Session {
         control: ControlMode::Full,
         model: None,
         effort: None,
+        last_reply: None,
         last_activity_at: String::new(),
         pending_question_ids: Vec::new(),
         spend: Spend::default(),

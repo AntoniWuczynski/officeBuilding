@@ -104,6 +104,7 @@ impl Office {
             control: ControlMode::Structured,
             model: Some(model.id.clone()),
             effort: Some(req.effort.clone()),
+            last_reply: None,
             last_activity_at: super::now_iso(),
             pending_question_ids: Vec::new(),
             spend: Spend::default(),

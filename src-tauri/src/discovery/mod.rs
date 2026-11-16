@@ -8,8 +8,8 @@ pub mod pricing;
 pub mod rules;
 
 use crate::model::{
-    AnswerVia, ControlMode, EndedSession, Helper, Pet, Project, Question, QuestionOption, Session,
-    SessionState, Spend, ToolKind,
+    AgentMessage, AnswerVia, ControlMode, EndedSession, Helper, Pet, Project, Question,
+    QuestionOption, Session, SessionState, Spend, ToolKind,
 };
 use rules::Signals;
 use std::collections::BTreeMap;
@@ -33,6 +33,8 @@ pub struct Discovered {
     /// and each helper's by [`helper_key`]: a worktree's own folder, or its repo's root.
     /// Kept here for the backend only. Never sent to the webview.
     pub checkouts: BTreeMap<String, PathBuf>,
+    /// What other sessions and sub-agents sent the sessions found, oldest first.
+    pub peer_messages: Vec<AgentMessage>,
 }
 
 /// FNV-1a, 32-bit: the same stable hash the frontend uses for looks.
@@ -86,6 +88,33 @@ pub fn locate(cwd: &Path) -> Location {
         worktree: false,
         checkout: cwd.to_path_buf(),
     }
+}
+
+/// When a message was sent, for ordering; one that does not parse sorts first.
+#[must_use]
+pub(crate) fn sent_at(at: &str) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+    chrono::DateTime::parse_from_rfc3339(at).ok()
+}
+
+/// How long a session's `last_reply` may be.
+pub(crate) const REPLY_CHARS: usize = 140;
+
+/// The first sentence of a reply, at most `max` chars. None when it says nothing.
+/// A `.` `!` or `?` ends it only before whitespace, so `v1.2` and `foo.rs` stay whole.
+#[must_use]
+pub(crate) fn first_sentence(text: &str, max: usize) -> Option<String> {
+    let text = text.trim();
+    let line = text.lines().next()?;
+    let mut end = line.len();
+    let mut chars = line.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|(_, n)| n.is_whitespace()) {
+            end = i + c.len_utf8();
+            break;
+        }
+    }
+    let sentence = line[..end].trim();
+    (!sentence.is_empty()).then(|| crate::project_files::truncate(sentence, max))
 }
 
 /// The key of a helper's entry in `Discovered::checkouts`. Session ids hold no `/`.
@@ -190,9 +219,13 @@ impl Discovery {
 
     pub fn scan(&mut self, now: SystemTime) -> Discovered {
         let table = (self.read_processes)();
-        let inputs = self
-            .claude
-            .scan(now)
+        let claude = self.claude.scan(now);
+        let mut peer_messages: Vec<AgentMessage> = claude
+            .iter()
+            .flat_map(|f| f.transcript.peer_messages.iter().cloned())
+            .collect();
+        peer_messages.sort_by_cached_key(|m| sent_at(&m.sent_at));
+        let inputs = claude
             .into_iter()
             .filter_map(|f| from_claude(f, &table))
             .chain(
@@ -203,7 +236,8 @@ impl Discovery {
             )
             .filter(still_there)
             .collect();
-        let found = assemble(&self.home, inputs, locate, &self.checkouts);
+        let mut found = assemble(&self.home, inputs, locate, &self.checkouts);
+        found.peer_messages = peer_messages;
         self.checkouts.clone_from(&found.checkouts);
         found
     }
@@ -258,6 +292,8 @@ struct SessionInput {
     pets: Vec<Pet>,
     /// A person started it, so once it ends it can be offered to resume.
     resumable: bool,
+    /// First sentence of its latest reply to the human.
+    last_reply: Option<String>,
 }
 
 fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<SessionInput> {
@@ -315,6 +351,7 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
         helpers: f.helpers,
         helper_places: f.helper_places,
         resumable: !f.transcript.scripted,
+        last_reply: f.transcript.last_reply,
     })
 }
 
@@ -344,6 +381,7 @@ fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInpu
             .map(|pid| pets::pets_of(pid, table, &[]))
             .unwrap_or_default(),
         resumable: f.resumable,
+        last_reply: f.transcript.last_reply,
     })
 }
 
@@ -401,6 +439,7 @@ fn signed_out(input: SessionInput, root: &Path) -> EndedSession {
         ended_at: input.last_activity,
         model: input.model,
         effort: input.effort,
+        last_reply: input.last_reply,
     }
 }
 
@@ -502,6 +541,7 @@ fn assemble(
             pets: input.pets,
             worktree,
             branch,
+            last_reply: input.last_reply,
         });
     }
 
@@ -534,6 +574,7 @@ fn assemble(
         ended,
         resume_dirs,
         checkouts,
+        peer_messages: Vec::new(),
     }
 }
 
@@ -682,6 +723,39 @@ mod tests {
         let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
         assert_eq!(s1.pending_question_ids, vec!["s1:toolu_1".to_string()]);
         assert_eq!(s1.control, ControlMode::RaiseWindow);
+    }
+
+    #[test]
+    fn a_new_prompt_leaves_the_last_reply_on_the_desk_and_on_the_sign_out_sheet() {
+        let said = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:00:00Z","message":{"id":"m","content":[{"type":"text","text":"Shipped it. Next is tests."}]}}"#;
+        let asked = r#"{"type":"user","origin":{"kind":"human"},"cwd":"/home/me/code/app","timestamp":"2026-09-29T10:05:00Z","message":{"role":"user","content":"and the docs?"}}"#;
+        let d = assemble(
+            Path::new("/home/me"),
+            claude_inputs(vec![
+                found("live", "/home/me/code/app", &[said, asked], true),
+                found("gone", "/home/me/code/app", &[said, asked], false),
+            ]),
+            own_floor,
+            &BTreeMap::new(),
+        );
+        assert_eq!(d.sessions[0].last_reply.as_deref(), Some("Shipped it."));
+        assert_eq!(d.ended[0].last_reply.as_deref(), Some("Shipped it."));
+    }
+
+    #[test]
+    fn a_reply_is_cut_to_its_first_sentence_within_the_limit() {
+        assert_eq!(first_sentence("Done. More.", 140).as_deref(), Some("Done."));
+        assert_eq!(
+            first_sentence("v1.2 is out! Go.", 140).as_deref(),
+            Some("v1.2 is out!")
+        );
+        assert_eq!(
+            first_sentence("a.rs fixed\nsecond line", 140).as_deref(),
+            Some("a.rs fixed")
+        );
+        assert_eq!(first_sentence("  \n ", 140), None);
+        let long = first_sentence(&"x".repeat(500), 140).expect("long");
+        assert_eq!(long.chars().count(), 140);
     }
 
     #[test]

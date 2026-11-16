@@ -550,3 +550,218 @@ fn shrunk_or_replaced_file_triggers_a_full_reparse() {
 
     fs::remove_dir_all(&dir).expect("cleanup");
 }
+
+/// The real shape of a peer prompt (Claude Code 2.1.325): `isMeta` true, a string content, and the sender in `origin`.
+fn peer_prompt(msg_id: &str, pid: i32, name: &str, body: &str, at: &str) -> String {
+    format!(
+        r#"{{"type":"user","isMeta":true,"timestamp":"{at}","message":{{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message>{body}</cross-session-message>"}},"origin":{{"kind":"peer","from":"uds:/tmp/cc-socks/{pid}.sock","verifiedPeerPid":{pid},"msg_id":"{msg_id}","name":"{name}","fromMode":"prompting","body":"{body}","verifiedLocal":true}},"userType":"external"}}"#
+    )
+}
+
+fn human(text: &str) -> String {
+    format!(
+        r#"{{"type":"user","origin":{{"kind":"human"}},"message":{{"role":"user","content":"{text}"}}}}"#
+    )
+}
+
+fn reply(id: &str, text: &str) -> String {
+    format!(
+        r#"{{"type":"assistant","timestamp":"2026-11-16T10:00:00Z","message":{{"id":"{id}","content":[{{"type":"text","text":"{text}"}}]}}}}"#
+    )
+}
+
+#[test]
+fn a_reply_to_a_peer_is_not_the_reply_to_the_human() {
+    let t = parse(&[
+        &human("fix it"),
+        &reply("a1", "Fixed the parser. Anything else?"),
+        &peer_prompt("m-1", 4242, "skyblue", "ping", "2026-11-16T10:01:00Z"),
+        &reply("a2", "Noted, thanks."),
+    ]);
+    assert_eq!(t.reply_to_human, "Fixed the parser. Anything else?");
+    assert_eq!(t.last_reply.as_deref(), Some("Fixed the parser."));
+    assert!(!t.human_spoke_last);
+}
+
+#[test]
+fn a_new_human_prompt_keeps_the_last_reply_until_a_newer_one() {
+    let t = parse(&[&human("one"), &reply("a1", "First answer. More.")]);
+    assert_eq!(t.last_reply.as_deref(), Some("First answer."));
+    let t = parse(&[
+        &human("one"),
+        &reply("a1", "First answer. More."),
+        &human("two"),
+    ]);
+    assert_eq!(t.reply_to_human, "", "the question scorer still resets");
+    assert_eq!(t.last_reply.as_deref(), Some("First answer."));
+    let t = parse(&[
+        &human("one"),
+        &reply("a1", "First answer. More."),
+        &human("two"),
+        &reply("a2", "Second answer"),
+    ]);
+    assert_eq!(t.last_reply.as_deref(), Some("Second answer"));
+}
+
+/// A home with a running sender (this process, session `sender`) and a receiving transcript `rx` holding `lines`.
+fn peer_home(tag: &str, lines: &[String]) -> (PathBuf, PathBuf) {
+    let home = temp_dir(tag);
+    let sessions = home.join(".claude/sessions");
+    fs::create_dir_all(&sessions).expect("sessions");
+    let me = std::process::id();
+    fs::write(
+        sessions.join(format!("{me}.json")),
+        format!(r#"{{"pid":{me},"sessionId":"sender","cwd":"/code/app","status":"idle"}}"#),
+    )
+    .expect("registry");
+    let project = home.join(".claude/projects/-code-app");
+    fs::create_dir_all(&project).expect("project");
+    let path = project.join("rx.jsonl");
+    fs::write(&path, format!("{}\n", lines.join("\n"))).expect("transcript");
+    (home, path)
+}
+
+fn me() -> i32 {
+    i32::try_from(std::process::id()).expect("pid")
+}
+
+#[test]
+fn a_peer_prompt_is_one_message_from_the_session_that_sent_it() {
+    let (home, _) = peer_home(
+        "peer-msg",
+        &[
+            human("fix it"),
+            reply("a1", "Fixed the parser. Anything else?"),
+            peer_prompt("m-1", me(), "skyblue", "ping", "2026-11-16T10:01:00Z"),
+            reply("a2", "Noted, thanks."),
+        ],
+    );
+    let found = ClaudeSource::new(home.clone()).scan(SystemTime::now());
+    let t = &found[0].transcript;
+    assert_eq!(t.reply_to_human, "Fixed the parser. Anything else?");
+    assert_eq!(t.last_reply.as_deref(), Some("Fixed the parser."));
+    assert_eq!(
+        t.peer_messages,
+        vec![AgentMessage {
+            id: "m-1".to_string(),
+            from_session_id: "sender".to_string(),
+            to_session_id: "rx".to_string(),
+            text: "ping".to_string(),
+            sent_at: "2026-11-16T10:01:00Z".to_string(),
+        }]
+    );
+    fs::remove_dir_all(&home).expect("cleanup");
+}
+
+#[test]
+fn a_peer_whose_session_is_not_running_is_skipped_but_still_a_non_human_turn() {
+    let (home, _) = peer_home(
+        "peer-gone",
+        &[
+            human("fix it"),
+            reply("a1", "Done."),
+            peer_prompt("m-1", 1, "gone", "ping", "2026-11-16T10:01:00Z"),
+            reply("a2", "Noted."),
+        ],
+    );
+    let found = ClaudeSource::new(home.clone()).scan(SystemTime::now());
+    assert!(found[0].transcript.peer_messages.is_empty());
+    assert_eq!(found[0].transcript.reply_to_human, "Done.");
+    fs::remove_dir_all(&home).expect("cleanup");
+}
+
+#[test]
+fn a_hand_back_is_drawn_from_its_helper_only_when_that_helper_is_known() {
+    let handback = |task: &str| {
+        format!(
+            r#"{{"type":"user","isMeta":true,"uuid":"u-{task}","timestamp":"2026-11-16T10:02:00Z","message":{{"role":"user","content":"Another Claude session sent a message:\n<agent-message from=\"{task}\">report</agent-message>"}},"origin":{{"kind":"peer","from":"{task}","senderTaskId":"{task}","name":"general-purpose","body":"[Subagent hand-back] frame","handback":true,"handbackReportText":"The report."}},"userType":"external"}}"#
+        )
+    };
+    let (home, path) = peer_home("handback", &[human("go"), handback("a1"), handback("zz")]);
+    let helpers = path.with_extension("").join("subagents");
+    fs::create_dir_all(&helpers).expect("subagents");
+    fs::write(helpers.join("agent-a1.jsonl"), "").expect("helper");
+    let found = ClaudeSource::new(home.clone()).scan(SystemTime::now());
+    let drawn: Vec<(&str, &str, &str, &str)> = found[0]
+        .transcript
+        .peer_messages
+        .iter()
+        .map(|m| {
+            (
+                m.id.as_str(),
+                m.from_session_id.as_str(),
+                m.to_session_id.as_str(),
+                m.text.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        drawn,
+        vec![("handback-u-a1", "agent-a1", "rx", "The report.")]
+    );
+    fs::remove_dir_all(&home).expect("cleanup");
+}
+
+#[test]
+fn a_line_appended_later_is_resolved_against_the_registry_of_that_scan() {
+    let (home, path) = peer_home("peer-append", &[human("go"), reply("a1", "Done.")]);
+    let mut src = ClaudeSource::new(home.clone());
+    assert!(
+        src.scan(SystemTime::now())[0]
+            .transcript
+            .peer_messages
+            .is_empty()
+    );
+    let mut f = fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("open");
+    let line = peer_prompt(
+        "m-2",
+        me(),
+        "skyblue",
+        &"x".repeat(300),
+        "2026-11-16T10:03:00Z",
+    );
+    writeln!(f, "{line}").expect("append");
+    let found = src.scan(SystemTime::now());
+    let messages = &found[0].transcript.peer_messages;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        messages[0].text.chars().count(),
+        140,
+        "cut to the history's width"
+    );
+    // The next scan serves the same message: it is kept, not re-resolved.
+    assert_eq!(
+        src.scan(SystemTime::now())[0].transcript.peer_messages,
+        *messages
+    );
+    fs::remove_dir_all(&home).expect("cleanup");
+}
+
+#[test]
+fn a_session_keeps_only_its_latest_twenty_peer_messages() {
+    let lines: Vec<String> = (0..25)
+        .map(|i| {
+            peer_prompt(
+                &format!("m-{i}"),
+                me(),
+                "s",
+                "hi",
+                &format!("2026-11-16T10:{i:02}:00Z"),
+            )
+        })
+        .collect();
+    let (home, _) = peer_home("peer-cap", &lines);
+    let found = ClaudeSource::new(home.clone()).scan(SystemTime::now());
+    let ids: Vec<&str> = found[0]
+        .transcript
+        .peer_messages
+        .iter()
+        .map(|m| m.id.as_str())
+        .collect();
+    assert_eq!(ids.first(), Some(&"m-5"));
+    assert_eq!(ids.len(), 20);
+    fs::remove_dir_all(&home).expect("cleanup");
+}

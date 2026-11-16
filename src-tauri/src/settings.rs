@@ -12,6 +12,8 @@ use std::sync::Mutex;
 
 mod agents;
 pub use agents::AgentSettings;
+mod boards;
+pub use boards::BoardSettings;
 mod handover;
 pub use handover::{HandoverSettings, StartWith};
 mod manager;
@@ -52,6 +54,7 @@ pub struct Settings {
     pub routing: RoutingSettings,
     #[serde(deserialize_with = "handover::lenient")]
     pub handover: HandoverSettings,
+    pub boards: BoardSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -261,6 +264,8 @@ pub struct SettingsPatch {
     pub routing: Option<RoutingSettings>,
     #[serde(default)]
     pub handover: Option<HandoverSettings>,
+    #[serde(default)]
+    pub boards: Option<BoardSettings>,
 }
 
 impl Settings {
@@ -301,6 +306,9 @@ impl Settings {
         }
         if let Some(handover) = patch.handover {
             self.handover = handover.checked()?;
+        }
+        if let Some(boards) = patch.boards {
+            self.boards = boards.checked()?;
         }
         Ok(())
     }
@@ -532,7 +540,8 @@ mod tests {
             "maxDesks": 3, "spendCeilingUsd": 20 },
             "agents": { "view": "terminal" },
             "routing": { "enabled": false, "contexts": [], "connections": [], "tiers": { "fable": [], "opus": [], "sonnet": [], "haiku": [] } },
-            "handover": { "automatic": false, "claudeToCodex": null, "codexToClaude": null } }"#,
+            "handover": { "automatic": false, "claudeToCodex": null, "codexToClaude": null },
+            "boards": { "sharedFiles": [] } }"#,
         )
         .expect("json");
         assert_eq!(

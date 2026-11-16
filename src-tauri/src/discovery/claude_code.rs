@@ -16,7 +16,8 @@ use super::collect_jsonl;
 use super::pets::MonitorCall;
 use super::pricing;
 use super::rules::{LastBlock, Signals};
-use crate::model::{Helper, SessionState, Spend};
+use crate::model::{AgentMessage, Helper, SessionState, Spend};
+use crate::store::MESSAGE_HISTORY;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -73,6 +74,11 @@ pub struct Transcript {
     /// notifications, peer messages) never replace it, so an open question
     /// survives the agent answering a notification in between.
     pub reply_to_human: String,
+    /// First sentence of the latest reply to the human, at most [`super::REPLY_CHARS`]. Unlike
+    /// `reply_to_human` a new human prompt does not clear it: only a newer reply replaces it.
+    pub last_reply: Option<String>,
+    /// Messages other sessions and sub-agents sent it, newest last, as many as the office keeps.
+    pub peer_messages: Vec<AgentMessage>,
     pub api_error: bool,
     pub open_tools: usize,
     pub question: Option<PendingQuestion>,
@@ -234,6 +240,60 @@ fn feed_lines(
     offset
 }
 
+/// What names the sender of a peer record. A transcript line is never fed twice and most senders
+/// are gone from the registry within hours, so each line is resolved as it is fed.
+#[derive(Debug, Clone)]
+struct PeerDirectory {
+    /// The receiving session.
+    session_id: String,
+    /// Running sessions by pid, from the registry of the scan feeding the line.
+    pids: HashMap<i32, String>,
+    /// Where this session's sub-agents keep their transcripts.
+    subagents: PathBuf,
+}
+
+impl PeerDirectory {
+    /// The message a peer record stands for, or None when its sender is unknown.
+    /// A hand-back (`senderTaskId`) is a sub-agent's report to this session; any other
+    /// peer record comes from the session running as `verifiedPeerPid`.
+    fn message(&self, rec: &Value, origin: &Value, at: &str) -> Option<AgentMessage> {
+        let text_of = |key: &str| origin.get(key).and_then(Value::as_str);
+        let (id, from, text) = if let Some(task) = text_of("senderTaskId") {
+            let helper = format!("agent-{task}");
+            let mut files = Vec::new();
+            collect_jsonl(&self.subagents, &mut files);
+            let is_helper = files
+                .iter()
+                .any(|f| f.file_stem().is_some_and(|n| *n == *helper));
+            let from = if is_helper {
+                helper
+            } else {
+                self.pids.values().find(|s| *s == task)?.clone()
+            };
+            let uuid = rec.get("uuid").and_then(Value::as_str);
+            let id = uuid.map_or_else(
+                || format!("handback-{task}-{at}"),
+                |u| format!("handback-{u}"),
+            );
+            (id, from, text_of("handbackReportText").or(text_of("body")))
+        } else {
+            let pid = i32::try_from(origin.get("verifiedPeerPid")?.as_i64()?).ok()?;
+            (
+                text_of("msg_id")?.to_string(),
+                self.pids.get(&pid)?.clone(),
+                text_of("body"),
+            )
+        };
+        Some(AgentMessage {
+            id,
+            from_session_id: from,
+            to_session_id: self.session_id.clone(),
+            text: crate::project_files::truncate(text.unwrap_or_default(), super::REPLY_CHARS),
+            sent_at: at.to_string(),
+        })
+    }
+}
+
 /// Resumable reduction of a transcript. Every field carried across lines in the
 /// old single-pass reducer lives here, so feeding lines 1..n in one call or in
 /// 1..k then k+1..n calls yields the same result: `parse_transcript` (the full
@@ -250,6 +310,8 @@ struct ParserState {
     in_human_turn: bool,
     /// A sub-agent's own transcript is all sidechain records; read it for its spend.
     keep_sidechains: bool,
+    /// Who sent the peer records: None reads none of them as messages.
+    peers: Option<PeerDirectory>,
 }
 
 impl ParserState {
@@ -266,6 +328,8 @@ impl ParserState {
                 human_spoke_last: false,
                 last_block: LastBlock::Nothing,
                 reply_to_human: String::new(),
+                last_reply: None,
+                peer_messages: Vec::new(),
                 api_error: false,
                 open_tools: 0,
                 question: None,
@@ -280,6 +344,7 @@ impl ParserState {
             // Transcripts from before prompts carried an origin count every prompt as human.
             in_human_turn: true,
             keep_sidechains: false,
+            peers: None,
         }
     }
 
@@ -383,6 +448,11 @@ impl ParserState {
                                 self.t.reply_to_human.push('\n');
                             }
                             self.t.reply_to_human.push_str(text);
+                            if let Some(first) =
+                                super::first_sentence(&self.t.reply_to_human, super::REPLY_CHARS)
+                            {
+                                self.t.last_reply = Some(first);
+                            }
                         }
                     }
                     Some("tool_use") => {
@@ -447,19 +517,27 @@ impl ParserState {
                     .iter()
                     .any(|b| b.get("type").and_then(Value::as_str) == Some("text"));
             let is_meta = rec.get("isMeta").and_then(Value::as_bool) == Some(true);
-            if is_prompt && !is_meta {
+            let origin = rec.get("origin");
+            let origin_kind = origin.and_then(|o| o.get("kind")).and_then(Value::as_str);
+            // Every real peer prompt is `isMeta` too, so the meta guard must let them through.
+            let peer = origin_kind == Some("peer");
+            if is_prompt && (peer || !is_meta) {
                 // A prompt starts a new turn. Only the human's turns carry questions for them.
-                let origin = rec
-                    .get("origin")
-                    .and_then(|o| o.get("kind"))
-                    .and_then(Value::as_str);
-                self.in_human_turn = matches!(origin, None | Some("human"));
+                self.in_human_turn = matches!(origin_kind, None | Some("human"));
                 self.t.finished = false;
                 if self.in_human_turn {
                     self.t.human_spoke_last = true;
                     self.t.reply_to_human.clear();
                     self.reply_message = None;
                 }
+            }
+            if peer
+                && let (Some(dir), Some(origin)) = (&self.peers, origin)
+                && let Some(message) = dir.message(&rec, origin, &at)
+            {
+                self.t.peer_messages.push(message);
+                let excess = self.t.peer_messages.len().saturating_sub(MESSAGE_HISTORY);
+                self.t.peer_messages.drain(..excess);
             }
         }
     }
@@ -602,6 +680,8 @@ pub struct ClaudeSource {
     /// Finished sessions stay visible this long after their last write.
     keep_finished: Duration,
     cache: HashMap<PathBuf, CacheEntry>,
+    /// Running sessions by pid, as of the scan in progress, to name who sent a peer message.
+    pids: HashMap<i32, String>,
 }
 
 impl ClaudeSource {
@@ -611,7 +691,21 @@ impl ClaudeSource {
             home,
             keep_finished: Duration::from_hours(12),
             cache: HashMap::new(),
+            pids: HashMap::new(),
         }
+    }
+
+    /// Who the peer records of the transcript at `path` can be resolved against. A sub-agent's own
+    /// transcript has none: its messages are not the session's.
+    fn directory(&self, path: &Path) -> Option<PeerDirectory> {
+        if path.components().any(|c| c.as_os_str() == "subagents") {
+            return None;
+        }
+        Some(PeerDirectory {
+            session_id: path.file_stem()?.to_str()?.to_string(),
+            pids: self.pids.clone(),
+            subagents: path.with_extension("").join("subagents"),
+        })
     }
 
     fn full_parse(
@@ -625,6 +719,7 @@ impl ClaudeSource {
         let file = fs::File::open(path).ok()?;
         let mut state = ParserState::new();
         state.keep_sidechains = path.components().any(|c| c.as_os_str() == "subagents");
+        state.peers = self.directory(path);
         let offset = state.feed_lines(BufReader::new(file), 0, true);
         let transcript = state.finish();
         let tail = read_tail(path, offset).unwrap_or_default();
@@ -682,6 +777,7 @@ impl ClaudeSource {
                 && file.seek(SeekFrom::Start(entry.offset)).is_ok()
             {
                 let mut state = entry.state;
+                state.peers = self.directory(path);
                 let offset = state.feed_lines(BufReader::new(file), entry.offset, true);
                 let transcript = state.finish();
                 let tail = read_tail(path, offset).unwrap_or_default();
@@ -709,6 +805,10 @@ impl ClaudeSource {
         let live: HashMap<String, LiveEntry> = read_registry(&claude.join("sessions"), pid_alive)
             .into_iter()
             .map(|e| (e.session_id.clone(), e))
+            .collect();
+        self.pids = live
+            .values()
+            .map(|e| (e.pid, e.session_id.clone()))
             .collect();
 
         let mut found = Vec::new();

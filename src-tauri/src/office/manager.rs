@@ -483,6 +483,7 @@ pub(super) mod tests {
             control,
             model: None,
             effort: None,
+            last_reply: None,
             last_activity_at: "2026-11-12T10:00:00Z".to_string(),
             pending_question_ids: Vec::new(),
             spend: crate::model::Spend::default(),

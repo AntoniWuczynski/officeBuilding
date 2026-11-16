@@ -18,9 +18,11 @@
 //! indented lines under an item continue it. Answering a decision or ticking an
 //! item in the app writes back into the same file.
 
-use crate::model::{AnswerVia, Decision, Party, Question, QuestionOption, TodoItem, TodoSource};
+use crate::model::{
+    AnswerVia, Decision, Party, Question, QuestionOption, SharedBoard, TodoItem, TodoSource,
+};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const HUMAN_DECISION_FILES: &[&str] = &[
     "FOUNDER_DECISIONS.md",
@@ -125,6 +127,12 @@ pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party
         } else {
             continue;
         };
+        let project_tag = rest
+            .split('|')
+            .nth(1)
+            .map(str::trim)
+            .filter(|tag| !tag.is_empty())
+            .map(str::to_string);
         let mut body = rest.trim().to_string();
         for next in lines.iter().skip(i + 1) {
             let continues = next.starts_with(char::is_whitespace)
@@ -145,6 +153,7 @@ pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party
             source: TodoSource::File {
                 file: file.to_string(),
             },
+            project_tag,
         });
     }
     items
@@ -620,6 +629,30 @@ pub fn read(root: &Path, project_id: &str) -> ProjectFiles {
     files.agent_todos = find_file(root, AGENT_TODO_FILES)
         .and_then(|name| text(&name).map(|t| parse_checklist(&t, project_id, &name, Party::Ai)));
     files
+}
+
+/// A shared checklist file as a board, or None when it cannot be read. Its items carry the board's id
+/// as their project and the file's absolute path as their file, so a tick finds the file by its id.
+#[must_use]
+pub fn read_board(path: &str) -> Option<SharedBoard> {
+    let text = fs::read_to_string(path).ok()?;
+    let id = format!("board:{path}");
+    Some(SharedBoard {
+        items: parse_checklist(&text, &id, path, Party::Human),
+        name: Path::new(path).file_name()?.to_string_lossy().into_owned(),
+        path: path.to_string(),
+        id,
+    })
+}
+
+/// A floor whose own Human TODO file is one of `boards` (canonical paths) leaves
+/// those lines to the board: the file stays the floor's, with no items of its own, so they show once.
+pub fn leave_to_boards(files: &mut ProjectFiles, root: &Path, boards: &[PathBuf]) {
+    let own =
+        find_file(root, HUMAN_TODO_FILES).and_then(|name| root.join(name).canonicalize().ok());
+    if own.is_some_and(|own| boards.contains(&own)) {
+        files.human_todos = Some(Vec::new());
+    }
 }
 
 fn rewrite_line(

@@ -100,6 +100,7 @@ impl Board {
 
 fn todo(project_id: &str, kind: ConnectorKind, item: &Item, done: bool) -> TodoItem {
     TodoItem {
+        project_tag: None,
         id: item_id(project_id, kind, &item.external_id),
         project_id: project_id.to_string(),
         text: item.text.clone(),
