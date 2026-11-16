@@ -208,3 +208,30 @@ fn a_removed_worktree_is_remembered_while_the_session_stays_inside_it() {
     assert_eq!(second.checkouts.get("moved"), Some(&repo.tree));
     assert_eq!(second.checkouts.get("left"), Some(&repo.main));
 }
+
+#[test]
+fn a_session_started_above_a_repo_sits_on_the_repo_it_works_in() {
+    let repo = Repo::new("above");
+    let main_web = repo.main.join("web");
+    let tree_server = repo.tree.join("server");
+    let d = run(
+        vec![
+            // Launched from the folder that holds the repos, now working inside one (or its worktree).
+            input("in-repo", &repo.base, &main_web, true),
+            input("in-tree", &repo.base, &tree_server, true),
+            // Still at the folder it started in.
+            input("above", &repo.base, &repo.base, true),
+            // Wandered outside the folder it started in: stays where it started.
+            input("away", &main_web, &repo.base, true),
+        ],
+        &BTreeMap::new(),
+    );
+    let floor = |id: &str| d.sessions.iter().find(|s| s.id == id).map(|s| s.project_id.clone());
+    assert_eq!(floor("in-repo"), Some(project_id(&repo.main)));
+    assert_eq!(floor("in-tree"), Some(project_id(&repo.main)));
+    assert_eq!(floor("above"), Some(project_id(&repo.base)));
+    assert_eq!(floor("away"), Some(project_id(&repo.main)));
+    let worktree = |id: &str| d.sessions.iter().find(|s| s.id == id).map(|s| s.worktree);
+    assert_eq!(worktree("in-tree"), Some(true));
+    assert_eq!(worktree("in-repo"), Some(false));
+}

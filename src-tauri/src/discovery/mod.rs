@@ -429,7 +429,11 @@ fn assemble(
     for input in inputs {
         let started = locate(Path::new(&input.cwd));
         let now_in = locate(Path::new(&input.latest_cwd));
-        let same_repo = now_in.root == started.root;
+        // A session launched above a repo (from the folder that holds several) sits on the repo it is working
+        // in now. One that wanders outside the folder it started in stays on its first floor: a stray `cd`
+        // does not move it.
+        let moved_in = now_in.root != started.root && now_in.root.starts_with(&started.root);
+        let same_repo = moved_in || now_in.root == started.root;
         let worktree = now_in.worktree && same_repo;
         let branch = if worktree {
             branch_of(&now_in.checkout)
@@ -443,7 +447,11 @@ fn assemble(
                 started.checkout
             },
         );
-        let root = started.root;
+        let root = if moved_in {
+            now_in.root.clone()
+        } else {
+            started.root
+        };
         // An ended session leaves the office; its floor stays while the session was recent.
         let ids = floors.entry(root.clone()).or_default();
         if !input.live {
