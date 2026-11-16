@@ -302,6 +302,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
     };
 
     const ray = new THREE.Raycaster();
+    const occlusion = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
     const down = { x: 0, y: 0 };
     const pointer = { x: 0, y: 0, inside: false };
@@ -497,7 +498,17 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         if (pe === undefined) continue;
         const s = screen(new THREE.Vector3(p.x, p.y + (a?.off ?? 0), p.z));
         const scale = ((s.unit * PERSON_UNITS) / PERSON_PX) * (p.helper ? HELPER_SCALE : 1);
-        pe.style.display = s.behind || scale < MIN_SCALE || op <= 0.02 ? "none" : "block";
+        // People are page elements painted over the scene, so one behind another hut (or the hill) would show
+        // through it: hide a person whose chest the camera cannot see past other huts and the islands.
+        const chest = new THREE.Vector3(p.x, p.y + (a?.off ?? 0) + PERSON_UNITS * (p.helper ? HELPER_SCALE : 1) * 0.5, p.z);
+        const toChest = chest.clone().sub(camera.position);
+        occlusion.set(camera.position, toChest.clone().normalize());
+        occlusion.far = toChest.length() - 0.5;
+        // An agent's own hut and its subagents' small huts (keys `<session>/<helper>`) stand round it: they never hide it.
+        const family = p.key.split("/")[0] ?? p.key;
+        const blockers = [group, ...[...huts].filter(([k]) => (k.split("/")[0] ?? k) !== family).map(([, h]) => h.group)];
+        const hidden = occlusion.intersectObjects(blockers, true).some((hit) => hit.object.visible);
+        pe.style.display = s.behind || hidden || scale < MIN_SCALE || op <= 0.02 ? "none" : "block";
         pe.style.transform = `translate(${s.px}px, ${s.py}px) scale(${scale})`;
         pe.style.zIndex = String(Math.round(s.py));
         pe.style.opacity = String(shade);
