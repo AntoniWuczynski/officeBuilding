@@ -21,6 +21,7 @@ import { DemolishDialog } from "./DemolishDialog";
 import { UsageSigns } from "./UsageSigns";
 import { Building, buildingHeight } from "./Building";
 import type { FloorModel } from "./Storey";
+import type { OverrideActions } from "../../state/overrides";
 
 export interface ScreenOrigin {
   readonly x: number;
@@ -44,6 +45,8 @@ interface Props {
   readonly mode?: ViewMode;
   /** Islands only: open one agent's terminal or conversation from the island panel. */
   readonly onOpenSession?: (session: Session) => void;
+  /** Islands only: name an island, or move an agent to another one. */
+  readonly overrideActions?: OverrideActions;
 }
 
 // The island map pulls in three.js (a 596 kB chunk, 152 kB gzipped): load it only when Islands is chosen.
@@ -53,7 +56,7 @@ const Archipelago = lazy(() => import("../../archipelago/Archipelago").then((m) 
 const ISLANDS_DEFAULT_NAME = "The Islands";
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
@@ -165,6 +168,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
               onRename={(next) => renameBuilding(next.trim() === ISLANDS_DEFAULT_NAME ? DEFAULT_BUILDING_NAME : next)}
               onEnter={(projectId) => onEnter(projectId, originOf(viewRef.current))}
               onOpenSession={(s) => onOpenSession?.(s)}
+              onRenameIsland={(projectId, next) => overrideActions?.renameFloor(projectId, next)}
+              onMoveSession={(sessionId, projectId) => overrideActions?.moveSession(sessionId, projectId)}
               onAddFloor={openAdding}
               onDemolish={openDemolishing}
             />

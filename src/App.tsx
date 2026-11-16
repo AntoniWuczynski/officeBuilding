@@ -9,6 +9,7 @@ import { useOffice } from "./state/useOffice";
 import { ViewSwitch } from "./components/ViewSwitch";
 import { PLACE } from "./state/placeWords";
 import { useViewMode } from "./state/useViewMode";
+import { applyOverrides, useOverrides } from "./state/overrides";
 import { BuildingView } from "./components/building/BuildingView";
 import type { ScreenOrigin } from "./components/building/BuildingView";
 import { FloorView } from "./components/floor/FloorView";
@@ -40,7 +41,13 @@ const TOAST_MS = 4500;
 
 /** Root view-state machine: building ↔ floor, plus the floor's panels and toasts. */
 export function App({ api }: Props): React.ReactElement {
-  const { state, retry } = useOffice(api);
+  const { state: discovered, retry } = useOffice(api);
+  // Your names for floors and the floors you moved sessions to, applied once so every view agrees.
+  const [overrides, overrideActions] = useOverrides();
+  const state = useMemo(
+    () => (discovered.status === "ready" ? { ...discovered, snapshot: applyOverrides(discovered.snapshot, overrides) } : discovered),
+    [discovered, overrides],
+  );
   const [viewMode, setViewMode] = useViewMode();
   const words = PLACE[viewMode];
   const now = useNow();
@@ -367,6 +374,7 @@ export function App({ api }: Props): React.ReactElement {
             transition={{ duration: 0.5, ease: CAMERA_EASE }}
           >
             <BuildingView
+              overrideActions={overrideActions}
               snapshot={snap}
               onEnter={enter}
               canPickFolder={api.canPickFolder}

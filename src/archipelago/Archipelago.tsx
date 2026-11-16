@@ -127,13 +127,17 @@ interface Props {
   /** Go inside an island: the floor view, with Hire, the terminal, decisions and the rest. */
   readonly onEnter: (projectId: string) => void;
   readonly onOpenSession: (session: Session) => void;
+  /** Give an island a name of your own; a blank name restores the folder's. */
+  readonly onRenameIsland: (projectId: string, name: string) => void;
+  /** Put an agent on another island. */
+  readonly onMoveSession: (sessionId: string, projectId: string) => void;
   readonly onAddFloor: () => void;
   readonly onDemolish: (projectId: string) => void;
 }
 
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
-export function Archipelago({ snapshot, entries, onGone, name, animate, onRename, onEnter, onOpenSession, onAddFloor, onDemolish }: Props): React.ReactElement {
+export function Archipelago({ snapshot, entries, onGone, name, animate, onRename, onEnter, onOpenSession, onRenameIsland, onMoveSession, onAddFloor, onDemolish }: Props): React.ReactElement {
   const host = useRef<HTMLDivElement>(null);
   const labels = useRef(new Map<string, HTMLButtonElement>());
   const personEls = useRef(new Map<string, HTMLDivElement>());
@@ -144,6 +148,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
   /** Islands that have already risen, so a rebuild for a new project does not make the rest rise again. */
   const risen = useRef(new Set<string>());
   const [selected, setSelected] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const panelHeading = useRef<HTMLHeadingElement>(null);
   const [noWebGl, setNoWebGl] = useState(false);
   // Reduced motion: still sea, instant camera moves, no flying notes (as the building's walks and collapses).
@@ -163,12 +168,14 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
   for (const e of entries) known.current.set(e.key, e.item.project);
   order.current = mergeOrder(order.current, entries.map((e) => e.key));
   const signature = entries.map((e) => e.key).join("\u0000");
+  // A rename must reach the labels, so the names are part of what the layout is rebuilt on (positions do not change).
+  const names = entries.map((e) => e.item.project.name).join("\u0000");
   const islands = useMemo(() => {
     const present = new Set(signature.split("\u0000"));
     const placed = layoutIslands(order.current.flatMap((id) => known.current.get(id) ?? []), snapshot.setupProjectId);
     return placed.filter((i) => present.has(i.projectId));
-    // The layout depends on which projects exist, not on their live counts.
-  }, [signature, snapshot.setupProjectId]);
+    // The layout depends on which projects exist and what they are called, not on their live counts.
+  }, [signature, names, snapshot.setupProjectId]);
   /** Where the camera was, so rebuilding the scene for a new island does not snap the view back home. */
   const view = useRef<{ readonly position: THREE.Vector3; readonly target: THREE.Vector3 } | null>(null);
   /** When each sinking island started to sink, so a rebuild mid-sink does not restart it. */
@@ -633,9 +640,36 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
         ))}
         {picked === undefined ? null : (
           <aside id="arch-panel" className="arch-panel" aria-label={`${picked.spec.name} island`}>
-            <h2 ref={panelHeading} tabIndex={-1}>
-              {picked.spec.name}
-            </h2>
+            {renaming ? (
+              <input
+                className="arch-rename"
+                aria-label="Island name"
+                defaultValue={picked.spec.name}
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- the Rename button was just pressed
+                autoFocus
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={(e) => {
+                  onRenameIsland(picked.spec.projectId, e.currentTarget.value);
+                  setRenaming(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    onRenameIsland(picked.spec.projectId, e.currentTarget.value);
+                    setRenaming(false);
+                  }
+                  if (e.key === "Escape") setRenaming(false);
+                }}
+              />
+            ) : (
+              <div className="arch-panel-head">
+                <h2 ref={panelHeading} tabIndex={-1}>
+                  {picked.spec.name}
+                </h2>
+                <button type="button" className="arch-rename-btn" onClick={() => setRenaming(true)}>
+                  Rename
+                </button>
+              </div>
+            )}
             <p>
               {picked.floor.counts.total} {picked.floor.counts.total === 1 ? "agent" : "agents"}, {picked.floor.counts.active} working
               {picked.floor.pending > 0 ? `, ${picked.floor.pending} waiting on you` : ""}
@@ -651,6 +685,15 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
                       {s.worktree ? " · in a worktree" : ""}
                     </span>
                   </button>
+                  {rows.length > 1 ? (
+                    <select className="arch-move" aria-label={`Move ${s.title} to another island`} value={picked.spec.projectId} onChange={(e) => onMoveSession(s.id, e.target.value)}>
+                      {rows.map((r) => (
+                        <option key={r.spec.projectId} value={r.spec.projectId}>
+                          {r.spec.projectId === picked.spec.projectId ? "On this island" : `Move to ${r.spec.name}`}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
                 </li>
               ))}
             </ul>

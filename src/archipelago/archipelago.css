@@ -260,6 +260,47 @@
   width: 100%;
   flex: none;
 }
+/* Naming an island, and putting an agent on another one. */
+.arch-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.arch-rename-btn {
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font: 600 11px/1.4 var(--font-ui);
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.arch-rename-btn:hover {
+  background: var(--paper-hover);
+}
+.arch-rename {
+  width: 100%;
+  margin: 0 0 2px;
+  padding: 2px 4px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font: 700 18px/1.1 var(--font-sign);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.arch-move {
+  width: 100%;
+  margin-top: 2px;
+  padding: 2px 4px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font: 12px var(--font-ui);
+}
 
 /* Compass and hint: small paper plates, clear of the list. */
 .arch-compass {
