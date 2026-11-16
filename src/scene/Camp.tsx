@@ -106,7 +106,7 @@ export function Hut({ x, y, z, thatch = false }: HutProps): React.ReactElement {
 function Palm({ x, y }: { readonly x: number; readonly y: number }): React.ReactElement {
   return (
     <Billboard x={x} y={y}>
-      <svg data-testid="camp-palm" viewBox="0 0 60 90" width="60" height="90" style={{ position: "absolute", left: -29, bottom: 0 }} aria-hidden>
+      <svg data-testid="camp-palm" viewBox="0 0 60 90" width="60" height="90" style={{ position: "absolute", left: -29, bottom: 0, pointerEvents: "none" }} aria-hidden>
         <path d="M29 90 Q25 56 33 22" stroke={CAMP.trunk} strokeWidth="5" strokeLinecap="round" fill="none" />
         {[150, 195, 30, -15, -60, -115].map((a, i) => (
           <ellipse key={a} cx="33" cy="22" rx="16" ry="4.5" fill={i % 2 === 0 ? CAMP.leaf : CAMP.leafShade} transform={`rotate(${a} 33 22) translate(14 0)`} />
