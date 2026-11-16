@@ -16,6 +16,8 @@ import { PLACE } from "../state/placeWords";
 import { COUNTER_H, OCEAN_SIZE, buildBoat, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
 import { agentSlots, clampToBounds, layoutIslands, MAX_SLOTS, mergeOrder, worldBounds } from "./islands";
 import type { IslandSpec } from "./islands";
+import { boxAt } from "./pick";
+import type { Box } from "./pick";
 import { bezierAt, sailRoute } from "./routes";
 import type { Route } from "./routes";
 import "./archipelago.css";
@@ -65,6 +67,8 @@ interface Placed {
   readonly y: number;
   readonly z: number;
   readonly session: Session;
+  /** The agent a click opens: the session itself, or a subagent's parent. */
+  readonly owner: Session;
   /** A subagent: smaller, beside its parent. */
   readonly helper: boolean;
   readonly dimmed: boolean;
@@ -87,6 +91,7 @@ function placePeople(rows: readonly { readonly spec: IslandSpec; readonly floor:
         y: stuck ? GRASS_Y : GRASS_Y + COUNTER_H,
         z: stuck ? slot.z + 4 : slot.z,
         session,
+        owner: session,
         helper: false,
         dimmed: floor.dimmed,
       });
@@ -99,6 +104,7 @@ function placePeople(rows: readonly { readonly spec: IslandSpec; readonly floor:
           y: GRASS_Y + COUNTER_H * HELPER_SCALE,
           z: slot.z + 5.2,
           session: { ...session, id: h.id, state: h.state, helpers: [] },
+          owner: session,
           helper: true,
           dimmed: floor.dimmed,
         });
@@ -145,6 +151,9 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
   animateRef.current = animate;
   const onGoneRef = useRef(onGone);
   onGoneRef.current = onGone;
+  // Read by the canvas click handler, which is set up once per scene.
+  const openRef = useRef(onOpenSession);
+  openRef.current = onOpenSession;
   const phases = useRef(new Map<string, Present<FloorModel>["phase"]>());
   phases.current = new Map(entries.map((e) => [e.key, e.phase]));
 
@@ -304,8 +313,26 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
       down.x = e.clientX;
       down.y = e.clientY;
     };
+    /** The person drawn under a point: figures are page elements over the canvas, so they are hit-tested by their boxes. */
+    const personAt = (clientX: number, clientY: number): Placed | undefined => {
+      const boxes: Box[] = [];
+      for (const p of live.current.people) {
+        const pe = personEls.current.get(p.key);
+        const figure = pe?.firstElementChild;
+        if (pe === undefined || figure === null || figure === undefined || pe.style.display === "none") continue;
+        const r = figure.getBoundingClientRect();
+        boxes.push({ key: p.key, left: r.left, top: r.top, right: r.right, bottom: r.bottom, z: Number(pe.style.zIndex) || 0 });
+      }
+      const key = boxAt(boxes, clientX, clientY);
+      return live.current.people.find((p) => p.key === key);
+    };
     const onUp = (e: PointerEvent): void => {
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+      const person = personAt(e.clientX, e.clientY);
+      if (person !== undefined) {
+        openRef.current(person.owner);
+        return;
+      }
       const spec = islandAt(e.clientX, e.clientY);
       if (spec !== undefined) flyTo.current(spec);
     };
@@ -388,7 +415,7 @@ export function Archipelago({ snapshot, entries, onGone, name, animate, onRename
 
       // Hover: the island under the pointer (or its list row) lifts a little.
       if (pointer.inside) hover.current = islandAt(pointer.x, pointer.y)?.projectId ?? null;
-      renderer.domElement.style.cursor = pointer.inside && hover.current !== null ? "pointer" : "";
+      renderer.domElement.style.cursor = pointer.inside && (hover.current !== null || personAt(pointer.x, pointer.y) !== undefined) ? "pointer" : "";
 
       // Rise on open, lift on hover, sink on removal.
       for (const spec of islands) {
