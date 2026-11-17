@@ -14,6 +14,7 @@ import {
   switchSentence,
 } from "../../lib/route";
 import { KIND_LABEL } from "../../lib/routing";
+import { everyWhileVisible } from "../../lib/visibleTimer";
 import { RoutingContext } from "./RoutingContext";
 
 const POLL_MS = 3000;
@@ -49,10 +50,10 @@ export function RouteStrip({ sessionId }: { readonly sessionId: string }): React
       );
     };
     read();
-    const timer = setInterval(read, POLL_MS);
+    const stop = everyWhileVisible(read, POLL_MS);
     return () => {
       live = false;
-      clearInterval(timer);
+      stop();
     };
   }, [api, sessionId]);
 

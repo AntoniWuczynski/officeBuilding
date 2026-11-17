@@ -5,6 +5,7 @@ import { useNow } from "../../state/useNow";
 import { message } from "../../lib/errors";
 import { relativeTime, resetsLabel } from "../../lib/time";
 import { readPref, writePref } from "../../lib/prefs";
+import { everyWhileVisible } from "../../lib/visibleTimer";
 
 const REFRESH_MS = 60_000;
 
@@ -108,8 +109,7 @@ export function UsageSigns({ loadUsage, collapsible = false, view }: Props): Rea
 
   useEffect(() => {
     void refresh(false);
-    const timer = setInterval(() => void refresh(false), REFRESH_MS);
-    return () => clearInterval(timer);
+    return everyWhileVisible(() => void refresh(false), REFRESH_MS);
   }, [refresh]);
 
   if (usage === null && error === null) return null;
