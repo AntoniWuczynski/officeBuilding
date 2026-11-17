@@ -261,6 +261,7 @@ pub fn run() -> tauri::Result<()> {
             commands::attach_session,
             commands::add_floor,
             commands::demolish_floor,
+            commands::exile_session,
             commands::move_session,
             commands::pick_folder,
             commands::open_shell,

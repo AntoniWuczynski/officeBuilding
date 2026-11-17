@@ -243,6 +243,23 @@ pub fn focus_session(office: OfficeState<'_>, session_id: String) -> Result<(), 
     office.focus_session(&session_id)
 }
 
+/// Stopping the agent waits for it to exit, so it runs off the main thread.
+#[tauri::command]
+pub async fn exile_session(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    session_id: String,
+) -> Result<(), String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || {
+        office.exile_session(&session_id)?;
+        push_snapshot(&app, &office);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("the exile did not finish: {e}"))?
+}
+
 /// Stopping the floor's agents waits for them to exit, so it runs off the main thread.
 #[tauri::command]
 pub async fn demolish_floor(

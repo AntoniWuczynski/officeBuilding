@@ -380,6 +380,15 @@ describe("MockApi floors", () => {
     await expect(api.demolishFloor("p-shop")).rejects.toThrow(/not a floor/);
   });
 
+  it("exiling a session removes exactly that session, and rejects an unknown one", async () => {
+    const api = new MockApi();
+    const before = (await api.getSnapshot()).sessions.map((s) => s.id);
+    await api.exileSession("s-2");
+    const after = (await api.getSnapshot()).sessions.map((s) => s.id);
+    expect(after).toEqual(before.filter((id) => id !== "s-2"));
+    await expect(api.exileSession("s-2")).rejects.toThrow(/not a session/);
+  });
+
   describe("moving a session", () => {
     const seed = makeSeedSnapshot();
     const mover = seed.sessions.find((s) => s.pendingQuestionIds.length > 0);

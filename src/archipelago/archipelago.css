@@ -303,3 +303,8 @@
 .arch-trip {
   z-index: 100000;
 }
+/* A kicked-out worker is booted off sideways into the sea and sinks. */
+.arch-kicked {
+  display: block;
+  animation: arch-kicked 1s ease-in forwards;
+}

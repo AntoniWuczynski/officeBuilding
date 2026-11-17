@@ -775,20 +775,11 @@ impl Office {
         Ok(())
     }
 
-    /// Hang up and forget the attach terminals of `project_id`'s sessions, as its floor goes.
-    fn hang_up_attached(&self, project_id: &str) {
+    /// Hang up and forget the attach terminals of the sessions `ids`, as they go.
+    fn hang_up_attached(&self, ids: &[String]) {
         let gone: Vec<String> = {
-            let mut guard = self.lock();
-            let inner = &mut *guard;
-            let on_floor: Vec<String> = inner
-                .found
-                .sessions
-                .iter()
-                .filter(|s| s.project_id == project_id)
-                .map(|s| s.id.clone())
-                .collect();
-            on_floor
-                .iter()
+            let mut inner = self.lock();
+            ids.iter()
                 .filter_map(|id| inner.attached.remove(id))
                 .collect()
         };
@@ -796,6 +787,19 @@ impl Office {
             self.hang_up(&terminal);
             self.terminals.release(&terminal);
         }
+    }
+
+    /// The process behind a session: discovery's, or the terminal we ran it in.
+    fn agent_of(&self, inner: &Inner, s: &Session) -> Result<(String, i32), String> {
+        let pid = inner.discovery.pid_of(&s.id).or_else(|| {
+            inner
+                .ran_in
+                .get(&s.id)
+                .and_then(|t| self.terminals.pid(t).ok())
+        });
+        let pid = pid
+            .ok_or_else(|| format!("{} cannot be stopped: its process is unknown", s.title))?;
+        Ok((s.title.clone(), pid))
     }
 
     /// Run `command` in a new in-app terminal in `dir`. An agent that stops at
@@ -851,22 +855,23 @@ impl Office {
                 .iter()
                 .filter(|s| s.project_id == project_id)
             {
-                let pid = inner.discovery.pid_of(&s.id).or_else(|| {
-                    inner
-                        .ran_in
-                        .get(&s.id)
-                        .and_then(|t| self.terminals.pid(t).ok())
-                });
-                let pid = pid.ok_or_else(|| {
-                    format!("{} cannot be stopped: its process is unknown", s.title)
-                })?;
-                agents.push((s.title.clone(), pid));
+                agents.push(self.agent_of(&inner, s)?);
             }
             (root, agents)
         };
-        stop_agents(&agents, STOP_WAIT)?;
+        stop_agents(&agents, STOP_WAIT).map_err(|e| format!("{e}, so the floor is still standing"))?;
         self.hang_up_shells(project_id);
-        self.hang_up_attached(project_id);
+        let on_floor: Vec<String> = {
+            let inner = self.lock();
+            inner
+                .found
+                .sessions
+                .iter()
+                .filter(|s| s.project_id == project_id)
+                .map(|s| s.id.clone())
+                .collect()
+        };
+        self.hang_up_attached(&on_floor);
         {
             let mut guard = self.lock();
             let inner = &mut *guard;
@@ -885,6 +890,33 @@ impl Office {
             inner.store.records.demolished_floors.insert(key, at);
             inner.store.save()?;
         }
+        self.refresh();
+        Ok(())
+    }
+
+    /// Stop one session, as a floor's agents stop when it goes: its process, then its attach terminal.
+    pub fn exile_session(&self, session_id: &str) -> Result<(), String> {
+        // An in-app desk is the app's own driver, not a process discovery found.
+        if self.structured.sessions().iter().any(|s| s.id == session_id) {
+            self.structured.stop(session_id)?;
+            self.refresh();
+            return Ok(());
+        }
+        let agent = {
+            let inner = self.lock();
+            let s = inner
+                .found
+                .sessions
+                .iter()
+                .find(|s| s.id == session_id)
+                .ok_or_else(|| format!("unknown session: {session_id}"))?;
+            self.agent_of(&inner, s)?
+        };
+        stop_agents(&[agent], STOP_WAIT)?;
+        self.hang_up_attached(&[session_id.to_string()]);
+        self.lock()
+            .desks
+            .retain(|terminal, _| desk_session_id(terminal) != session_id);
         self.refresh();
         Ok(())
     }
@@ -1152,7 +1184,7 @@ fn stop_agents(agents: &[(String, i32)], within: Duration) -> Result<(), String>
         }
         if Instant::now() >= deadline {
             return Err(format!(
-                "{} did not stop, so the floor is still standing",
+                "{} did not stop",
                 left.join(", ")
             ));
         }
@@ -1215,5 +1247,98 @@ mod attach_tests {
         let (office, dir) = office("attach-none");
         assert_eq!(office.attach_session("ghost"), Err("unknown session: ghost".to_string()));
         std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+}
+
+#[cfg(test)]
+mod exile_tests {
+    use super::tests::floor_office;
+    use super::*;
+
+    fn desk_on(office: &Office, dir: &Path, floor: &Project, title: &str) -> String {
+        let desk = Desk {
+            tool: ToolKind::Antigravity,
+            project_id: floor.id.clone(),
+            root: dir.join("home/code/app"),
+            title: title.to_string(),
+            model: "m".to_string(),
+            effort: "high".to_string(),
+        };
+        office
+            .launch(&desk.root.clone(), "/bin/cat", Launched::Desk(desk))
+            .expect("launch")
+    }
+
+    #[test]
+    fn exiling_an_unknown_session_is_an_error() {
+        let (office, dir, _) = floor_office("exile-unknown");
+        assert_eq!(
+            office.exile_session("ghost"),
+            Err("unknown session: ghost".to_string())
+        );
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn exiling_a_session_stops_only_it_and_hangs_up_only_its_attach_terminal() {
+        let (office, dir, floor) = floor_office("exile-one");
+        let out = desk_on(&office, &dir, &floor, "leaves");
+        let stays = desk_on(&office, &dir, &floor, "stays");
+        let (out_id, stays_id) = (desk_session_id(&out), desk_session_id(&stays));
+        office.refresh();
+        office.attach_in_terminal(&out_id, &dir, "sleep 30").expect("attach");
+        office.attach_in_terminal(&stays_id, &dir, "sleep 30").expect("attach");
+        let kept = office.lock().attached.get(&stays_id).cloned().expect("attached");
+        let kept_pid = office.terminals.pid(&kept).expect("pid");
+        office.exile_session(&out_id).expect("exile");
+        assert!(office.terminals.wait_exit(&out, Duration::from_secs(10)).expect("wait").is_some());
+        assert_eq!(office.terminals.wait_exit(&stays, Duration::ZERO), Ok(None));
+        assert!(!office.lock().attached.contains_key(&out_id));
+        assert!(office.lock().attached.contains_key(&stays_id));
+        assert!(crate::discovery::claude_code::pid_alive(kept_pid));
+        let left: Vec<String> = office.snapshot().sessions.into_iter().map(|s| s.id).collect();
+        assert_eq!(left, vec![stays_id]);
+        office.demolish_floor(&floor.id).expect("cleanup floor");
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn exiling_an_in_app_desk_stops_its_driver() {
+        struct Spy(Arc<std::sync::atomic::AtomicBool>);
+        impl structured::Driver for Spy {
+            fn prompt(&self, _: &str) -> Result<(), String> { Ok(()) }
+            fn answer(&self, _: &str, _: &str, _: &structured::Values) -> Result<(), String> { Ok(()) }
+            fn cancel(&self) -> Result<(), String> { Ok(()) }
+            fn stop(&self) { self.0.store(true, std::sync::atomic::Ordering::SeqCst); }
+        }
+        let (office, dir, floor) = floor_office("exile-structured");
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let info = structured::desks::DeskInfo {
+            tool: ToolKind::Codex,
+            project_id: floor.id.clone(),
+            root: dir.join("home/code/app"),
+            title: "in app".to_string(),
+            model: "default".to_string(),
+            effort: "default".to_string(),
+        };
+        office.structured.seat("structured-1", info, SessionState::Thinking, Box::new(Spy(stopped.clone())));
+        office.refresh();
+        office.exile_session("structured-1").expect("exile");
+        assert!(stopped.load(std::sync::atomic::Ordering::SeqCst));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_session_that_will_not_stop_is_named_without_talk_of_a_floor() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "trap '' TERM; while :; do sleep 1; done"])
+            .spawn()
+            .expect("spawn");
+        std::thread::sleep(Duration::from_millis(200));
+        let pid = i32::try_from(child.id()).expect("pid");
+        let err = stop_agents(&[("stubborn".to_string(), pid)], Duration::from_millis(300));
+        child.kill().expect("kill");
+        child.wait().expect("reap");
+        assert_eq!(err, Err("stubborn did not stop".to_string()));
     }
 }

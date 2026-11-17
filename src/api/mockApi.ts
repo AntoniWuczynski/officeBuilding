@@ -590,6 +590,21 @@ export class MockApi implements DiscoveryApi {
     return Promise.resolve();
   }
 
+  /** The demo's agents always stop when asked. */
+  exileSession(sessionId: string): Promise<void> {
+    if (!this.snapshot.sessions.some((s) => s.id === sessionId)) {
+      return Promise.reject(new Error(`${sessionId} is not a session of this building`));
+    }
+    this.shells.delete(sessionId);
+    this.movedFrom.delete(sessionId);
+    this.commit({
+      ...this.snapshot,
+      sessions: this.snapshot.sessions.filter((s) => s.id !== sessionId),
+      questions: this.snapshot.questions.filter((q) => q.sessionId !== sessionId),
+    });
+    return Promise.resolve();
+  }
+
   moveSession(sessionId: string, projectId: string | null): Promise<void> {
     const snap = this.snapshot;
     const now = snap.sessions.find((s) => s.id === sessionId)?.projectId ?? snap.ended.find((e) => e.id === sessionId)?.projectId;

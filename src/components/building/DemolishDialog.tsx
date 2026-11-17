@@ -9,10 +9,12 @@ interface Props {
   readonly onDemolish: () => Promise<void>;
   readonly onCancel: () => void;
   readonly words: PlaceWords;
+  /** Set to stop one session instead of the place: `name` is the session, and this is the verb on the button. */
+  readonly exile?: string;
 }
 
 /** Confirm pulling a floor down, and say what happens to the agents on it. */
-export function DemolishDialog({ name, agents, onDemolish, onCancel, words }: Props): React.ReactElement {
+export function DemolishDialog({ name, agents, onDemolish, onCancel, words, exile }: Props): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,16 +39,18 @@ export function DemolishDialog({ name, agents, onDemolish, onCancel, words }: Pr
         });
       }}
     >
-      <h2 id="demolish-title">{words.removeTitle(name)}</h2>
+      <h2 id="demolish-title">{exile === undefined ? words.removeTitle(name) : `${exile} ${name}?`}</h2>
       <p className="panel-hint">
-        {agents === 0
+        {exile !== undefined ? (
+          `This stops ${name}, cleanly, so its work so far is saved.`
+        ) : agents === 0
           ? "No agents are working here. "
           : `${agents === 1 ? "The agent" : `All ${agents} agents`} on this ${words.noun} will be stopped first, cleanly, so ${agents === 1 ? "its" : "their"} work so far is saved. `}
-        {words.removeNote}
+        {exile === undefined ? words.removeNote : null}
       </p>
       {error === null ? null : (
         <p className="form-error" role="alert">
-          {words.removeFailed}: {error}.
+          {exile === undefined ? words.removeFailed : `Could not ${exile.toLowerCase()} ${name}`}: {error}.
         </p>
       )}
       <div className="dialog-actions">
@@ -54,7 +58,7 @@ export function DemolishDialog({ name, agents, onDemolish, onCancel, words }: Pr
           Cancel
         </button>
         <button type="submit" className="btn btn-danger" data-testid="demolish-submit" disabled={busy} autoFocus>
-          {busy ? (agents === 0 ? words.removeBusy : "Stopping agents") : words.removeVerb}
+          {busy ? (exile !== undefined ? "Stopping" : agents === 0 ? words.removeBusy : "Stopping agents") : (exile ?? words.removeVerb)}
         </button>
       </div>
     </form>

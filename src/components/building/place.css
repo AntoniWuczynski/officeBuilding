@@ -149,3 +149,39 @@
   top: -10px;
   left: -10px;
 }
+.place-exile {
+  flex: none;
+  align-self: flex-start;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+/* A thrown-out worker flies out the side of the building, then drops. */
+.worker.is-thrown {
+  pointer-events: none;
+  animation: worker-thrown 1s ease-in forwards;
+}
+@keyframes worker-thrown {
+  40% {
+    transform: translate(90px, -26px) rotate(200deg);
+  }
+  100% {
+    transform: translate(130px, 320px) rotate(520deg);
+    opacity: 0;
+  }
+}
+/* The Islands kick (.arch-kicked); its keyframes live here because archipelago.css allows only scoped selectors. */
+@keyframes arch-kicked {
+  30% {
+    transform: translate(34px, -18px) rotate(70deg);
+  }
+  100% {
+    transform: translate(60px, 50px) rotate(90deg) scale(0.6);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .worker.is-thrown,
+  .arch-kicked {
+    animation: none;
+  }
+}

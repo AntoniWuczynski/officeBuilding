@@ -292,6 +292,15 @@ export function App({ api }: Props): React.ReactElement {
     );
   }, [api, snapshot]);
 
+  const exileSession = useCallback(
+    (sessionId: string) =>
+      api.exileSession(sessionId).catch((err: unknown) => {
+        toast("error", `Could not ${words.exileVerb.toLowerCase()} that agent: ${message(err)}.`);
+        throw err;
+      }),
+    [api, toast, words],
+  );
+
   const demolishFloor = useCallback(
     (projectId: string) => {
       const name = snapshot?.projects.find((p) => p.id === projectId)?.name;
@@ -426,6 +435,7 @@ export function App({ api }: Props): React.ReactElement {
               onPickFolder={pickFolder}
               onAddFloor={addFloor}
               onDemolishFloor={demolishFloor}
+              onExileSession={exileSession}
               loadUsage={loadUsage}
               onOpenPlate={closeSettings}
               onAnswer={answer}

@@ -241,6 +241,10 @@ export class TauriApi implements DiscoveryApi {
     await call("demolish_floor", { projectId });
   }
 
+  async exileSession(sessionId: string): Promise<void> {
+    await call("exile_session", { sessionId });
+  }
+
   async moveSession(sessionId: string, projectId: string | null): Promise<void> {
     await call("move_session", { sessionId, projectId });
   }

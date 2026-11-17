@@ -79,4 +79,16 @@ describe("the place panel", () => {
     show({ onRemove, noun: "island", leaving: true });
     expect(screen.getByRole("button", { name: "Sink island" })).toBeDisabled();
   });
+
+  it("offers each agent a Throw out button only when it is given an onExile", async () => {
+    show();
+    expect(screen.queryByTestId("place-exile")).not.toBeInTheDocument();
+    document.body.innerHTML = "";
+    const onExile = vi.fn();
+    show({ onExile });
+    expect(screen.getAllByTestId("place-exile")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: /orders ingest fix/ })).not.toHaveAttribute("data-testid", "place-exile");
+    await userEvent.setup().click(screen.getAllByTestId("place-exile")[1]!);
+    expect(onExile).toHaveBeenCalledWith(expect.objectContaining({ id: "s-2" }));
+  });
 });

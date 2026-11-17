@@ -1,5 +1,5 @@
 // The island map: the building view's floors drawn as islands on one ocean. Same data, same actions.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { MapControls } from "three/examples/jsm/controls/MapControls.js";
 import type { OfficeSnapshot, Project, Session } from "../types";
@@ -10,7 +10,7 @@ import { questionsForProject, tripTag } from "../state/selectors";
 import { useNewMessages } from "../state/useNewMessages";
 import type { Present } from "../state/usePresence";
 import { PlaceNameplate } from "../components/building/PlaceNameplate";
-import { PLACE_PANEL_ID, PlacePanel } from "../components/building/PlacePanel";
+import { ExilingContext, PLACE_PANEL_ID, PlacePanel } from "../components/building/PlacePanel";
 import type { FloorModel } from "../components/building/Storey";
 import { PLACE } from "../state/placeWords";
 import { COUNTER_H, OCEAN_SIZE, buildBoat, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
@@ -150,11 +150,13 @@ interface Props {
   readonly onMoveSession: (sessionId: string, projectId: string) => void;
   readonly onAddFloor: () => void;
   readonly onDemolish: (projectId: string) => void;
+  /** Kick an agent into the sea: its session stops. Absent: no button. */
+  readonly onExile?: ((session: Session) => void) | undefined;
 }
 
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
-export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpenSession, onRenameIsland, onMoveSession, onAddFloor, onDemolish }: Props): React.ReactElement {
+export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpenSession, onRenameIsland, onMoveSession, onAddFloor, onDemolish, onExile }: Props): React.ReactElement {
   const host = useRef<HTMLDivElement>(null);
   const labels = useRef(new Map<string, HTMLButtonElement>());
   const personEls = useRef(new Map<string, HTMLDivElement>());
@@ -171,6 +173,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
   const homed = useRef(true);
   const focus = useRef<(projectId: string) => void>(() => undefined);
   const panelHeading = useRef<HTMLHeadingElement>(null);
+  const exiling = useContext(ExilingContext);
   const [noWebGl, setNoWebGl] = useState(false);
   // Reduced motion: still sea, instant camera moves, no flying notes (as the building's walks and collapses).
   const animateRef = useRef(animate);
@@ -847,7 +850,9 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
               else personEls.current.set(p.key, pe);
             }}
           >
-            <Person look={lookFor(p.session.id)} pose={poseForState(p.session.state)} />
+            <span className={exiling.has(p.session.id) ? "arch-kicked" : undefined}>
+              <Person look={lookFor(p.session.id)} pose={poseForState(p.session.state)} />
+            </span>
           </div>
         ))}
         {(noWebGl ? [] : rows).map(({ spec, floor }) => (
@@ -888,6 +893,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
             onMove={onMoveSession}
             onOpenSession={onOpenSession}
             onEnter={onEnter}
+            onExile={onExile}
             onRemove={picked.floor.plant ? undefined : () => onDemolish(picked.spec.projectId)}
             onClose={() => setSelected(null)}
           />

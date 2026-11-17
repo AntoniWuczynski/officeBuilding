@@ -24,7 +24,7 @@ import { BoardsSheet } from "./BoardsSheet";
 import { DemolishDialog } from "./DemolishDialog";
 import { EditableSign } from "./EditableSign";
 import { NeedsYou } from "./NeedsYou";
-import { PLACE_PANEL_ID, PlacePanel } from "./PlacePanel";
+import { ExilingContext, PLACE_PANEL_ID, PlacePanel } from "./PlacePanel";
 import { UsageSigns } from "./UsageSigns";
 import { Building, buildingHeight } from "./Building";
 import type { FloorModel } from "./Storey";
@@ -43,6 +43,8 @@ interface Props {
   readonly onPickFolder: () => Promise<string | null>;
   readonly onAddFloor: (path: string) => Promise<Project>;
   readonly onDemolishFloor: (projectId: string) => Promise<void>;
+  /** Stop one session. Rejects (after telling the human why) when it will not stop; the worker then comes back. */
+  readonly onExileSession?: (sessionId: string) => Promise<void>;
   readonly loadUsage: (refresh: boolean) => Promise<readonly ToolUsage[]>;
   /** The Add floor or Demolish plate is opening, so no other plate may stay open over it. */
   readonly onOpenPlate: () => void;
@@ -68,15 +70,19 @@ const Archipelago = lazy(() => import("../../archipelago/Archipelago").then((m) 
 /** The stage's side pads in camera units; the left one is where the floors' nameplates stand, clear of the window edge by PLATE_CLEAR. */
 const PAD = { left: 210, right: 187 } as const;
 const PLATE_CLEAR = 16;
+/** How long the thrown-out or kicked-off worker takes to go, matching the CSS keyframes. */
+const EXILE_MS = 1000;
 
 /** The roof sign's default reads as the place you are looking at; a name of your own shows in both. */
 const ISLANDS_DEFAULT_NAME = "The Islands";
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions, onAnswer, onTick, onOpenSettings }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, onExileSession, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions, onAnswer, onTick, onOpenSettings }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
+  const [exileAsk, setExileAsk] = useState<Session | null>(null);
+  const [exiling, setExiling] = useState<ReadonlySet<string>>(new Set());
   const animate = !(useReducedMotion() ?? false);
   const [buildingName, renameBuilding] = useBuildingName();
   const viewRef = useRef<HTMLDivElement>(null);
@@ -119,6 +125,33 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
     onOpenPlate();
     setDemolishing(projectId);
   };
+  const openExiling = (session: Session): void => {
+    onOpenPlate();
+    setExileAsk(session);
+  };
+
+  /** The worker plays its leaving, then the session stops; a session that will not stop returns. */
+  const exile = (session: Session): void => {
+    if (onExileSession === undefined) return;
+    const mark = (on: boolean): void =>
+      setExiling((now) => {
+        const next = new Set(now);
+        if (on) next.add(session.id);
+        else next.delete(session.id);
+        return next;
+      });
+    mark(true);
+    new Promise<void>((done) => setTimeout(done, animate ? EXILE_MS : 0))
+      .then(() => onExileSession(session.id))
+      .catch(() => mark(false));
+  };
+  // A thrown worker stays thrown (and unseen) until the snapshot has let it go.
+  useEffect(() => {
+    setExiling((now) => {
+      const live = now.size === 0 ? now : new Set([...now].filter((id) => sessionById(snapshot, id) !== undefined));
+      return live.size === now.size ? now : live;
+    });
+  }, [snapshot]);
 
   const originOf = (el: HTMLElement | null): ScreenOrigin => {
     const view = viewRef.current?.getBoundingClientRect();
@@ -164,6 +197,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   };
 
   return (
+    <ExilingContext value={exiling}>
     <div ref={viewRef} className="view building-view">
       <header className="topbar" data-tauri-drag-region>
         <span className="topbar-sign">
@@ -244,6 +278,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
               onMoveSession={overrideActions.moveSession}
               onAddFloor={openAdding}
               onDemolish={openDemolishing}
+              onExile={onExileSession === undefined ? undefined : openExiling}
             />
           </Suspense>
         ) : (
@@ -291,6 +326,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             onMove={overrideActions.moveSession}
             onOpenSession={onOpenSession}
             onEnter={(projectId) => onEnter(projectId, originOf(viewRef.current?.querySelector<HTMLElement>(`[data-testid="storey"][data-project="${projectId}"]`) ?? null))}
+            onExile={onExileSession === undefined ? undefined : openExiling}
             onRemove={placed.item.plant ? undefined : () => openDemolishing(placed.key)}
             onClose={() => setPlaceId(null)}
           />
@@ -317,6 +353,22 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           words={words}
         />
       )}
+
+      {exileAsk === null ? null : (
+        <DemolishDialog
+          name={exileAsk.title}
+          agents={1}
+          exile={words.exileVerb}
+          onCancel={() => setExileAsk(null)}
+          onDemolish={() => {
+            exile(exileAsk);
+            setExileAsk(null);
+            return Promise.resolve();
+          }}
+          words={words}
+        />
+      )}
     </div>
+    </ExilingContext>
   );
 }

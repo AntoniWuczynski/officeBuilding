@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useContext, useEffect, useRef } from "react";
 import type { FloorLight, Project, Session, Verdict } from "../../types";
 import type { Counts } from "../../state/selectors";
 import { poseForState } from "../../lib/animation";
@@ -12,7 +12,7 @@ import { Duct, Tank } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
 import { STATE_LABEL } from "../../state/selectors";
 import { PlaceNameplate } from "./PlaceNameplate";
-import { PLACE_PANEL_ID } from "./PlacePanel";
+import { ExilingContext, PLACE_PANEL_ID } from "./PlacePanel";
 import { usePresence } from "../../state/usePresence";
 import type { Phase } from "../../state/usePresence";
 
@@ -193,6 +193,12 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onOpenSes
 /** An agent whose session ended: up from the desk and off the floor. */
 function Leaver({ session, x, onGone }: { readonly session: Session; readonly x: number; readonly onGone: (id: string) => void }): React.ReactElement {
   const spot = seatOf({ x, y: STOREY.deskY });
+  // One thrown out the window has already left; it does not walk off a second time.
+  const thrown = useContext(ExilingContext).has(session.id);
+  useEffect(() => {
+    if (thrown) onGone(session.id);
+  }, [thrown, onGone, session.id]);
+  if (thrown) return <></>;
   return (
     <Billboard x={spot.x} y={spot.y} z={STOREY.slab}>
       <span
@@ -211,6 +217,7 @@ function Leaver({ session, x, onGone }: { readonly session: Session; readonly x:
 
 function Seat({ session, x, onOpen }: { readonly session: Session; readonly x: number; readonly onOpen: (session: Session) => void }): React.ReactElement {
   const desk = { x, y: STOREY.deskY };
+  const thrown = useContext(ExilingContext).has(session.id);
   const spot = session.state === "error" ? floorSpotOf(desk, STOREY.depth - 3) : seatOf(desk);
   return (
     <>
@@ -218,7 +225,7 @@ function Seat({ session, x, onOpen }: { readonly session: Session; readonly x: n
       <Billboard x={spot.x} y={spot.y} z={STOREY.slab}>
         <button
           type="button"
-          className={session.state === "error" ? "worker is-down" : "worker"}
+          className={`${session.state === "error" ? "worker is-down" : "worker"}${thrown ? " is-thrown" : ""}`}
           data-testid="storey-seat"
           aria-label={`${session.title}, ${STATE_LABEL[session.state]}. Open it.`}
           onClick={(e) => {

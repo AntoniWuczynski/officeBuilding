@@ -1,4 +1,4 @@
-import { useContext } from "react";
+import { createContext, useContext, useId } from "react";
 import type { Question, Session } from "../../types";
 import { STATE_LABEL, TOOL_LABEL, helpersLine, lastReplyLine, sessionsByUrgency } from "../../state/selectors";
 import { SeenContext } from "../../state/useSeen";
@@ -11,6 +11,9 @@ import "./place.css";
 
 /** The panel's element id: only one is open at a time, so the nameplates can all point at it. */
 export const PLACE_PANEL_ID = "place-panel";
+
+/** The sessions being thrown out or kicked into the sea: both views play their leaving, and the panel stops offering them again. */
+export const ExilingContext = createContext<ReadonlySet<string>>(new Set());
 
 /** A place an agent can be moved to. */
 export interface MoveTarget {
@@ -41,6 +44,8 @@ interface Props {
   readonly onMove: (sessionId: string, projectId: string) => void;
   readonly onOpenSession: (session: Session) => void;
   readonly onEnter: (projectId: string) => void;
+  /** Shown as a Throw out / Exile button on each agent's row, when given. */
+  readonly onExile?: ((session: Session) => void) | undefined;
   /** Shown as a Sink / Demolish button when the place can be removed (not the Setup place). */
   readonly onRemove?: (() => void) | undefined;
   /** Shown as a Close button when the view lets the panel be put away. */
@@ -48,11 +53,15 @@ interface Props {
 }
 
 /** One place's agents, shared by both views: rename it, open an agent (with what it waits to be asked shown), move an agent, go inside. */
-export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, counts, asks, moveTargets, leaving, className, headingRef, onRename, onMove, onOpenSession, onEnter, onRemove, onClose }: Props): React.ReactElement {
+export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, counts, asks, moveTargets, leaving, className, headingRef, onRename, onMove, onOpenSession, onEnter, onExile, onRemove, onClose }: Props): React.ReactElement {
   const pending = asks.length;
   const { isNew } = useContext(SeenContext);
   const links = useContext(BoardsContext);
-  const removeVerb = Object.values(PLACE).find((w) => w.noun === noun)?.removeVerb ?? "Remove";
+  const words = Object.values(PLACE).find((w) => w.noun === noun);
+  const removeVerb = words?.removeVerb ?? "Remove";
+  const exileVerb = words?.exileVerb ?? "Remove";
+  const uid = useId();
+  const exiling = useContext(ExilingContext);
   useEscapeClose(onClose !== undefined, () => onClose?.());
   return (
     <aside id={id} className={`place-panel ${className}`} data-testid="place-panel" aria-label={`${name} ${noun}`}>
@@ -70,7 +79,7 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
           return (
             <li key={s.id} data-state={s.state}>
               <button type="button" className="place-row" data-testid="place-row" onClick={() => onOpenSession(s)}>
-                <b>
+                <b id={`${uid}-${s.id}`}>
                   {s.title}
                   {isNew(s) ? <i className="new-dot" role="img" aria-label="New since you looked" data-testid="new-dot" /> : null}
                 </b>
@@ -96,6 +105,11 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
                   ))}
                 </select>
               ) : null}
+              {onExile === undefined ? null : (
+                <button type="button" className="btn place-exile" data-testid="place-exile" aria-label={exileVerb} aria-describedby={`${uid}-${s.id}`} disabled={exiling.has(s.id)} onClick={() => onExile(s)}>
+                  {exileVerb}
+                </button>
+              )}
             </li>
           );
         })}

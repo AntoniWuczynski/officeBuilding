@@ -144,6 +144,9 @@ export interface DiscoveryApi {
    */
   demolishFloor(projectId: string): Promise<void>;
 
+  /** Stop one session cleanly; it leaves the building. Rejects, leaving it running, when it will not stop or is unknown. */
+  exileSession(sessionId: string): Promise<void>;
+
   /**
    * Put a session on another floor, or with `null` (or its own floor) back where it was
    * found. Rejects for a session or floor the building does not have.

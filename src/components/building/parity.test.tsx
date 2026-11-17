@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BuildingView } from "./BuildingView";
 import { BoardsContext } from "./BoardsContext";
@@ -32,6 +32,7 @@ function setup(mode: ViewMode, setupProjectId?: string) {
     moveSession: vi.fn(),
     onTick: vi.fn(),
     link: vi.fn(),
+    exileSession: vi.fn(() => Promise.resolve()),
   };
   render(
     <Around link={spies.link}>
@@ -43,6 +44,7 @@ function setup(mode: ViewMode, setupProjectId?: string) {
         onPickFolder={() => Promise.resolve(null)}
         onAddFloor={(path) => Promise.resolve({ id: "p-new", name: path, path, sessionIds: [] })}
         onDemolishFloor={() => Promise.resolve()}
+        onExileSession={spies.exileSession}
         loadUsage={() => Promise.resolve([])}
         onOpenPlate={() => {}}
         onOpenSession={spies.onOpenSession}
@@ -104,6 +106,26 @@ describe.each(MODES)("shared capabilities in the %s view", (mode) => {
     document.body.innerHTML = "";
     setup(mode, "p-shop");
     expect(within(await openPanel(mode)).queryByTestId("place-remove")).not.toBeInTheDocument();
+  });
+
+  it("throws out or exiles one agent after one confirm, and does nothing on Cancel", async () => {
+    const verb = mode === "office" ? "Throw out" : "Exile";
+    const spies = setup(mode);
+    const panel = await openPanel(mode);
+    const user = userEvent.setup();
+    await user.click(within(panel).getAllByRole("button", { name: verb })[1]!);
+    expect(within(screen.getByRole("dialog")).getByRole("heading", { name: `${verb} orders ingest fix?` })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Longer than the 1 s throw, so a Cancel that still exiled would have called by now.
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(spies.exileSession).not.toHaveBeenCalled();
+    await user.click(within(panel).getAllByRole("button", { name: verb })[1]!);
+    await user.click(screen.getByTestId("demolish-submit"));
+    await waitFor(() => expect(spies.exileSession).toHaveBeenCalledTimes(1), { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(spies.exileSession).toHaveBeenCalledTimes(1);
+    expect(spies.exileSession).toHaveBeenCalledWith("s-2");
   });
 
   it("cancels a rename on Escape and leaves the panel open", async () => {
@@ -216,6 +238,8 @@ describe("what the two views offer", () => {
       replies: within(panel).queryAllByTestId("place-reply").length,
       tags: within(panel).queryAllByRole("textbox", { name: /Link a board tag/ }).length,
       remove: screen.getAllByRole("button", { name: /^(Demolish|Sink) / }).length,
+      exile: within(panel).queryAllByTestId("place-exile").length,
+      exileNamed: within(panel).queryAllByTestId("place-exile").filter((b) => b.getAttribute("aria-describedby") !== null && document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent !== "").length,
     };
   }
 
@@ -224,6 +248,42 @@ describe("what the two views offer", () => {
     document.body.innerHTML = "";
     const islands = await inventory("islands");
     expect(office).toEqual(islands);
-    expect(office).toMatchObject({ rename: 1, move: 3, open: 3, enter: 1, needsYou: 1, boards: 1, newCount: 1, newDots: 2, replies: 2, tags: 1 });
+    expect(office).toMatchObject({ rename: 1, move: 3, open: 3, enter: 1, needsYou: 1, boards: 1, newCount: 1, newDots: 2, replies: 2, tags: 1, exile: 3, exileNamed: 3 });
+  });
+});
+
+describe("a thrown-out worker in the office", () => {
+  it("does not come back to walk off once the session is gone from the snapshot", async () => {
+    localStorage.setItem("office-building:seen-since", "0");
+    const exile = vi.fn(() => Promise.resolve());
+    const view = (snapshot: ReturnType<typeof makeSeedSnapshot>): React.ReactElement => (
+      <Around link={() => {}}>
+        <BuildingView
+          snapshot={snapshot}
+          mode="office"
+          onEnter={() => {}}
+          canPickFolder={false}
+          onPickFolder={() => Promise.resolve(null)}
+          onAddFloor={(path) => Promise.resolve({ id: "p-new", name: path, path, sessionIds: [] })}
+          onDemolishFloor={() => Promise.resolve()}
+          onExileSession={exile}
+          loadUsage={() => Promise.resolve([])}
+          onOpenPlate={() => {}}
+          onOpenSession={() => {}}
+          overrideActions={{ renameFloor: () => {}, moveSession: () => {} }}
+          onAnswer={() => Promise.resolve()}
+          onTick={() => {}}
+        />
+      </Around>
+    );
+    const seed = makeSeedSnapshot();
+    const { rerender } = render(view(seed));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^corner_shop: .* Show floor\.$/ }));
+    await user.click(within(screen.getByTestId("place-panel")).getAllByRole("button", { name: "Throw out" })[1]!);
+    await user.click(screen.getByTestId("demolish-submit"));
+    await waitFor(() => expect(exile).toHaveBeenCalledWith("s-2"), { timeout: 3000 });
+    rerender(view({ ...seed, sessions: seed.sessions.filter((x) => x.id !== "s-2") }));
+    expect(screen.queryByTestId("storey-leaver")).not.toBeInTheDocument();
   });
 });
