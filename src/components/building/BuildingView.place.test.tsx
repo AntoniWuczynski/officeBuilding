@@ -109,6 +109,38 @@ describe("Escape closes one thing at a time", () => {
   });
 });
 
+describe("Escape in a dialog or a popover over the panel", () => {
+  it("closes only the Add-floor dialog, and the Demolish dialog, leaving the panel open", async () => {
+    const { storey } = setup();
+    const user = userEvent.setup();
+    await user.click(within(storey("p-shop")).getByTestId("floor-nameplate"));
+    await user.click(screen.getByTestId("add-floor"));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("add-floor-dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    await user.click(within(storey("p-notes")).getByTestId("demolish-floor"));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("demolish-dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+  });
+
+  it("closes the newest of the Boards sheet and the Needs-you list first, then the other, then the panel", async () => {
+    const { storey } = setup();
+    const user = userEvent.setup();
+    await user.click(within(storey("p-shop")).getByTestId("floor-nameplate"));
+    await user.click(screen.getByTestId("boards"));
+    await user.click(screen.getByTestId("needs-you"));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Waiting on you" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Shared boards" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Shared boards" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+  });
+});
+
 describe("the panel does not come back by itself", () => {
   const shown = (snapshot: OfficeSnapshot, mode: ViewMode): React.ReactElement => (
     <BuildingView

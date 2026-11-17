@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { SharedBoard } from "../../types";
 import { openCount } from "../../state/selectors";
 import { useNow } from "../../state/useNow";
 import { TodoList } from "../floor/TodoList";
+import { useEscapeClose } from "./useEscapeClose";
 import "./boards.css";
 
 interface Props {
@@ -17,17 +18,8 @@ export function BoardsSheet({ boards, onTick, onOpenSettings }: Props): React.Re
   const [open, setOpen] = useState(false);
   const now = useNow();
   const waiting = boards.reduce((n, b) => n + openCount(b.items), 0);
-  useEffect(() => {
-    if (!open) return;
-    // Captured and marked handled, as the Needs-you list does, so a panel under the sheet keeps this Escape.
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      setOpen(false);
-    };
-    window.addEventListener("keydown", onKey, { capture: true });
-    return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useEscapeClose(open, close);
   return (
     <span className="boards-menu">
       <button type="button" className="btn" data-testid="boards" aria-expanded={open} aria-controls="boards-sheet" onClick={() => setOpen(!open)}>

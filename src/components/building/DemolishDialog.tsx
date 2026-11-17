@@ -23,7 +23,9 @@ export function DemolishDialog({ name, agents, onDemolish, onCancel, words }: Pr
       aria-labelledby="demolish-title"
       data-testid="demolish-dialog"
       onKeyDown={(e) => {
-        if (e.key === "Escape" && !busy) onCancel();
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        if (!busy) onCancel();
       }}
       onSubmit={(e) => {
         e.preventDefault();

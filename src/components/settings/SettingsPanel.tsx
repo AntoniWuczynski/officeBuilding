@@ -36,7 +36,10 @@ export function SettingsPanel({ load, save, editors, loadHireOptions, onTestAler
       aria-labelledby="settings-title"
       data-testid="settings-dialog"
       onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
       }}
     >
       <h2 id="settings-title">Settings</h2>

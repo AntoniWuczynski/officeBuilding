@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import type { OfficeSnapshot, Project, Session, ToolOptions } from "../../types";
 import type { HireRequest, QuestionAnswer } from "../../api/DiscoveryApi";
 import {
+  boardItemsForProject,
   endedForProject,
   qaFor,
   formatUsd,
@@ -28,6 +29,7 @@ import { Stage } from "../../scene/Stage";
 import type { FloorLook } from "../../scene/Desk";
 import { beachSidePad } from "../../scene/Camp";
 import { LiftIcon } from "../icons";
+import { BoardsContext } from "../building/BoardsContext";
 import { HireDialog } from "./HireDialog";
 import { Rail } from "./Rail";
 import { Room } from "./Room";
@@ -81,7 +83,9 @@ export function FloorView(props: Props): React.ReactElement {
   const counts = sessionCounts(sessions);
   const matching = searchSessions(sessions, query).length;
   const questions = questionsForProject(snapshot, project.id);
-  const humanTodos = todosForProject(snapshot, project.id, "human");
+  // Board lines tagged for this floor are its Human TODOs too: the panel, the rail badge and the room's object read one list.
+  const boardLinks = useContext(BoardsContext);
+  const humanTodos = [...todosForProject(snapshot, project.id, "human"), ...boardItemsForProject(snapshot, project, boardLinks?.linked[project.id] ?? [])];
   const aiTodos = todosForProject(snapshot, project.id, "ai");
   const spend = totalSpend(sessions);
   const ended = endedForProject(snapshot, project.id);
@@ -223,6 +227,7 @@ export function FloorView(props: Props): React.ReactElement {
               section={section}
               project={project}
               snapshot={snapshot}
+              humanTodos={humanTodos}
               now={now}
               onClose={() => onSection(null)}
               onOpenSection={(s) => onSection(s)}

@@ -211,3 +211,18 @@ describe("Settings > Boards", () => {
     expect(screen.queryByText("/Users/me/QUEUE.md")).not.toBeInTheDocument();
   });
 });
+
+describe("Escape in Settings over an open place panel", () => {
+  it("closes Settings and leaves the Office place panel open", async () => {
+    const user = await show("office");
+    await openPlace(user, "corner_shop");
+    await act(async () => {
+      await user.keyboard("{Meta>},{/Meta}");
+    });
+    const settings = await screen.findByTestId("settings-dialog");
+    within(settings).getByTestId("settings-boards-add").focus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("settings-dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+  });
+});

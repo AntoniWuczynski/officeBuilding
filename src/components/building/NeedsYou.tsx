@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
 import type { OfficeSnapshot, Question } from "../../types";
 import { isSessionAsk, needsYouQueue, sessionById } from "../../state/selectors";
 import { useNow } from "../../state/useNow";
 import { relativeTime } from "../../lib/time";
 import { message } from "../../lib/errors";
+import { useEscapeClose } from "./useEscapeClose";
 import "./needs-you.css";
 
 interface Props {
@@ -79,17 +80,8 @@ export function NeedsYou({ snapshot, onOpen, onAnswer }: Props): React.ReactElem
   const [open, setOpen] = useState(false);
   const now = useNow();
   const queue = needsYouQueue(snapshot);
-  useEffect(() => {
-    if (!open) return;
-    // Captured, and marked handled, so the panel under the list does not also take this Escape.
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      setOpen(false);
-    };
-    window.addEventListener("keydown", onKey, { capture: true });
-    return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useEscapeClose(open, close);
   return (
     <span className="needs-you-menu">
       <button type="button" className="btn" data-testid="needs-you" aria-expanded={open} aria-controls="needs-you-list" onClick={() => setOpen(!open)}>

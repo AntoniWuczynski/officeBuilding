@@ -12,7 +12,7 @@ export function BoardsGroup({ value, onChange }: Props): React.ReactElement {
   const add = (text: string): string | null => {
     const path = text.trim();
     if (path === "") return null;
-    if (!(path.startsWith("/") || path.startsWith("~/"))) return "Use the file's full path, starting with / or ~/.";
+    if (!path.startsWith("/")) return "Use the file's full path, starting with /.";
     if (value.sharedFiles.includes(path)) return "That file is already on the list.";
     onChange({ sharedFiles: [...value.sharedFiles, path] });
     return null;
