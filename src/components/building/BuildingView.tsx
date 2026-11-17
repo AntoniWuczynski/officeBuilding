@@ -65,7 +65,7 @@ interface Props {
 // The island map pulls in three.js (a 596 kB chunk, 152 kB gzipped): load it only when Islands is chosen.
 const Archipelago = lazy(() => import("../../archipelago/Archipelago").then((m) => ({ default: m.Archipelago })));
 
-/** The stage's side pads in camera units; the left one is where the floors' nameplates stand, 16 of it clear of the building. */
+/** The stage's side pads in camera units; the left one is where the floors' nameplates stand, clear of the window edge by PLATE_CLEAR. */
 const PAD = { left: 210, right: 187 } as const;
 const PLATE_CLEAR = 16;
 
@@ -133,10 +133,11 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
     if (root === null || islands) return;
     const measure = (): void => {
       const zoom = parseFloat(getComputedStyle(root.querySelector(".stage-camera") ?? root).zoom) || 1;
-      // From the plate's right edge to its leftmost part: the waiting badge hangs past the plate's left edge.
+      // From the plate's anchor, the stage's left content edge, to its leftmost part: the plate stands 16px (its CSS right) off the anchor,
+      // and the waiting badge hangs past the plate's left edge.
       const reach = (p: Element): number => {
-        const r = p.getBoundingClientRect();
-        return (r.right - Math.min(r.left, ...[...p.querySelectorAll("*")].map((c) => c.getBoundingClientRect().left))) / zoom;
+        const edge = (p.closest(".nameplate-anchor") ?? p).getBoundingClientRect().left;
+        return (edge - Math.min(p.getBoundingClientRect().left, ...[...p.querySelectorAll("*")].map((c) => c.getBoundingClientRect().left))) / zoom;
       };
       const widest = Math.max(0, ...[...root.querySelectorAll(".storey .nameplate")].map(reach));
       setPlateRoom(Math.max(0, Math.ceil(widest + PLATE_CLEAR) - PAD.left));
