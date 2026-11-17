@@ -66,4 +66,17 @@ describe("the place panel", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("offers Sink / Demolish only when given a way to remove, and calls it", async () => {
+    show();
+    expect(screen.queryByTestId("place-remove")).not.toBeInTheDocument();
+    document.body.innerHTML = "";
+    const onRemove = vi.fn();
+    show({ onRemove });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Demolish floor" }));
+    expect(onRemove).toHaveBeenCalled();
+    document.body.innerHTML = "";
+    show({ onRemove, noun: "island", leaving: true });
+    expect(screen.getByRole("button", { name: "Sink island" })).toBeDisabled();
+  });
 });

@@ -79,10 +79,12 @@
   font: 12px var(--font-ui);
 }
 .place-enter,
+.place-remove,
 .place-close {
   width: 100%;
   flex: none;
 }
+.place-remove,
 .place-close {
   margin-top: 6px;
 }

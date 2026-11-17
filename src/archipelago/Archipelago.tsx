@@ -888,6 +888,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
             onMove={onMoveSession}
             onOpenSession={onOpenSession}
             onEnter={onEnter}
+            onRemove={picked.floor.plant ? undefined : () => onDemolish(picked.spec.projectId)}
             onClose={() => setSelected(null)}
           />
         )}

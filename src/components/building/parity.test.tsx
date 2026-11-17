@@ -21,7 +21,7 @@ function Around({ link, children }: { readonly link: (projectId: string, tags: r
   );
 }
 
-function setup(mode: ViewMode) {
+function setup(mode: ViewMode, setupProjectId?: string) {
   // A news baseline older than the seed data, so its idle agents count as new.
   localStorage.setItem("office-building:seen-since", "0");
   const spies = {
@@ -36,7 +36,7 @@ function setup(mode: ViewMode) {
   render(
     <Around link={spies.link}>
       <BuildingView
-        snapshot={makeSeedSnapshot()}
+        snapshot={{ ...makeSeedSnapshot(), ...(setupProjectId === undefined ? {} : { setupProjectId }) }}
         mode={mode}
         onEnter={spies.onEnter}
         canPickFolder={false}
@@ -94,6 +94,16 @@ describe.each(MODES)("shared capabilities in the %s view", (mode) => {
     const panel = await openPanel(mode);
     await userEvent.setup().click(within(panel).getByTestId("place-enter"));
     expect(spies.onEnter).toHaveBeenCalledWith("p-shop", expect.anything());
+  });
+
+  it("opens the remove dialog from its panel, and offers no removal on the Setup place", async () => {
+    setup(mode);
+    const panel = await openPanel(mode);
+    await userEvent.setup().click(within(panel).getByTestId("place-remove"));
+    expect(within(screen.getByRole("dialog")).getByRole("heading", { name: mode === "office" ? "Demolish corner_shop?" : "Sink corner_shop?" })).toBeInTheDocument();
+    document.body.innerHTML = "";
+    setup(mode, "p-shop");
+    expect(within(await openPanel(mode)).queryByTestId("place-remove")).not.toBeInTheDocument();
   });
 
   it("cancels a rename on Escape and leaves the panel open", async () => {

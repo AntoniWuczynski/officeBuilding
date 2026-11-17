@@ -291,6 +291,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             onMove={overrideActions.moveSession}
             onOpenSession={onOpenSession}
             onEnter={(projectId) => onEnter(projectId, originOf(viewRef.current?.querySelector<HTMLElement>(`[data-testid="storey"][data-project="${projectId}"]`) ?? null))}
+            onRemove={placed.item.plant ? undefined : () => openDemolishing(placed.key)}
             onClose={() => setPlaceId(null)}
           />
         )}

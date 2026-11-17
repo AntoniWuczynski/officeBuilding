@@ -6,6 +6,7 @@ import { BoardsContext } from "./BoardsContext";
 import { EditableSign } from "./EditableSign";
 import { PlaceTags } from "./PlaceTags";
 import { useEscapeClose } from "./useEscapeClose";
+import { PLACE } from "../../state/placeWords";
 import "./place.css";
 
 /** The panel's element id: only one is open at a time, so the nameplates can all point at it. */
@@ -40,15 +41,18 @@ interface Props {
   readonly onMove: (sessionId: string, projectId: string) => void;
   readonly onOpenSession: (session: Session) => void;
   readonly onEnter: (projectId: string) => void;
+  /** Shown as a Sink / Demolish button when the place can be removed (not the Setup place). */
+  readonly onRemove?: (() => void) | undefined;
   /** Shown as a Close button when the view lets the panel be put away. */
   readonly onClose?: () => void;
 }
 
 /** One place's agents, shared by both views: rename it, open an agent (with what it waits to be asked shown), move an agent, go inside. */
-export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, counts, asks, moveTargets, leaving, className, headingRef, onRename, onMove, onOpenSession, onEnter, onClose }: Props): React.ReactElement {
+export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, counts, asks, moveTargets, leaving, className, headingRef, onRename, onMove, onOpenSession, onEnter, onRemove, onClose }: Props): React.ReactElement {
   const pending = asks.length;
   const { isNew } = useContext(SeenContext);
   const links = useContext(BoardsContext);
+  const removeVerb = Object.values(PLACE).find((w) => w.noun === noun)?.removeVerb ?? "Remove";
   useEscapeClose(onClose !== undefined, () => onClose?.());
   return (
     <aside id={id} className={`place-panel ${className}`} data-testid="place-panel" aria-label={`${name} ${noun}`}>
@@ -100,6 +104,11 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
       <button type="button" className="btn btn-primary place-enter" data-testid="place-enter" disabled={leaving} onClick={() => onEnter(projectId)}>
         {enterLabel}
       </button>
+      {onRemove === undefined ? null : (
+        <button type="button" className="btn place-remove" data-testid="place-remove" disabled={leaving} onClick={onRemove}>
+          {removeVerb} {noun}
+        </button>
+      )}
       {onClose === undefined ? null : (
         <button type="button" className="btn place-close" onClick={onClose}>
           Close
