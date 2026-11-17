@@ -11,6 +11,7 @@ import { materialsFor } from "../../scene/materials";
 import { Duct, Tank } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
 import { STATE_LABEL } from "../../state/selectors";
+import type { Cluster } from "../../state/clusters";
 import { PlaceNameplate } from "./PlaceNameplate";
 import { ExilingContext, PLACE_PANEL_ID } from "./PlacePanel";
 import { usePresence } from "../../state/usePresence";
@@ -29,6 +30,8 @@ export interface FloorModel {
   readonly plant: boolean;
   /** The floor's QA stamp, when its QA is on and a review has left one. */
   readonly stamp: Verdict | null;
+  /** The project cluster the floor stands in; null for the setup floor and a floor no cluster names. */
+  readonly cluster: Cluster | null;
 }
 
 interface StoreyProps {

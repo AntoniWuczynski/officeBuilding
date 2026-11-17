@@ -33,6 +33,7 @@ const floor = (id: string, name: string): FloorModel => ({
   dimmed: false,
   plant: false,
   stamp: null,
+  cluster: null,
 });
 const entries = (a: string, b: string): Present<FloorModel>[] => [
   { key: "1", item: floor("1", a), phase: "here" },

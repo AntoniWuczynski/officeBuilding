@@ -24,6 +24,7 @@ function entries(sinking: readonly string[] = []): Present<FloorModel>[] {
       dimmed: !matchesQuery(project, ""),
       plant: project.id === snapshot.setupProjectId,
       stamp: qa?.enabled === true ? qa.stamp : null,
+      cluster: null,
     };
     return { key: project.id, item, phase: sinking.includes(project.id) ? "leaving" : "here" };
   });

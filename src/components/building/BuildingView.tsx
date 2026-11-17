@@ -28,6 +28,7 @@ import { ExilingContext, PLACE_PANEL_ID, PlacePanel } from "./PlacePanel";
 import { UsageSigns } from "./UsageSigns";
 import { Building, buildingHeight } from "./Building";
 import type { FloorModel } from "./Storey";
+import { useProjects } from "../../state/ProjectsContext";
 import type { OverrideActions } from "../../state/overrides";
 
 export interface ScreenOrigin {
@@ -92,10 +93,18 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   /** How far the left pad must grow so the widest nameplate stands inside the window: a long name or a stamp widens its plate, not the pad. */
   const [plateRoom, setPlateRoom] = useState(0);
 
-  const floors: FloorModel[] = snapshot.projects.map((project) => {
+  const { clusters, clusterOf } = useProjects();
+  const byId = new Map(snapshot.projects.map((p) => [p.id, p]));
+  const clustered = clusters.flatMap((c) => c.repoIds.flatMap((id) => (byId.has(id) && id !== snapshot.setupProjectId ? [id] : [])));
+  const inCluster = new Set(clustered);
+  // Repos no cluster names keep today's order, ahead of the setup floor.
+  const order = [...clustered, ...snapshot.projects.filter((p) => !inCluster.has(p.id) && p.id !== snapshot.setupProjectId).map((p) => p.id), ...snapshot.projects.filter((p) => p.id === snapshot.setupProjectId).map((p) => p.id)];
+  const floors: FloorModel[] = order.flatMap((id) => {
+    const project = byId.get(id);
+    if (project === undefined) return [];
     const sessions = sessionsForProject(snapshot, project.id);
     const qa = qaFor(snapshot, project.id);
-    return {
+    return [{
       project,
       sessions,
       light: floorLight(sessions),
@@ -104,7 +113,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
       dimmed: !matchesQuery(project, query),
       plant: project.id === snapshot.setupProjectId,
       stamp: qa?.enabled === true ? qa.stamp : null,
-    };
+      cluster: clusterOf.get(project.id) ?? null,
+    }];
   });
   const standing = usePresence(floors, (f) => f.project.id, animate);
   const doomed = floors.find((f) => f.project.id === demolishing);

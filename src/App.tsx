@@ -5,6 +5,10 @@ import type { DiscoveryApi, HireRequest, QuestionAnswer } from "./api/DiscoveryA
 import type { Editor, Place, Session, SettingsPatch } from "./types";
 import { TOOL_LABEL, editorLabel, sessionById } from "./state/selectors";
 import { useNow } from "./state/useNow";
+import { useClusters } from "./state/useClusters";
+import { ProjectsContext } from "./state/ProjectsContext";
+import type { ProjectsValue } from "./state/ProjectsContext";
+import { similarNames } from "./state/similarNames";
 import { useOffice } from "./state/useOffice";
 import { SeenContext, useSeen } from "./state/useSeen";
 import { ViewSwitch } from "./components/ViewSwitch";
@@ -80,6 +84,11 @@ export function App({ api }: Props): React.ReactElement {
   );
 
   const snapshot = state.status === "ready" ? state.snapshot : null;
+  const grouping = useClusters(snapshot);
+  const projects = useMemo<ProjectsValue>(
+    () => ({ ...grouping, rules: snapshot?.projectRules ?? [], rulesError: snapshot?.projectRulesError ?? null, similar: similarNames, assignProject: (target, choice) => api.assignProject(target, choice) }),
+    [grouping, snapshot, api],
+  );
   const project = view.kind === "floor" && snapshot !== null ? snapshot.projects.find((p) => p.id === view.projectId) : undefined;
 
   // A hire reported as started can still fail before the agent reaches its desk.
@@ -499,11 +508,13 @@ export function App({ api }: Props): React.ReactElement {
       <ManagerContext value={managerActions}>
       <SeenContext value={seen}>
       <BoardsContext value={boardLinks}>
+      <ProjectsContext value={projects}>
         <div className={viewMode === "islands" && project === undefined ? "app is-islands" : "app"}>
           {body}
           {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </ProjectsContext>
       </BoardsContext>
       </SeenContext>
       </ManagerContext>
