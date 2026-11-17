@@ -323,6 +323,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             id={PLACE_PANEL_ID}
             className="office-panel"
             projectId={placed.key}
+            project={placed.item.plant ? undefined : placed.item.project}
             name={placed.item.project.name}
             noun={words.noun}
             enterLabel="Enter floor"

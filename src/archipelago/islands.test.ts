@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Project } from "../types";
-import { agentSlots, assignSeats, clampToBounds, closestPair, layoutIslands, MAX_SLOTS, mergeOrder, shortName, worldBounds } from "./islands";
+import { agentSlots, assignSeats, assignSlots, clampToBounds, closestPair, CLUSTER_STEP, layoutClusters, layoutIslands, MAX_SLOTS, mergeOrder, shortName, worldBounds } from "./islands";
+import type { SlotAt } from "./islands";
 
 const p = (id: string, name: string, path: string): Project => ({ id, name, path, sessionIds: [] });
 
@@ -154,5 +155,87 @@ describe("shortName", () => {
   });
   it("names a session with a blank title rather than leaving an empty tag", () => {
     expect(shortName("   ")).toBe("Agent");
+  });
+});
+
+describe("layoutClusters", () => {
+  const ids = (n: number, tag: string): string[] => Array.from({ length: n }, (_, i) => `${tag}${i}`);
+  /** `sizes[c]` repos in cluster `c`, laid out as Archipelago does: order by first sight, slots by assignSlots. */
+  function build(sizes: readonly number[], prev: ReadonlyMap<string, SlotAt> = new Map()) {
+    const groups = new Map(sizes.map((n, c) => [`c${c}`, ids(n, `r${c}-`)] as const));
+    const slots = assignSlots(prev, groups);
+    const projects = [...groups.values()].flat().map((id) => p(id, id, `/work/${id}`));
+    return { slots, ...layoutClusters([...groups.keys()], slots, projects, "none"), projects };
+  }
+  const at = (l: { islands: { projectId: string; x: number; z: number }[] }, id: string) => l.islands.find((i) => i.projectId === id);
+
+  it("keeps 92 units between any two islands for 1..12 clusters of 1..8 islands", () => {
+    for (let c = 1; c <= 12; c++)
+      for (let n = 1; n <= 8; n++) {
+        const { islands } = build(Array<number>(c).fill(n));
+        for (const a of islands) for (const b of islands) if (a !== b) expect(Math.hypot(a.x - b.x, a.z - b.z), `${c} x ${n}`).toBeGreaterThanOrEqual(91.9);
+        expect(closestPair(islands), `${c} x ${n}`).toBeGreaterThan(4);
+      }
+  });
+
+  it("moves no existing island when a cluster is added or one grows from 1 to 8", () => {
+    const before = build([2, 1, 3]);
+    expect(build([2, 1, 3, 4]).islands.slice(0, 6).map((i) => [i.x, i.z])).toEqual(before.islands.map((i) => [i.x, i.z]));
+    let prev = build([1, 2, 2]);
+    for (let n = 2; n <= 8; n++) {
+      const next = build([n, 2, 2], prev.slots);
+      for (const i of prev.islands) expect(at(next, i.projectId), `${n}`).toMatchObject({ x: i.x, z: i.z });
+      prev = next;
+    }
+  });
+
+  it("puts clusters 9..16 on an outer ring and moves none of the first 8", () => {
+    const eight = build(Array<number>(8).fill(1));
+    const sixteen = build(Array<number>(16).fill(1));
+    for (const i of eight.islands) expect(at(sixteen, i.projectId)).toMatchObject({ x: i.x, z: i.z });
+    expect(closestPair(sixteen.islands)).toBeGreaterThan(4);
+  });
+
+  it("moves no island outside a cluster when the first guess makes a new one", () => {
+    const ungrouped = new Map([["ungrouped", ["a", "b", "c"]]]);
+    const slots = assignSlots(new Map(), ungrouped);
+    const all = ["a", "b", "c"].map((id) => p(id, id, `/work/${id}`));
+    const before = layoutClusters(["ungrouped"], slots, all, "none").islands;
+    const moved = assignSlots(slots, new Map([["ungrouped", ["a", "b"]], ["beta", ["c"]]]));
+    const after = layoutClusters(["ungrouped", "beta"], moved, all, "none").islands;
+    expect(after.filter((i) => i.projectId !== "c").map((i) => [i.x, i.z])).toEqual(before.filter((i) => i.projectId !== "c").map((i) => [i.x, i.z]));
+    expect(after.find((i) => i.projectId === "c")).not.toMatchObject({ x: before[2]?.x, z: before[2]?.z });
+  });
+
+  it("gives a repo that changes cluster the next free slot of its new one and leaves the others", () => {
+    const first = assignSlots(new Map(), new Map([["u", ["a", "b"]], ["alpha", ["c"]]]));
+    const next = assignSlots(first, new Map([["u", ["b"]], ["alpha", ["c", "a"]]]));
+    expect(next.get("a")).toEqual({ cluster: "alpha", slot: 1 });
+    expect(next.get("b")).toEqual(first.get("b"));
+    expect(next.get("c")).toEqual(first.get("c"));
+  });
+
+  it("does not draw an empty cluster and keeps the lighthouse out of the rings", () => {
+    const projects = [p("a", "a", "/w/a"), p("s", "Setup", "/w/s")];
+    const l = layoutClusters(["gone", "alpha"], assignSlots(new Map(), new Map([["alpha", ["a"]]])), projects, "s");
+    expect([...l.centres.keys()]).toEqual(["alpha"]);
+    const lh = l.islands.find((i) => i.projectId === "s");
+    if (lh === undefined) throw new Error("no lighthouse");
+    expect(lh.theme).toBe("lighthouse");
+    for (const i of l.islands) if (i !== lh) expect(Math.hypot(i.x - lh.x, i.z - lh.z)).toBeGreaterThan(92);
+  });
+  it("keeps the lighthouse one step out with one cluster, and clear of every island with 23 or more", () => {
+    const one = layoutClusters(["c0"], assignSlots(new Map(), new Map([["c0", ["a"]]])), [p("a", "a", "/w/a"), p("s", "Setup", "/w/s")], "s");
+    const near = one.islands.find((i) => i.projectId === "s");
+    if (near === undefined) throw new Error("no lighthouse");
+    expect(Math.hypot(near.x, near.z)).toBeLessThanOrEqual(2 * CLUSTER_STEP);
+    for (const n of [23, 30, 40]) {
+      const groups = new Map(Array.from({ length: n }, (_, c) => [`c${c}`, [`r${c}`]] as const));
+      const projects = [...groups.values()].flat().map((id) => p(id, id, `/w/${id}`)).concat(p("s", "Setup", "/w/s"));
+      const l = layoutClusters([...groups.keys()], assignSlots(new Map(), groups), projects, "s");
+      const house = l.islands.find((i) => i.projectId === "s");
+      if (house === undefined) throw new Error("no lighthouse");
+      for (const i of l.islands) if (i !== house) expect(Math.hypot(i.x - house.x, i.z - house.z), `${n}`).toBeGreaterThan(92);
+    }
   });
 });

@@ -5,6 +5,8 @@ import { isSessionAsk, needsYouQueue, sessionById } from "../../state/selectors"
 import { useNow } from "../../state/useNow";
 import { relativeTime } from "../../lib/time";
 import { message } from "../../lib/errors";
+import { useProjects } from "../../state/ProjectsContext";
+import { ProjectPick } from "./ProjectField";
 import { useEscapeClose } from "./useEscapeClose";
 import "./needs-you.css";
 
@@ -75,21 +77,40 @@ function Row({ snapshot, q, now, onOpen, onAnswer }: { readonly snapshot: Office
   );
 }
 
+/** A named session the app cannot place: pick its project, and the row goes. */
+function WhichProject({ name, onAssigned }: { readonly name: string; readonly onAssigned: () => void }): React.ReactElement {
+  return (
+    <li className="needs-you-row" data-testid="which-project-row">
+      <p className="needs-you-prompt">Which project?</p>
+      <p className="needs-you-meta">{name}</p>
+      <ProjectPick label={`Which project for ${name}`} current={null} hint={name} target={{ kind: "session", key: name }} onAssigned={onAssigned} />
+    </li>
+  );
+}
+
 /** A top-bar button, in both views, opening what is waiting on you across the whole map: agents' asks first, then repo decisions-file calls. */
 export function NeedsYou({ snapshot, onOpen, onAnswer }: Props): React.ReactElement {
   const [open, setOpen] = useState(false);
   const now = useNow();
   const queue = needsYouQueue(snapshot);
+  const { unplaced } = useProjects();
+  // The app's own list catches up on the next scan; an answered row goes now.
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
+  const listed = [...new Set(unplaced.flatMap((s) => (s.sessionName === null ? [] : [s.sessionName])))];
+  // A name the data stopped listing is forgotten, so it shows a row again if it comes back unplaced.
+  if ([...answered].some((n) => !listed.includes(n))) setAnswered(new Set([...answered].filter((n) => listed.includes(n))));
+  const names = listed.filter((n) => !answered.has(n));
+  const total = queue.length + names.length;
   const close = useCallback(() => setOpen(false), []);
   useEscapeClose(open, close);
   return (
     <span className="needs-you-menu">
       <button type="button" className="btn" data-testid="needs-you" aria-expanded={open} aria-controls="needs-you-list" onClick={() => setOpen(!open)}>
-        Needs you{queue.length > 0 ? ` ${queue.length}` : ""}
+        Needs you{total > 0 ? ` ${total}` : ""}
       </button>
       {open ? (
         <section id="needs-you-list" className="needs-you-list" aria-label="Waiting on you">
-          {queue.length === 0 ? (
+          {total === 0 ? (
             <p className="needs-you-meta">Nothing is waiting on you.</p>
           ) : (
             <ol>
@@ -105,6 +126,9 @@ export function NeedsYou({ snapshot, onOpen, onAnswer }: Props): React.ReactElem
                   }}
                   onAnswer={onAnswer}
                 />
+              ))}
+              {names.map((n) => (
+                <WhichProject key={n} name={n} onAssigned={() => setAnswered((prev) => new Set(prev).add(n))} />
               ))}
             </ol>
           )}

@@ -53,17 +53,100 @@ export function layoutIslands(projects: readonly Project[], setupProjectId: stri
   return projects.map((project, i) => {
     const a = i * GOLDEN_ANGLE;
     const r = i === 0 ? 0 : SPACING * Math.sqrt(i);
-    const isSetup = project.id === setupProjectId;
-    return {
-      projectId: project.id,
-      name: project.name,
-      x: Math.cos(a) * r,
-      z: Math.sin(a) * r,
-      radius: isSetup ? 11 : 22 + (hash(project.id) % 5),
-      theme: isSetup ? "lighthouse" : themeFor(project),
-      seed: hash(project.id),
-    };
+    return specFor(project, Math.cos(a) * r, Math.sin(a) * r, setupProjectId);
   });
+}
+
+function specFor(project: Project, x: number, z: number, setupProjectId: string): IslandSpec {
+  const isSetup = project.id === setupProjectId;
+  return {
+    projectId: project.id,
+    name: project.name,
+    x,
+    z,
+    radius: isSetup ? 11 : 22 + (hash(project.id) % 5),
+    theme: isSetup ? "lighthouse" : themeFor(project),
+    seed: hash(project.id),
+  };
+}
+
+/**
+ * Fixed slot `i` of a layout whose neighbours sit `step` apart: slot 0 in the middle, then rings of as many slots as
+ * fit at that spacing (7, 15, 23 ...), each ring 1.3 steps beyond the last. The slot never depends on what else is there.
+ */
+export function ringSlot(i: number, step: number): { x: number; z: number } {
+  if (i === 0) return { x: 0, z: 0 };
+  let left = i - 1;
+  for (let ring = 1; ; ring++) {
+    const r = step * (1.2 + 1.3 * (ring - 1));
+    const n = Math.floor(Math.PI / Math.asin(step / (2 * r)));
+    if (left < n) {
+      const a = (left / n) * Math.PI * 2;
+      return { x: Math.cos(a) * r, z: Math.sin(a) * r };
+    }
+    left -= n;
+  }
+}
+
+/** Centre-to-centre distance of clusters: a full ring of 8 islands reaches 110 + 32 from its centre, so 92 more sea between two of them. */
+export const CLUSTER_STEP = 330;
+
+export interface SlotAt {
+  readonly cluster: string;
+  readonly slot: number;
+}
+
+/**
+ * A slot in its cluster for each repo. A repo keeps its slot while it stays in its cluster; a newcomer, or a repo that
+ * changed cluster, takes the first free slot of the cluster it is in now. Repos no longer listed keep theirs (a hole of sea).
+ */
+export function assignSlots(prev: ReadonlyMap<string, SlotAt>, groups: ReadonlyMap<string, readonly string[]>): Map<string, SlotAt> {
+  const next = new Map<string, SlotAt>();
+  const taken = new Map<string, Set<number>>();
+  const take = (id: string, at: SlotAt): void => {
+    next.set(id, at);
+    taken.set(at.cluster, (taken.get(at.cluster) ?? new Set<number>()).add(at.slot));
+  };
+  const listed = new Map<string, string>();
+  for (const [cluster, ids] of groups) for (const id of ids) listed.set(id, cluster);
+  for (const [id, at] of prev) if (!listed.has(id) || listed.get(id) === at.cluster) take(id, at);
+  for (const [cluster, ids] of groups) {
+    for (const id of ids) {
+      if (next.has(id)) continue;
+      let slot = 0;
+      while (taken.get(cluster)?.has(slot) === true) slot++;
+      take(id, { cluster, slot });
+    }
+  }
+  return next;
+}
+
+/**
+ * Islands grouped in clusters: each cluster sits on a fixed ring slot by its first-seen index (`clusterOrder`), each
+ * repo on its slot inside it, the setup project on the lighthouse slot. Repos with no slot, and clusters with no repo, are not drawn.
+ */
+export function layoutClusters(
+  clusterOrder: readonly string[],
+  slots: ReadonlyMap<string, SlotAt>,
+  projects: readonly Project[],
+  setupProjectId: string,
+): { islands: IslandSpec[]; centres: Map<string, { x: number; z: number }> } {
+  const centres = new Map<string, { x: number; z: number }>();
+  const islands = projects.flatMap((project) => {
+    if (project.id === setupProjectId) return [];
+    const at = slots.get(project.id);
+    const index = at === undefined ? -1 : clusterOrder.indexOf(at.cluster);
+    if (at === undefined || index < 0) return [];
+    const c = ringSlot(index, CLUSTER_STEP);
+    centres.set(at.cluster, c);
+    const o = ringSlot(at.slot, SPACING);
+    return [specFor(project, c.x + o.x, c.z + o.z, setupProjectId)];
+  });
+  // Placed last: it needs the occupied rings, and it moves only when a new ring opens, never a repo island for it.
+  const outer = Math.max(0, ...[...centres.values()].map((c) => Math.hypot(c.x, c.z)));
+  const setup = projects.find((project) => project.id === setupProjectId);
+  if (setup !== undefined) islands.push(specFor(setup, 0, outer + CLUSTER_STEP, setupProjectId));
+  return { islands, centres };
 }
 
 /** Seats per island; the rest of a crowded island shows as a "+N" on its label. */

@@ -185,3 +185,25 @@
     animation: none;
   }
 }
+.place-project {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0;
+  font: 12px var(--font-ui);
+}
+.place-project-pick,
+.place-project-new {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.place-project .place-move,
+.place-project-pick .place-move {
+  width: auto;
+  max-width: 140px;
+}
+.place-tag {
+  font: 11px var(--font-ui);
+  color: var(--ink-soft);
+}

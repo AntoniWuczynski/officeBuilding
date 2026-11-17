@@ -2,20 +2,22 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { MapControls } from "three/examples/jsm/controls/MapControls.js";
-import type { OfficeSnapshot, Project, Session } from "../types";
+import type { OfficeSnapshot, Session } from "../types";
 import { poseForState } from "../lib/animation";
 import { hashString, lookFor } from "../lib/looks";
 import { Person } from "../scene/Person";
+import { useProjects } from "../state/ProjectsContext";
 import { questionsForProject, tripTag } from "../state/selectors";
 import { useNewMessages } from "../state/useNewMessages";
 import type { Present } from "../state/usePresence";
+import { tagText } from "../components/building/ProjectField";
 import { PlaceNameplate } from "../components/building/PlaceNameplate";
 import { ExilingContext, PLACE_PANEL_ID, PlacePanel } from "../components/building/PlacePanel";
 import type { FloorModel } from "../components/building/Storey";
 import { PLACE } from "../state/placeWords";
 import { COUNTER_H, OCEAN_SIZE, buildBoat, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
-import { agentSlots, assignSeats, clampToBounds, layoutIslands, MAX_SLOTS, mergeOrder, shortName, worldBounds } from "./islands";
-import type { IslandSpec } from "./islands";
+import { agentSlots, assignSeats, assignSlots, clampToBounds, layoutClusters, MAX_SLOTS, mergeOrder, shortName, worldBounds } from "./islands";
+import type { IslandSpec, SlotAt } from "./islands";
 import { Occluder } from "./occlusion";
 import type { Subject } from "./occlusion";
 import { boxAt, roomFor } from "./pick";
@@ -46,6 +48,8 @@ const FRAME_GAP = 16;
 const COAST_REACH = 1.23;
 /** How high a label hangs above its island's centre, as the render loop places it. */
 const LABEL_Y = 26;
+/** A project's label hangs higher, over the island labels of its cluster. */
+const CLUSTER_LABEL_Y = 58;
 /** North up with the opening tilt: the camera looks at the middle of the map from this side. */
 const OPENING = new THREE.Vector3(0, 1, 1).normalize();
 /** Open sea kept around the islands: the camera target cannot leave this box. */
@@ -154,6 +158,10 @@ interface Props {
   readonly onExile?: ((session: Session) => void) | undefined;
 }
 
+/** Where a floor's repo stands: its cluster's key, "ungrouped" for a repo no project names, null for the setup lighthouse. */
+const UNGROUPED = "ungrouped";
+const clusterKey = (e: Present<FloorModel>): string | null => (e.item.plant ? null : (e.item.cluster?.kind === "ungrouped" ? null : e.item.cluster?.id) ?? UNGROUPED);
+
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
 export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpenSession, onRenameIsland, onMoveSession, onAddFloor, onDemolish, onExile }: Props): React.ReactElement {
@@ -186,18 +194,33 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
   const phases = useRef(new Map<string, Present<FloorModel>["phase"]>());
   phases.current = new Map(entries.map((e) => [e.key, e.phase]));
 
-  // Layout order: islands keep their place for as long as this view is open; a removed one leaves a hole of sea.
-  const order = useRef<string[]>([]);
-  const known = useRef(new Map<string, Project>());
-  for (const e of entries) known.current.set(e.key, e.item.project);
-  order.current = mergeOrder(order.current, entries.map((e) => e.key));
-  const signature = entries.map((e) => e.key).join("\u0000");
-  const islands = useMemo(() => {
-    const present = new Set(signature.split("\u0000"));
-    const placed = layoutIslands(order.current.flatMap((id) => known.current.get(id) ?? []), snapshot.setupProjectId);
-    return placed.filter((i) => present.has(i.projectId));
-    // The layout depends on which projects exist, not on their live counts or names: a rename reaches the labels through `rows`.
+  // Layout: a cluster keeps its ring slot and a repo its place in it for as long as this view is open; a removed one leaves a hole of sea.
+  const clusterOrder = useRef<string[]>([]);
+  const slots = useRef(new Map<string, SlotAt>());
+  const latest = useRef(entries);
+  latest.current = entries;
+  const clusterKeys = entries.map(clusterKey);
+  // Repo and cluster together: a repo that changes cluster must move, so the key list alone is not enough.
+  const signature = entries.map((e, i) => `${e.key}\u0001${clusterKeys[i] ?? ""}`).join("\u0000");
+  const { islands, centres } = useMemo(() => {
+    const here = latest.current.filter((e) => !e.item.plant);
+    const groups = new Map<string, string[]>();
+    for (const e of here) {
+      const k = clusterKey(e) ?? UNGROUPED;
+      groups.set(k, [...(groups.get(k) ?? []), e.key]);
+    }
+    clusterOrder.current = mergeOrder(clusterOrder.current, [...groups.keys()]);
+    slots.current = assignSlots(slots.current, groups);
+    return layoutClusters(clusterOrder.current, slots.current, latest.current.map((e) => e.item.project), snapshot.setupProjectId);
+    // The layout depends on which projects exist and where they stand, not on their live counts or names: a rename reaches the labels through `rows`.
   }, [signature, snapshot.setupProjectId]);
+  const clusterLabels = [...centres].map(([key, at]) => ({ key, at, label: entries.find((e) => clusterKey(e) === key)?.item.cluster?.label ?? "Ungrouped" }));
+  const centresRef = useRef(centres);
+  centresRef.current = centres;
+  const clusterEls = useRef(new Map<string, HTMLDivElement>());
+  const { tags: sessionTags } = useProjects();
+  const tagsRef = useRef(sessionTags);
+  tagsRef.current = sessionTags;
   /** Where the camera was, so rebuilding the scene for a new island does not snap the view back home. */
   const view = useRef<{ readonly position: THREE.Vector3; readonly target: THREE.Vector3 } | null>(null);
   /** When each sinking island started to sink, so a rebuild mid-sink does not restart it. */
@@ -626,6 +649,13 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
           labelAt.set(spec.projectId, { px: s.px, py: s.py });
         }
       }
+      for (const [key, el] of clusterEls.current) {
+        const c = centresRef.current.get(key);
+        if (c === undefined) continue;
+        const s = screen(new THREE.Vector3(c.x, CLUSTER_LABEL_Y, c.z));
+        el.style.transform = `translate(-50%, -100%) translate(${s.px}px, ${s.py}px)`;
+        el.style.display = s.behind ? "none" : "block";
+      }
       const byKey = new Map<string, Placed>();
       const subjects: Subject[] = [];
       for (const p of live.current.people) {
@@ -688,7 +718,8 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
           tag = makeTag("arch-tag");
           tags.set(p.key, tag);
         }
-        const name = shortName(p.session.title);
+        const project = tagText(tagsRef.current.get(p.session.id)) ?? undefined;
+        const name = project === undefined ? shortName(p.session.title) : `${shortName(p.session.title)} \u00b7 ${project}`;
         if (tag.textContent !== name) tag.textContent = name;
         tag.style.display = shown && scale >= TAG_SCALE && s.px >= 0 && s.px <= el.clientWidth && s.py >= 0 && s.py <= el.clientHeight ? "block" : "none";
         if (tag.style.display === "block") {
@@ -822,6 +853,12 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
     };
   }, [islands]);
 
+  // The list follows the clusters in entry order, "Ungrouped" last, the lighthouse after them with no heading.
+  const keyOfRow = new Map(entries.map((e, i) => [e.key, clusterKeys[i] ?? "setup"]));
+  const listGroups = [...clusterLabels.filter((c) => c.key !== UNGROUPED), ...clusterLabels.filter((c) => c.key === UNGROUPED), { key: "setup", label: null }].map((g) => ({
+    ...g,
+    items: rows.filter((r) => keyOfRow.get(r.spec.projectId) === g.key),
+  }));
   const picked = rows.find((r) => r.spec.projectId === selected);
   // The Setup island is not a place to work, and a sinking one is going: neither takes an agent.
   const moveTargets = rows.filter((r) => r.spec.projectId !== picked?.spec.projectId && !r.floor.plant && r.phase !== "leaving");
@@ -855,6 +892,18 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
             </span>
           </div>
         ))}
+        {(noWebGl ? [] : clusterLabels).map(({ key, label }) => (
+          <div
+            key={key}
+            className="arch-cluster"
+            ref={(d) => {
+              if (d === null) clusterEls.current.delete(key);
+              else clusterEls.current.set(key, d);
+            }}
+          >
+            {label}
+          </div>
+        ))}
         {(noWebGl ? [] : rows).map(({ spec, floor }) => (
           <button
             key={spec.projectId}
@@ -880,6 +929,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
             id={PLACE_PANEL_ID}
             className="arch-panel"
             projectId={picked.spec.projectId}
+            project={picked.floor.plant ? undefined : picked.floor.project}
             name={picked.spec.name}
             noun={PLACE.islands.noun}
             enterLabel="Open island"
@@ -900,38 +950,43 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
         )}
       </div>
       <nav className="arch-list" aria-label="Islands">
-        {rows.map(({ spec, floor, phase }) => (
-          <div
-            key={spec.projectId}
-            className={`arch-list-row light-${floor.light}${floor.dimmed ? " is-dim" : ""}`}
-            data-selected={spec.projectId === selected ? "" : undefined}
-            onMouseEnter={() => {
-              hover.current = spec.projectId;
-            }}
-            onMouseLeave={() => {
-              if (hover.current === spec.projectId) hover.current = null;
-            }}
-          >
-            <PlaceNameplate
-              mode="islands"
-              projectId={spec.projectId}
-              name={spec.name}
-              light={floor.light}
-              counts={floor.counts}
-              pending={floor.pending}
-              overflow={Math.max(0, floor.sessions.length - MAX_SLOTS)}
-              plant={floor.plant}
-              stamp={floor.stamp}
-              leaving={phase === "leaving"}
-              expanded={spec.projectId === selected}
-              panelId={PLACE_PANEL_ID}
-              onShow={() => {
-                setSelected(spec.projectId);
-                flyTo.current(spec);
-              }}
-              onRemove={() => onDemolish(spec.projectId)}
-            />
-          </div>
+        {listGroups.map(({ key, label, items }) => (
+          <section key={key} className="arch-list-group" aria-label={label ?? undefined}>
+            {label === null ? null : <h3 className="arch-list-heading">{label}</h3>}
+            {items.map(({ spec, floor, phase }) => (
+              <div
+                key={spec.projectId}
+                className={`arch-list-row light-${floor.light}${floor.dimmed ? " is-dim" : ""}`}
+                data-selected={spec.projectId === selected ? "" : undefined}
+                onMouseEnter={() => {
+                  hover.current = spec.projectId;
+                }}
+                onMouseLeave={() => {
+                  if (hover.current === spec.projectId) hover.current = null;
+                }}
+              >
+                <PlaceNameplate
+                  mode="islands"
+                  projectId={spec.projectId}
+                  name={spec.name}
+                  light={floor.light}
+                  counts={floor.counts}
+                  pending={floor.pending}
+                  overflow={Math.max(0, floor.sessions.length - MAX_SLOTS)}
+                  plant={floor.plant}
+                  stamp={floor.stamp}
+                  leaving={phase === "leaving"}
+                  expanded={spec.projectId === selected}
+                  panelId={PLACE_PANEL_ID}
+                  onShow={() => {
+                    setSelected(spec.projectId);
+                    flyTo.current(spec);
+                  }}
+                  onRemove={() => onDemolish(spec.projectId)}
+                />
+              </div>
+            ))}
+          </section>
         ))}
         <button type="button" className="arch-add" data-testid="add-island" onClick={onAddFloor}>
           + Add an island

@@ -5,6 +5,10 @@ import { SeenContext } from "../../state/useSeen";
 import { BoardsContext } from "./BoardsContext";
 import { EditableSign } from "./EditableSign";
 import { PlaceTags } from "./PlaceTags";
+import { ProjectField, ProjectPick, tagText } from "./ProjectField";
+import { useProjects } from "../../state/ProjectsContext";
+import { repoFolder } from "../../state/projectGuess";
+import type { Project } from "../../types";
 import { useEscapeClose } from "./useEscapeClose";
 import { PLACE } from "../../state/placeWords";
 import "./place.css";
@@ -25,6 +29,8 @@ interface Props {
   /** The element id the nameplate's aria-controls points at. */
   readonly id?: string;
   readonly projectId: string;
+  /** The repo, for its folder: the Project field writes by folder. Omitted for a place that is not a repo. */
+  readonly project?: Project | undefined;
   readonly name: string;
   /** "island" or "floor": what the place is called in this view. */
   readonly noun: string;
@@ -53,7 +59,7 @@ interface Props {
 }
 
 /** One place's agents, shared by both views: rename it, open an agent (with what it waits to be asked shown), move an agent, go inside. */
-export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, counts, asks, moveTargets, leaving, className, headingRef, onRename, onMove, onOpenSession, onEnter, onExile, onRemove, onClose }: Props): React.ReactElement {
+export function PlacePanel({ id, projectId, project, name, noun, enterLabel, sessions, counts, asks, moveTargets, leaving, className, headingRef, onRename, onMove, onOpenSession, onEnter, onExile, onRemove, onClose }: Props): React.ReactElement {
   const pending = asks.length;
   const { isNew } = useContext(SeenContext);
   const links = useContext(BoardsContext);
@@ -61,6 +67,8 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
   const removeVerb = words?.removeVerb ?? "Remove";
   const exileVerb = words?.exileVerb ?? "Remove";
   const uid = useId();
+  const { clusterOf, tags } = useProjects();
+  const home = clusterOf.get(projectId)?.label ?? null;
   const exiling = useContext(ExilingContext);
   useEscapeClose(onClose !== undefined, () => onClose?.());
   return (
@@ -76,6 +84,7 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
         {sessionsByUrgency(sessions).map((s) => {
           const ask = asks.find((q) => q.sessionId === s.id);
           const reply = lastReplyLine(s.lastReply);
+          const tag = tagText(tags.get(s.id));
           return (
             <li key={s.id} data-state={s.state}>
               <button type="button" className="place-row" data-testid="place-row" onClick={() => onOpenSession(s)}>
@@ -88,6 +97,11 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
                   {helpersLine(s) === null ? "" : ` · ${helpersLine(s)}`}
                   {s.worktree ? " · in a worktree" : ""}
                 </span>
+                {tag === null ? null : (
+                  <span className="place-tag" data-testid="place-tag">
+                    {tag}
+                  </span>
+                )}
                 {reply === null ? null : (
                   <span className="reply-line place-reply" data-testid="place-reply">
                     {reply}
@@ -105,6 +119,7 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
                   ))}
                 </select>
               ) : null}
+              {s.sessionName === null ? null : <ProjectPick label={`Project for ${s.title}`} current={tagText(tags.get(s.id)) ?? home} hint={s.sessionName} target={{ kind: "session", key: s.sessionName }} />}
               {onExile === undefined ? null : (
                 <button type="button" className="btn place-exile" data-testid="place-exile" aria-label={exileVerb} aria-describedby={`${uid}-${s.id}`} disabled={exiling.has(s.id)} onClick={() => onExile(s)}>
                   {exileVerb}
@@ -114,6 +129,7 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
           );
         })}
       </ul>
+      {project === undefined ? null : <ProjectField repoKey={repoFolder(project)} current={home} />}
       {links === null ? null : <PlaceTags key={projectId} noun={noun} tags={links.linked[projectId] ?? []} onChange={(tags) => links.link(projectId, tags)} />}
       <button type="button" className="btn btn-primary place-enter" data-testid="place-enter" disabled={leaving} onClick={() => onEnter(projectId)}>
         {enterLabel}

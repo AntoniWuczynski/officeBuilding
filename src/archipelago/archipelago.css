@@ -47,6 +47,33 @@
   /* A scroll box clips what is drawn outside it, so the selected plate's ring (2px line + 2px offset) needs this much room inside. */
   padding: 4px;
 }
+.arch-list-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.arch-list-heading {
+  margin: 4px 0 0;
+  font: 700 12px/1 var(--font-sign);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+/* A project's name over its cluster: the island labels' sign, set a size larger. */
+.arch-cluster {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  padding: 4px 12px 2px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font: 700 18px/1 var(--font-sign);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
 /* The sink button sits in the row beside the nameplate, so it never covers the badge or leaves the list. */
 .arch-list-row {
   display: flex;

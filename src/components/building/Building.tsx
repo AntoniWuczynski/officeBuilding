@@ -55,11 +55,25 @@ export function Building({ floors, animate, width, name, onRename, onEnter, onOp
       onGone={onGone}
     />
   );
+  // Floors arrive in cluster order, so a block is a run of equal clusters; its label sits on the run's top floor.
+  const named = (f: Present<FloorModel>): boolean => f.item.cluster !== null && f.item.cluster.kind !== "ungrouped";
+  const labelled = above.some(named);
+  const labels = above.flatMap((f, k) => {
+    const c = f.item.cluster;
+    const up = above[k - 1];
+    if (up !== undefined && (up.item.cluster?.id ?? null) === (c?.id ?? null) && named(up) === named(f)) return [];
+    return labelled ? [{ key: f.key, text: named(f) ? c?.label ?? "" : "Ungrouped", level: n - k }] : [];
+  });
   return (
     <>
       {basement.map((f) => storey(f, 0))}
       <Lobby width={width} level={lobby} />
       {above.map((f, k) => storey(f, n - k))}
+      {labels.map((l) => (
+        <Billboard key={`block-${l.key}`} x={0} y={STOREY.depth} z={(l.level + 1) * STOREY.height - 4} className="block-label-anchor">
+          <span className="block-label" data-testid="block-label" style={{ maxWidth: width - 20 }}>{l.text}</span>
+        </Billboard>
+      ))}
       <Roof width={width} level={n + 1} name={name} onRename={onRename} onAddFloor={onAddFloor} />
     </>
   );
