@@ -12,7 +12,7 @@ export function nameKey(sessionName: string): string {
   return sessionName.toLowerCase().replace(/-x$/, "").replace(/-\d+$/, "");
 }
 
-/** The repo's folder name from its path; `Project.name` carries her island renames. */
+/** The repo's folder name from its path; `Project.name` carries the human's island renames. */
 export function repoFolder(p: Project): string {
   const parts = p.path.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? "";

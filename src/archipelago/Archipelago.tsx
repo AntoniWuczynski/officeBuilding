@@ -16,6 +16,7 @@ import { ExilingContext, PLACE_PANEL_ID, PlacePanel } from "../components/buildi
 import type { FloorModel } from "../components/building/Storey";
 import { PLACE } from "../state/placeWords";
 import { COUNTER_H, OCEAN_SIZE, buildBoat, buildIsland, buildOcean, buildStall, ownMaterials, release, setOpacity } from "./build";
+import { UNGROUPED_LABEL } from "../state/clusters";
 import { agentSlots, assignSeats, assignSlots, clampToBounds, layoutClusters, MAX_SLOTS, mergeOrder, shortName, worldBounds } from "./islands";
 import type { IslandSpec, SlotAt } from "./islands";
 import { Occluder } from "./occlusion";
@@ -159,7 +160,8 @@ interface Props {
 }
 
 /** Where a floor's repo stands: its cluster's key, "ungrouped" for a repo no project names, null for the setup lighthouse. */
-const UNGROUPED = "ungrouped";
+// A NUL in the key keeps it apart from any rule id or guess key a rules file can hold.
+const UNGROUPED = "\u0000ungrouped";
 const clusterKey = (e: Present<FloorModel>): string | null => (e.item.plant ? null : (e.item.cluster?.kind === "ungrouped" ? null : e.item.cluster?.id) ?? UNGROUPED);
 
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
@@ -214,7 +216,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
     return layoutClusters(clusterOrder.current, slots.current, latest.current.map((e) => e.item.project), snapshot.setupProjectId);
     // The layout depends on which projects exist and where they stand, not on their live counts or names: a rename reaches the labels through `rows`.
   }, [signature, snapshot.setupProjectId]);
-  const clusterLabels = [...centres].map(([key, at]) => ({ key, at, label: entries.find((e) => clusterKey(e) === key)?.item.cluster?.label ?? "Ungrouped" }));
+  const clusterLabels = [...centres].map(([key, at]) => ({ key, at, label: entries.find((e) => clusterKey(e) === key)?.item.cluster?.label ?? UNGROUPED_LABEL }));
   const centresRef = useRef(centres);
   centresRef.current = centres;
   const clusterEls = useRef(new Map<string, HTMLDivElement>());

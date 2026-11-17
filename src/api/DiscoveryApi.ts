@@ -52,6 +52,18 @@ export interface FileDrop {
   readonly y: number;
 }
 
+/** What a project is assigned to: a repo by id or a session by name. */
+export interface ProjectTarget {
+  readonly kind: "repo" | "session";
+  readonly key: string;
+}
+
+/** A project picked or typed: an existing rule's id, or null with a name for a new one. */
+export interface ProjectChoice {
+  readonly id: string | null;
+  readonly name: string;
+}
+
 /**
  * The single seam between the UI and its data source. Phase 1 = `MockApi`
  * (in-browser, no native deps). Phase 2+ = `TauriApi` calling the Rust backend
@@ -59,16 +71,6 @@ export interface FileDrop {
  * one for the other is a single provider change — the UI depends only on this
  * interface.
  */
-export interface ProjectTarget {
-  readonly kind: "repo" | "session";
-  readonly key: string;
-}
-
-export interface ProjectChoice {
-  readonly id: string | null;
-  readonly name: string;
-}
-
 export interface DiscoveryApi {
   /** Current full snapshot of projects/sessions/questions/decisions/todos. */
   getSnapshot(): Promise<OfficeSnapshot>;

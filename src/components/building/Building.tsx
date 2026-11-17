@@ -1,3 +1,4 @@
+import { UNGROUPED_LABEL } from "../../state/clusters";
 import type { Session } from "../../types";
 import { STOREY } from "../../lib/layout";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
@@ -62,7 +63,7 @@ export function Building({ floors, animate, width, name, onRename, onEnter, onOp
     const c = f.item.cluster;
     const up = above[k - 1];
     if (up !== undefined && (up.item.cluster?.id ?? null) === (c?.id ?? null) && named(up) === named(f)) return [];
-    return labelled ? [{ key: f.key, text: named(f) ? c?.label ?? "" : "Ungrouped", level: n - k }] : [];
+    return labelled ? [{ key: f.key, text: named(f) ? c?.label ?? "" : UNGROUPED_LABEL, level: n - k }] : [];
   });
   return (
     <>

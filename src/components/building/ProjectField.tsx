@@ -2,18 +2,14 @@ import { useState } from "react";
 import { useProjects } from "../../state/ProjectsContext";
 import type { SessionTag } from "../../state/clusters";
 import { message } from "../../lib/errors";
-
-interface Choice {
-  readonly id: string | null;
-  readonly name: string;
-}
+import type { ProjectChoice, ProjectTarget } from "../../api/DiscoveryApi";
 
 interface Props {
   /** Accessible name of the select, e.g. "Project" or "Project for beta-web". */
   readonly label: string;
   /** What the select shows now, or null when nothing is chosen yet. */
   readonly current: string | null;
-  readonly target: { readonly kind: "repo" | "session"; readonly key: string };
+  readonly target: ProjectTarget;
   /** A name to rank the suggestions against (a session's name); the typed name wins once typing. */
   readonly hint?: string;
   /** Called after a choice was saved. */
@@ -21,7 +17,7 @@ interface Props {
 }
 
 const NEW = "\u0000new";
-const key = (c: Choice, i: number): string => `${i}:${c.id ?? c.name}`;
+const optionKey = (c: ProjectChoice, i: number): string => `${i}:${c.id ?? c.name}`;
 
 /** The words a session's tag shows, the same in every view: a project name, or "Harness, <home>". Unplaced shows none. */
 export function tagText(tag: SessionTag | undefined): string | null {
@@ -30,9 +26,9 @@ export function tagText(tag: SessionTag | undefined): string | null {
 }
 
 /** Existing projects: the rules file's, then guessed ones. A guess is chosen by its key, a rule by its id. */
-function useChoices(): Choice[] {
+function useChoices(): ProjectChoice[] {
   const { rules, clusters } = useProjects();
-  const out: Choice[] = rules.map((r) => ({ id: r.id, name: r.name }));
+  const out: ProjectChoice[] = rules.map((r) => ({ id: r.id, name: r.name }));
   for (const c of clusters) if (c.kind === "project" && c.source === "guess" && c.id !== null) out.push({ id: c.id, name: c.label });
   return out;
 }
@@ -46,15 +42,15 @@ export function ProjectPick({ label, current, target, hint, onAssigned }: Props)
   const [error, setError] = useState<string | null>(null);
   const disabled = rulesError !== null;
   const names = choices.map((c) => c.name);
-  const ranked = (input: string): Choice[] => {
+  const ranked = (input: string): ProjectChoice[] => {
     const near = similar(input, names);
-    const rank = (c: Choice): number => {
+    const rank = (c: ProjectChoice): number => {
       const i = near.indexOf(c.name);
       return i < 0 ? near.length : i;
     };
     return [...choices].sort((a, b) => rank(a) - rank(b));
   };
-  const choose = (p: Choice): void => {
+  const choose = (p: ProjectChoice): void => {
     setError(null);
     assignProject(target, p).then(
       () => {
@@ -76,14 +72,14 @@ export function ProjectPick({ label, current, target, hint, onAssigned }: Props)
         onChange={(e) => {
           if (e.target.value === NEW) setCreating(true);
           else {
-            const picked = ranked(hint ?? "").find((c, i) => key(c, i) === e.target.value);
+            const picked = ranked(hint ?? "").find((c, i) => optionKey(c, i) === e.target.value);
             if (picked !== undefined) choose(picked);
           }
         }}
       >
         <option value="">{current ?? "Project..."}</option>
         {ranked(hint ?? "").map((c, i) => (
-          <option key={key(c, i)} value={key(c, i)}>
+          <option key={optionKey(c, i)} value={optionKey(c, i)}>
             {c.name}
           </option>
         ))}
@@ -94,9 +90,7 @@ export function ProjectPick({ label, current, target, hint, onAssigned }: Props)
           <input aria-label="New project" value={text} placeholder="Project name" onChange={(e) => setText(e.target.value)} />
           {typed === ""
             ? null
-            : [
-                ...ranked(typed).filter((c) => similar(typed, names).includes(c.name)),
-              ].map((c) => (
+            : ranked(typed).filter((c) => similar(typed, names).includes(c.name)).map((c) => (
                 <button key={c.id ?? c.name} type="button" className="btn" onClick={() => choose(c)}>
                   {c.name}
                 </button>

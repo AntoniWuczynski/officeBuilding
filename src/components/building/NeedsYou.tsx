@@ -6,6 +6,7 @@ import { useNow } from "../../state/useNow";
 import { relativeTime } from "../../lib/time";
 import { message } from "../../lib/errors";
 import { useProjects } from "../../state/ProjectsContext";
+import { WHICH_PROJECT } from "../../state/clusters";
 import { ProjectPick } from "./ProjectField";
 import { useEscapeClose } from "./useEscapeClose";
 import "./needs-you.css";
@@ -81,7 +82,7 @@ function Row({ snapshot, q, now, onOpen, onAnswer }: { readonly snapshot: Office
 function WhichProject({ name, onAssigned }: { readonly name: string; readonly onAssigned: () => void }): React.ReactElement {
   return (
     <li className="needs-you-row" data-testid="which-project-row">
-      <p className="needs-you-prompt">Which project?</p>
+      <p className="needs-you-prompt">{WHICH_PROJECT}</p>
       <p className="needs-you-meta">{name}</p>
       <ProjectPick label={`Which project for ${name}`} current={null} hint={name} target={{ kind: "session", key: name }} onAssigned={onAssigned} />
     </li>

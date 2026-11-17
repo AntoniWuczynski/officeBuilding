@@ -601,6 +601,7 @@ export class MockApi implements DiscoveryApi {
   assignProject(target: ProjectTarget, project: ProjectChoice): Promise<void> {
     if (target.key.trim() === "") return Promise.reject(new Error("nothing to put under a project"));
     const name = project.name.trim();
+    // Mirrors `project_rules::slug` in Rust.
     const slug = name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
     const id = project.id || slug;
     let rules: ProjectRule[] = [...this.snapshot.projectRules];

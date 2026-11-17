@@ -1,6 +1,11 @@
 import type { OfficeSnapshot, ProjectRule, Session } from "../types";
 import { type Placement, firstWord, nameKey, placeSession, repoFolder } from "./projectGuess";
 
+/** The label of the cluster holding repos no project claims. */
+export const UNGROUPED_LABEL = "Ungrouped";
+/** The prompt, and the tag label, for a session with no project yet. */
+export const WHICH_PROJECT = "Which project?";
+
 /** id: rule id or guess key; null = Ungrouped. */
 export interface Cluster { id: string | null; label: string; kind: "project" | "harness" | "ungrouped"; source: "rule" | "guess" | null; repoIds: string[] }
 /** Only for sessions whose project differs from their island's cluster, unplaced named sessions, or self-reviewed ones. */
@@ -81,7 +86,7 @@ export function groupByProject(snapshot: OfficeSnapshot, memory: ClusterMemory):
   for (const r of rules) if (used.has(r.id)) add({ id: r.id, label: r.name, kind: r.id === harness?.id ? "harness" : "project", source: "rule", repoIds: [] });
   for (const id of kept) if (used.has(id)) add({ id, label: memory.labels.get(id) ?? titleCase(id), kind: "project", source: "rule", repoIds: [] });
   for (const id of order) if (used.has(id) && !ruleIds.has(id) && !kept.has(id)) add({ id, label: titleCase(id), kind: "project", source: "guess", repoIds: [] });
-  if (used.has(null)) add({ id: null, label: "Ungrouped", kind: "ungrouped", source: null, repoIds: [] });
+  if (used.has(null)) add({ id: null, label: UNGROUPED_LABEL, kind: "ungrouped", source: null, repoIds: [] });
   const clusterOf = new Map<string, Cluster>();
   for (const p of repos) {
     const c = byId.get(repoCluster.get(p.id) ?? null);
@@ -98,7 +103,7 @@ export function groupByProject(snapshot: OfficeSnapshot, memory: ClusterMemory):
     if (s.selfReviewed && harness && own !== harness.id) {
       tags.set(s.id, { sessionId: s.id, kind: "harness", label: harness.name, home: own === null ? home : labelOf(own) });
     } else if (pl?.kind === "unplaced") {
-      tags.set(s.id, { sessionId: s.id, kind: "unplaced", label: "Which project?", home });
+      tags.set(s.id, { sessionId: s.id, kind: "unplaced", label: WHICH_PROJECT, home });
     } else if (own !== null && own !== clusterOf.get(s.projectId)?.id) {
       tags.set(s.id, { sessionId: s.id, kind: "project", label: labelOf(own), home });
     }
