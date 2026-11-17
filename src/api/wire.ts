@@ -32,6 +32,8 @@ export const sessionSchema = z.object({
   lastActivityAt: z.string(),
   pendingQuestionIds: z.array(z.string()),
   sessionName: z.string().nullable().default(null),
+  // A source this app does not know reads as none rather than failing the whole snapshot.
+  sessionNameSource: z.enum(["user", "auto", "peer"]).nullable().default(null).catch(null),
   selfReviewed: z.boolean().default(false),
   spend: z.object({ usd: z.number(), tokens: z.number(), unpricedTokens: z.number() }),
   helpers: z.array(z.object({ id: z.string(), state: sessionState, worktree: z.boolean(), branch: z.string().nullable() })),

@@ -67,6 +67,9 @@ fn rejects_relative_and_missing_folders() {
 
 fn session(id: &str, control: ControlMode) -> Session {
     Session {
+        session_name: None,
+        session_name_source: None,
+        self_reviewed: false,
         id: id.to_string(),
         tool: ToolKind::ClaudeCode,
         project_id: "p".to_string(),

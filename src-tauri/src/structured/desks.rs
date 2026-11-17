@@ -203,6 +203,9 @@ impl Desks {
             .iter()
             .filter(|(_, d)| d.ended.is_none())
             .map(|(id, d)| Session {
+                session_name: None,
+                session_name_source: None,
+                self_reviewed: false,
                 id: id.clone(),
                 tool: d.info.tool,
                 project_id: d.info.project_id.clone(),

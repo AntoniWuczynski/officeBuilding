@@ -35,6 +35,9 @@ pub struct Discovered {
     pub checkouts: BTreeMap<String, PathBuf>,
     /// What other sessions and sub-agents sent the sessions found, oldest first.
     pub peer_messages: Vec<AgentMessage>,
+    /// The skills each live session called since the human last spoke to it, by session id.
+    /// Kept here for the backend only: the snapshot decides which of them count as a review.
+    pub skills: BTreeMap<String, Vec<String>>,
 }
 
 /// FNV-1a, 32-bit: the same stable hash the frontend uses for looks.
@@ -289,6 +292,13 @@ impl Discovery {
         self.read_processes = Vec::new;
     }
 
+    /// Transcripts read from disk so far.
+    #[cfg(test)]
+    #[must_use]
+    pub fn parses(&self) -> u32 {
+        self.claude.parses
+    }
+
     /// Pid of a running session, for focusing its terminal window.
     #[must_use]
     pub fn pid_of(&self, session_id: &str) -> Option<i32> {
@@ -334,6 +344,10 @@ struct SessionInput {
     resumable: bool,
     /// First sentence of its latest reply to the human.
     last_reply: Option<String>,
+    /// The name the tool's own registry gives it.
+    session_name: Option<String>,
+    session_name_source: Option<String>,
+    skills: Vec<String>,
 }
 
 fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<SessionInput> {
@@ -392,6 +406,9 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
         helper_places: f.helper_places,
         resumable: !f.transcript.scripted,
         last_reply: f.transcript.last_reply,
+        session_name: f.live.as_ref().and_then(|l| l.name.clone()),
+        session_name_source: f.live.as_ref().and_then(|l| l.name_source.clone()),
+        skills: f.transcript.skills_since_prompt,
     })
 }
 
@@ -422,6 +439,9 @@ fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInpu
             .unwrap_or_default(),
         resumable: f.resumable,
         last_reply: f.transcript.last_reply,
+        session_name: None,
+        session_name_source: None,
+        skills: Vec::new(),
     })
 }
 
@@ -504,6 +524,7 @@ fn assemble(
     let mut ended = Vec::new();
     let mut resume_dirs = BTreeMap::new();
     let mut checkouts = BTreeMap::new();
+    let mut skills = BTreeMap::new();
 
     for input in inputs {
         let started = locate(Path::new(&input.cwd));
@@ -565,6 +586,7 @@ fn assemble(
         }
 
         let title = input.title.clone().unwrap_or_else(|| UNTITLED.to_string());
+        skills.insert(input.session_id.clone(), input.skills);
         sessions.push(Session {
             id: input.session_id,
             tool: input.tool,
@@ -582,6 +604,9 @@ fn assemble(
             worktree,
             branch,
             last_reply: input.last_reply,
+            session_name: input.session_name,
+            session_name_source: input.session_name_source,
+            self_reviewed: false,
         });
     }
 
@@ -615,6 +640,7 @@ fn assemble(
         resume_dirs,
         checkouts,
         peer_messages: Vec::new(),
+        skills,
     }
 }
 
@@ -662,6 +688,7 @@ mod tests {
                 busy: false,
                 waiting: false,
                 name: None,
+                name_source: None,
             }),
             helpers: Vec::new(),
             helper_places: BTreeMap::new(),
@@ -763,6 +790,60 @@ mod tests {
         let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
         assert_eq!(s1.pending_question_ids, vec!["s1:toolu_1".to_string()]);
         assert_eq!(s1.control, ControlMode::RaiseWindow);
+    }
+
+    #[test]
+    fn the_registry_name_is_the_session_name_and_leaves_the_title_alone() {
+        let titled = r#"{"type":"ai-title","aiTitle":"Fix the parser"}"#;
+        let mut f = found("s", "/home/me/code/app", &[titled, PROSE], true);
+        f.live.as_mut().expect("live").name = Some("alpha-fix-2-X".to_string());
+        let d = assemble(
+            Path::new("/home/me"),
+            claude_inputs(vec![f]),
+            own_floor,
+            &BTreeMap::new(),
+        );
+        assert_eq!(d.sessions[0].session_name.as_deref(), Some("alpha-fix-2-X"));
+        assert_eq!(d.sessions[0].title, "Fix the parser");
+    }
+
+    #[test]
+    fn an_auto_named_registry_entry_carries_its_name_source() {
+        let entry = claude_code::parse_registry_entry(
+            r#"{"pid":7,"sessionId":"s","cwd":"/home/me/code/app","name":"beta-web","nameSource":"auto"}"#,
+        )
+        .expect("entry");
+        let mut f = found("s", "/home/me/code/app", &[PROSE], true);
+        f.live = Some(entry);
+        let d = assemble(
+            Path::new("/home/me"),
+            claude_inputs(vec![f]),
+            own_floor,
+            &BTreeMap::new(),
+        );
+        assert_eq!(d.sessions[0].session_name_source.as_deref(), Some("auto"));
+    }
+
+    fn skills_after(lines: &[&str]) -> Vec<String> {
+        parse_transcript(Cursor::new(lines.join("\n"))).skills_since_prompt
+    }
+
+    const SKILL: &str = r#"{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"review"}}]}}"#;
+    const OTHER_SKILL: &str = r#"{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"deploy"}}]}}"#;
+    const HUMAN: &str = r#"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"and now?"}}"#;
+    const META: &str =
+        r#"{"type":"user","isMeta":true,"message":{"role":"user","content":"caveat"}}"#;
+    const PEER: &str = r#"{"type":"user","isMeta":true,"origin":{"kind":"peer","from":"uds:/tmp/a.sock"},"message":{"role":"user","content":"hello"}}"#;
+
+    #[test]
+    fn skills_called_stay_until_the_human_speaks_again() {
+        assert_eq!(skills_after(&[SKILL, OTHER_SKILL]), ["review", "deploy"]);
+        assert_eq!(skills_after(&[SKILL, SKILL]), ["review"]);
+        assert_eq!(skills_after(&[SKILL, META, PEER]), ["review"]);
+        let notified = r#"{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"a task ended"}}"#;
+        assert_eq!(skills_after(&[SKILL, notified]), ["review"]);
+        assert!(skills_after(&[SKILL, HUMAN]).is_empty());
+        assert_eq!(skills_after(&[SKILL, HUMAN, OTHER_SKILL]), ["deploy"]);
     }
 
     #[test]

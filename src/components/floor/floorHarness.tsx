@@ -75,6 +75,7 @@ export function managerSession(projectId: string, id = "m-1"): Session {
     lastActivityAt: "2026-09-28T15:40:00Z",
     pendingQuestionIds: [],
     sessionName: null,
+    sessionNameSource: null,
     selfReviewed: false,
     spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
     helpers: [],

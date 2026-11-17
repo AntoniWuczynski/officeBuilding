@@ -21,11 +21,12 @@ import type {
   Shell,
   Targets,
   TodoItem,
+  ProjectRule,
   ToolKind,
   ToolOptions,
   ToolUsage,
 } from "../types";
-import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
+import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, ProjectChoice, ProjectTarget, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions, withDefaultView } from "./mockHireOptions";
 import { COOLDOWN_MAX_SECS } from "../lib/cooldown";
@@ -330,6 +331,7 @@ export class MockApi implements DiscoveryApi {
       lastActivityAt: this.stamp(),
       pendingQuestionIds: [],
       sessionName: null,
+      sessionNameSource: null,
       selfReviewed: false,
       spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
       helpers: [],
@@ -403,6 +405,7 @@ export class MockApi implements DiscoveryApi {
       lastActivityAt: this.stamp(),
       pendingQuestionIds: [],
       sessionName: null,
+      sessionNameSource: null,
       selfReviewed: false,
       spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
       helpers: [],
@@ -591,6 +594,26 @@ export class MockApi implements DiscoveryApi {
       connections: this.snapshot.connections.filter((c) => c.projectId !== projectId),
       managers: this.snapshot.managers.filter((m) => m.projectId !== projectId),
     });
+    return Promise.resolve();
+  }
+
+  /** Mirrors the backend: the rules change as one fresh edit, and the next snapshot carries them. */
+  assignProject(target: ProjectTarget, project: ProjectChoice): Promise<void> {
+    if (target.key.trim() === "") return Promise.reject(new Error("nothing to put under a project"));
+    const name = project.name.trim();
+    const slug = name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+    const id = project.id || slug;
+    let rules: ProjectRule[] = [...this.snapshot.projectRules];
+    let at = rules.findIndex((r) => r.id === project.id || r.name.toLowerCase() === name.toLowerCase());
+    if (at < 0) {
+      if (!name || !id || rules.some((r) => r.id === id)) return Promise.reject(new Error("that project needs a name no other project has"));
+      rules = [...rules, { id, name, prefixes: [], contains: [], repos: [] }];
+      at = rules.length - 1;
+    }
+    const key = target.kind === "repo" ? target.key : target.key.toLowerCase();
+    const field = target.kind === "repo" ? "repos" : "prefixes";
+    rules = rules.map((r, i) => ({ ...r, [field]: [...r[field].filter((k) => k !== key), ...(i === at ? [key] : [])] }));
+    this.commit({ ...this.snapshot, projectRules: rules });
     return Promise.resolve();
   }
 

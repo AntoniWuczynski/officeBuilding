@@ -59,6 +59,16 @@ export interface FileDrop {
  * one for the other is a single provider change — the UI depends only on this
  * interface.
  */
+export interface ProjectTarget {
+  readonly kind: "repo" | "session";
+  readonly key: string;
+}
+
+export interface ProjectChoice {
+  readonly id: string | null;
+  readonly name: string;
+}
+
 export interface DiscoveryApi {
   /** Current full snapshot of projects/sessions/questions/decisions/todos. */
   getSnapshot(): Promise<OfficeSnapshot>;
@@ -143,6 +153,12 @@ export interface DiscoveryApi {
    * standing, when an agent will not stop.
    */
   demolishFloor(projectId: string): Promise<void>;
+
+  /**
+   * Put a repo (by folder) or a session (by its full name) under a project, made when none has
+   * that id or name. Rejects, changing nothing, while the rules file cannot be read.
+   */
+  assignProject(target: ProjectTarget, project: ProjectChoice): Promise<void>;
 
   /** Stop one session cleanly; it leaves the building. Rejects, leaving it running, when it will not stop or is unknown. */
   exileSession(sessionId: string): Promise<void>;

@@ -58,6 +58,7 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
     lastActivityAt: over.lastActivityAt ?? "2026-09-28T00:00:00Z",
     pendingQuestionIds: over.pendingQuestionIds ?? [],
     sessionName: null,
+    sessionNameSource: null,
     selfReviewed: false,
     spend: over.spend ?? { usd: 0, tokens: 0, unpricedTokens: 0 },
     helpers: over.helpers ?? [],

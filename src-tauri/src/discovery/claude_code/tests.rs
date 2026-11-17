@@ -302,7 +302,8 @@ fn registry_entries_parse_and_filter_by_liveness() {
             cwd: "/code/app".into(),
             busy: true,
             waiting: false,
-            name: Some("fix".into())
+            name: Some("fix".into()),
+            name_source: None,
         }
     );
     let waiting = parse_registry_entry(

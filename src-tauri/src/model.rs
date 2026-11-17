@@ -90,6 +90,12 @@ pub struct Session {
     /// First sentence of its latest reply to the human, at most 140 chars. A later turn the system
     /// started never replaces it, and a new human prompt does not clear it.
     pub last_reply: Option<String>,
+    /// The name Claude Code's registry gives the session, apart from its `title`.
+    pub session_name: Option<String>,
+    /// Who named it: `user`, `auto` or `peer`.
+    pub session_name_source: Option<String>,
+    /// It ran a review skill since the human last spoke to it.
+    pub self_reviewed: bool,
 }
 
 /// A session whose agent has left: listed on its floor's sign-out sheet to resume.
@@ -416,6 +422,12 @@ pub struct OfficeSnapshot {
     pub handover: crate::handover::view::HandoverView,
     /// The building-wide checklist files, in Settings order.
     pub shared_boards: Vec<SharedBoard>,
+    /// How sessions group into projects, from the rules file.
+    pub project_rules: Vec<crate::project_rules::ProjectRule>,
+    /// The rule of the project whose sessions are the harness, if one is named and kept.
+    pub harness_id: Option<String>,
+    /// Why the rules file could not be read, if it could not.
+    pub project_rules_error: Option<String>,
 }
 
 /// What a floor's QA desk is doing (`QaStatus` in types.ts).

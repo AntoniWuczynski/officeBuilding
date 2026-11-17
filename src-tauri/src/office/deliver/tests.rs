@@ -26,6 +26,9 @@ pub(in super::super) fn session(
     control: ControlMode,
 ) -> Session {
     Session {
+        session_name: None,
+        session_name_source: None,
+        self_reviewed: false,
         id: id.to_string(),
         tool,
         project_id: floor.id.clone(),

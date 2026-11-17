@@ -96,6 +96,9 @@ impl Office {
         // A desk on a floor that is not standing yet puts it up.
         self.refresh();
         Ok(Session {
+            session_name: None,
+            session_name_source: None,
+            self_reviewed: false,
             id,
             tool: req.tool,
             project_id: project_id.to_string(),

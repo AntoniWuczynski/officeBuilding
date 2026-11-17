@@ -97,6 +97,8 @@ pub struct Office {
     handover_host: Option<HandoverHost>,
     /// The transcript readers the handover follows. Taken before the office lock, never under it.
     limits: Mutex<handover::Limits>,
+    /// The grouping rules file and when it was last read.
+    project_rules: Mutex<crate::project_rules::ProjectRules>,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -463,6 +465,7 @@ impl Office {
             routing: None,
             handover_host: None,
             limits: Mutex::default(),
+            project_rules: Mutex::default(),
         }
     }
 
@@ -473,8 +476,18 @@ impl Office {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Re-scan the tools' files. Returns whether anything visible changed.
+    /// Re-scan the tools' files and the grouping rules. Returns whether anything visible changed.
     pub fn refresh(&self) -> bool {
+        let scanned = self.rescan();
+        let rules = self
+            .project_rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .changed(&self.home);
+        scanned || rules
+    }
+
+    fn rescan(&self) -> bool {
         let mut guard = self.lock();
         let inner = &mut *guard;
         let mut found = inner.discovery.scan(SystemTime::now());
@@ -594,7 +607,13 @@ impl Office {
                 .flat_map(|f| f.decided.iter().flatten().cloned()),
         );
         let todos = self.all_todos(&inner);
-        let (projects, sessions, ended) = with_structured(&inner.found, &self.structured);
+        let (projects, mut sessions, ended) = with_structured(&inner.found, &self.structured);
+        let rules = self.rules_view();
+        for s in &mut sessions {
+            s.self_reviewed = inner.found.skills.get(&s.id).is_some_and(|called| {
+                called.iter().any(|name| rules.review_skills.contains(name))
+            });
+        }
         OfficeSnapshot {
             projects,
             sessions,
@@ -612,7 +631,30 @@ impl Office {
             queued: self.queued_messages(&inner),
             handover: inner.handover.view.clone(),
             shared_boards: inner.boards.clone(),
+            project_rules: rules.rules,
+            harness_id: rules.harness_id,
+            project_rules_error: rules.error,
         }
+    }
+
+    fn rules_view(&self) -> crate::project_rules::RulesView {
+        let mut rules = self
+            .project_rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        rules.view(&self.home).clone()
+    }
+
+    /// Put a repo or a session's name under a project in `~/.claude/office-building/projects.json`.
+    pub fn assign_project(
+        &self,
+        target: &crate::project_rules::Target,
+        project: &crate::project_rules::Choice,
+    ) -> Result<(), String> {
+        self.project_rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .assign(&self.home, target, project)
     }
 
     /// `spawn_session`, with the terminal it started (None for a structured desk).
@@ -673,6 +715,9 @@ impl Office {
         let terminal = self.launch_routed(&root, &command, launched, routed)?;
         // A discovered session's real id arrives with discovery; this is only the receipt.
         let session = Session {
+            session_name: None,
+            session_name_source: None,
+            self_reviewed: false,
             id: if is_discovered(req.tool) {
                 format!("hired-{}", chrono::Utc::now().timestamp_millis())
             } else {
@@ -1340,5 +1385,60 @@ mod exile_tests {
         child.kill().expect("kill");
         child.wait().expect("reap");
         assert_eq!(err, Err("stubborn did not stop".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod project_rules_tests {
+    use super::tests::office;
+
+    #[test]
+    fn a_review_list_set_after_the_parse_flags_the_session_without_a_new_parse() {
+        let (office, dir) = office("review");
+        let home = dir.join("home");
+        let me = std::process::id();
+        std::fs::create_dir_all(home.join(".claude/sessions")).expect("sessions");
+        std::fs::write(
+            home.join(format!(".claude/sessions/{me}.json")),
+            format!(r#"{{"pid":{me},"sessionId":"s1","cwd":"/code/app","status":"idle","name":"beta-web"}}"#),
+        )
+        .expect("registry");
+        std::fs::create_dir_all(home.join(".claude/projects/-code-app")).expect("project");
+        std::fs::write(
+            home.join(".claude/projects/-code-app/s1.jsonl"),
+            concat!(
+                r#"{"type":"assistant","cwd":"/code/app","message":{"id":"m","content":[{"type":"tool_use","id":"t","name":"Skill","input":{"skill":"review"}}]}}"#,
+                "\n"
+            ),
+        )
+        .expect("transcript");
+        office.refresh();
+        let parsed = office.lock().discovery.parses();
+        let before = office.snapshot();
+        assert_eq!(before.sessions[0].session_name.as_deref(), Some("beta-web"));
+        assert!(!before.sessions[0].self_reviewed);
+        let rules = home.join(".claude/office-building");
+        std::fs::create_dir_all(&rules).expect("rules dir");
+        std::fs::write(
+            rules.join("projects.json"),
+            r#"{"rules":[],"reviewSkills":["review"]}"#,
+        )
+        .expect("rules");
+        assert!(office.snapshot().sessions[0].self_reviewed);
+        office.refresh();
+        assert_eq!(office.lock().discovery.parses(), parsed);
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_changed_rules_file_makes_a_refresh_report_a_change() {
+        let (office, dir) = office("rules-refresh");
+        office.refresh();
+        assert!(!office.refresh());
+        let rules = dir.join("home/.claude/office-building");
+        std::fs::create_dir_all(&rules).expect("rules dir");
+        std::fs::write(rules.join("projects.json"), r#"{"rules":[{"name":"Alpha"}]}"#).expect("rules");
+        assert!(office.refresh());
+        std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 }

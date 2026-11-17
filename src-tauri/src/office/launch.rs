@@ -127,6 +127,9 @@ pub(super) fn desk_session(terminal: &str, desk: &Desk, idle: Duration) -> Sessi
         .and_then(|d| chrono::Utc::now().checked_sub_signed(d))
         .unwrap_or_else(chrono::Utc::now);
     Session {
+        session_name: None,
+        session_name_source: None,
+        self_reviewed: false,
         id: desk_session_id(terminal),
         tool: desk.tool,
         project_id: desk.project_id.clone(),

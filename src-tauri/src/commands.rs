@@ -594,6 +594,18 @@ pub async fn set_manager_paused(
 }
 
 #[tauri::command]
+pub fn assign_project(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    target: crate::project_rules::Target,
+    project: crate::project_rules::Choice,
+) -> Result<(), String> {
+    office.assign_project(&target, &project)?;
+    push_snapshot(&app, &office);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn set_manager_hiring(
     app: AppHandle,
     office: OfficeState<'_>,

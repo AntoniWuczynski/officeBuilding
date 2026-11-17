@@ -181,6 +181,8 @@ export interface Session {
   readonly pendingQuestionIds: readonly string[];
   /** The name the human gave the session, if any. */
   readonly sessionName: string | null;
+  /** Who named it, from the registry; null when it has no name. */
+  readonly sessionNameSource: "user" | "auto" | "peer" | null;
   /** Whether the session already reviewed its own work. */
   readonly selfReviewed: boolean;
   readonly spend: Spend;

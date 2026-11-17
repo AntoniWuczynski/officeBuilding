@@ -39,6 +39,8 @@ pub struct LiveEntry {
     /// answered, so this is the only sign of one.
     pub waiting: bool,
     pub name: Option<String>,
+    /// Who named it: `user`, `auto` or `peer`. Spare processes have none.
+    pub name_source: Option<String>,
 }
 
 /// An `AskUserQuestion` call that has no answer yet.
@@ -89,6 +91,9 @@ pub struct Transcript {
     pub scripted: bool,
     /// Its `Monitor` calls, so a running one shows as a monitor pet, not a shell.
     pub monitors: Vec<MonitorCall>,
+    /// Skills it called since the human last spoke to it, each once. Which of them count as a
+    /// review is decided later, so a changed list needs no new parse.
+    pub skills_since_prompt: Vec<String>,
 }
 
 /// Whether a process exists (signal 0 probes without sending anything).
@@ -129,6 +134,10 @@ pub fn parse_registry_entry(text: &str) -> Option<LiveEntry> {
         busy: v.get("status").and_then(Value::as_str) == Some("busy"),
         waiting: v.get("status").and_then(Value::as_str) == Some("waiting"),
         name: v.get("name").and_then(Value::as_str).map(str::to_string),
+        name_source: v
+            .get("nameSource")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
@@ -336,6 +345,7 @@ impl ParserState {
                 finished: false,
                 scripted: false,
                 monitors: Vec::new(),
+                skills_since_prompt: Vec::new(),
             },
             open: HashSet::new(),
             usage_by_message: HashMap::new(),
@@ -465,6 +475,16 @@ impl ParserState {
                                     self.t.question = ask_user_question(input, tool_id, &at);
                                 }
                             }
+                            Some("Skill") => {
+                                if let Some(skill) = block
+                                    .get("input")
+                                    .and_then(|i| i.get("skill"))
+                                    .and_then(Value::as_str)
+                                    && !self.t.skills_since_prompt.iter().any(|s| s == skill)
+                                {
+                                    self.t.skills_since_prompt.push(skill.to_string());
+                                }
+                            }
                             Some("StructuredOutput") => {
                                 self.structured_output = Some(tool_id.to_string());
                             }
@@ -526,6 +546,7 @@ impl ParserState {
                 self.in_human_turn = matches!(origin_kind, None | Some("human"));
                 self.t.finished = false;
                 if self.in_human_turn {
+                    self.t.skills_since_prompt.clear();
                     self.t.human_spoke_last = true;
                     self.t.reply_to_human.clear();
                     self.reply_message = None;
@@ -683,6 +704,9 @@ pub struct ClaudeSource {
     cache: HashMap<PathBuf, CacheEntry>,
     /// Running sessions by pid, as of the scan in progress, to name who sent a peer message.
     pids: HashMap<i32, String>,
+    /// Transcripts read from disk, whole or from an offset: a seam for tests of what a scan skips.
+    #[cfg(test)]
+    pub parses: u32,
 }
 
 impl ClaudeSource {
@@ -693,6 +717,8 @@ impl ClaudeSource {
             keep_finished: Duration::from_hours(12),
             cache: HashMap::new(),
             pids: HashMap::new(),
+            #[cfg(test)]
+            parses: 0,
         }
     }
 
@@ -717,6 +743,10 @@ impl ClaudeSource {
         dev: u64,
         ino: u64,
     ) -> Option<Transcript> {
+        #[cfg(test)]
+        {
+            self.parses += 1;
+        }
         let file = fs::File::open(path).ok()?;
         let mut state = ParserState::new();
         state.keep_sidechains = path.components().any(|c| c.as_os_str() == "subagents");
@@ -751,6 +781,10 @@ impl ClaudeSource {
                 let transcript = entry.state.finish();
                 self.cache.insert(path.to_path_buf(), entry);
                 return Some(transcript);
+            }
+            #[cfg(test)]
+            {
+                self.parses += 1;
             }
             // Same (dev, ino) and grown is not enough on its own: Claude Code
             // 2.1.284's `performRemoveByUuid` opens the transcript `r+`,
@@ -894,6 +928,7 @@ impl ClaudeSource {
                     busy: false,
                     waiting: false,
                     name: None,
+                    name_source: None,
                 }),
                 session_id,
                 transcript,

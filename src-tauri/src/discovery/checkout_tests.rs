@@ -91,6 +91,7 @@ fn input(id: &str, started: &Path, now: &Path, live: bool) -> SessionInput {
             busy: false,
             waiting: false,
             name: None,
+            name_source: None,
         }),
         helpers: Vec::new(),
         helper_places: BTreeMap::new(),

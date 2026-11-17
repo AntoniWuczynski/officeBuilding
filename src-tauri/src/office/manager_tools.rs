@@ -506,6 +506,9 @@ mod tests {
     fn floor_desk_gives_one_answer_for_every_desk_that_is_not_on_the_floor() {
         let (office, dir, floor) = floor_office("tools-desk");
         let session = |id: &str, project_id: &str| crate::model::Session {
+            session_name: None,
+            session_name_source: None,
+            self_reviewed: false,
             id: id.to_string(),
             tool: ToolKind::ClaudeCode,
             project_id: project_id.to_string(),

@@ -18,6 +18,7 @@ pub mod options;
 pub mod poll;
 pub mod process;
 pub mod project_files;
+pub mod project_rules;
 pub mod pty;
 pub mod qa;
 pub mod routing;
@@ -283,6 +284,7 @@ pub fn run() -> tauri::Result<()> {
             commands::recheck_connectors,
             commands::open_todo_link,
             commands::set_floor_qa,
+            commands::assign_project,
             commands::open_review,
             commands::recheck_qa,
             commands::hire_manager,

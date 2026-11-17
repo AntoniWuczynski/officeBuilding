@@ -475,6 +475,9 @@ pub(super) mod tests {
 
     pub(in super::super) fn session(id: &str, project_id: &str, control: ControlMode) -> Session {
         Session {
+            session_name: None,
+            session_name_source: None,
+            self_reviewed: false,
             id: id.to_string(),
             tool: ToolKind::ClaudeCode,
             project_id: project_id.to_string(),

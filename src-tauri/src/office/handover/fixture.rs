@@ -100,6 +100,9 @@ pub(super) fn fixture(tag: &str, handover: &str) -> Fixture {
 
 pub(super) fn session(id: &str, tool: ToolKind, project_id: &str) -> Session {
     Session {
+        session_name: None,
+        session_name_source: None,
+        self_reviewed: false,
         id: id.to_string(),
         tool,
         project_id: project_id.to_string(),

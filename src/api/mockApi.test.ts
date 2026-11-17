@@ -570,6 +570,37 @@ describe("MockApi floors", () => {
   });
 });
 
+describe("MockApi project rules", () => {
+  it("carries each assignment into the next snapshot, and a later one moves the repo", async () => {
+    const api = new MockApi();
+    await api.assignProject({ kind: "repo", key: "/code/beta-web" }, { id: null, name: "Beta" });
+    await api.assignProject({ kind: "session", key: "Alpha-Fix-2-X" }, { id: null, name: "Alpha" });
+    await api.assignProject({ kind: "repo", key: "/code/beta-web" }, { id: "alpha", name: "Alpha" });
+    const { projectRules } = await api.getSnapshot();
+    expect(projectRules.map((r) => [r.id, r.repos, r.prefixes])).toEqual([
+      ["beta", [], []],
+      ["alpha", ["/code/beta-web"], ["alpha-fix-2-x"]],
+    ]);
+  });
+});
+
+describe("snapshotSchema name source", () => {
+  it("reads a source it does not know as none instead of failing the snapshot", () => {
+    const seed = JSON.parse(JSON.stringify(makeSeedSnapshot()));
+    seed.sessions[0].sessionNameSource = "resume";
+    const parsed = snapshotSchema.safeParse(seed);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.sessions[0]?.sessionNameSource).toBeNull();
+  });
+});
+
+describe("assignProject on the mock", () => {
+  it("refuses an empty key", async () => {
+    const api = new MockApi();
+    await expect(api.assignProject({ kind: "session", key: " " }, { id: null, name: "Alpha" })).rejects.toThrow();
+  });
+});
+
 describe("snapshotSchema defaults", () => {
   it("parses a payload without the project-cluster fields and fills defaults", () => {
     const { projectRules: _r, harnessId: _h, projectRulesError: _e, ...older } = JSON.parse(JSON.stringify(makeSeedSnapshot()));
