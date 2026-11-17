@@ -234,6 +234,7 @@ mod tests {
             ended_at: "2026-11-12T10:00:00Z".to_string(),
             model: None,
             effort: None,
+            last_reply: None,
         };
         let mut found = Discovered {
             ended: vec![ended("review"), ended("work")],

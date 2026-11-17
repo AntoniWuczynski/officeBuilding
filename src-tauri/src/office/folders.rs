@@ -98,6 +98,7 @@ mod tests {
             control: ControlMode::RaiseWindow,
             model: None,
             effort: None,
+            last_reply: None,
             last_activity_at: String::new(),
             pending_question_ids: Vec::new(),
             spend: Spend::default(),
@@ -126,6 +127,7 @@ mod tests {
             ended_at: String::new(),
             model: None,
             effort: None,
+            last_reply: None,
         }
     }
 

@@ -18,9 +18,11 @@
 //! indented lines under an item continue it. Answering a decision or ticking an
 //! item in the app writes back into the same file.
 
-use crate::model::{AnswerVia, Decision, Party, Question, QuestionOption, TodoItem, TodoSource};
+use crate::model::{
+    AnswerVia, Decision, Party, Question, QuestionOption, SharedBoard, TodoItem, TodoSource,
+};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const HUMAN_DECISION_FILES: &[&str] = &[
     "FOUNDER_DECISIONS.md",
@@ -109,7 +111,20 @@ pub(crate) fn truncate(text: &str, max: usize) -> String {
 }
 
 /// Top-level checklist items. `[x]` is done; `[ ]` and `[~]` are open.
+#[must_use]
 pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party) -> Vec<TodoItem> {
+    parse_items(text, project_id, file, assignee, false)
+}
+
+/// `parse_checklist`, and with `tagged` each item's `project_tag` is its line's second pipe column.
+/// Only a shared board's lines are laid out that way: a pipe in a floor's own item is just text.
+fn parse_items(
+    text: &str,
+    project_id: &str,
+    file: &str,
+    assignee: Party,
+    tagged: bool,
+) -> Vec<TodoItem> {
     let lines: Vec<&str> = text.lines().collect();
     let mut items = Vec::new();
     for (i, line) in lines.iter().enumerate() {
@@ -125,6 +140,12 @@ pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party
         } else {
             continue;
         };
+        let project_tag = tagged
+            .then(|| rest.split('|').nth(1))
+            .flatten()
+            .map(str::trim)
+            .filter(|tag| !tag.is_empty())
+            .map(str::to_string);
         let mut body = rest.trim().to_string();
         for next in lines.iter().skip(i + 1) {
             let continues = next.starts_with(char::is_whitespace)
@@ -145,6 +166,7 @@ pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party
             source: TodoSource::File {
                 file: file.to_string(),
             },
+            project_tag,
         });
     }
     items
@@ -620,6 +642,44 @@ pub fn read(root: &Path, project_id: &str) -> ProjectFiles {
     files.agent_todos = find_file(root, AGENT_TODO_FILES)
         .and_then(|name| text(&name).map(|t| parse_checklist(&t, project_id, &name, Party::Ai)));
     files
+}
+
+/// A shared checklist file as a board. Its items carry the board's id as their project and the
+/// file's absolute path as their file, so a tick finds the file by its id. A file that cannot be
+/// read is still a board, with no items (see `settings/boards.rs`).
+#[must_use]
+pub fn read_board(path: &str) -> SharedBoard {
+    let id = format!("board:{path}");
+    let items = fs::read_to_string(path)
+        .map(|text| parse_items(&text, &id, path, Party::Human, true))
+        .unwrap_or_default();
+    SharedBoard {
+        items,
+        name: Path::new(path)
+            .file_name()
+            .map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned()),
+        path: path.to_string(),
+        id,
+    }
+}
+
+/// A floor whose own Human TODO or agent TODO file is one of `boards` (canonical paths) leaves
+/// those lines to the board: the file stays the floor's, with no items of its own, so they show once.
+pub fn leave_to_boards(files: &mut ProjectFiles, root: &Path, boards: &[PathBuf]) {
+    if boards.is_empty() {
+        return;
+    }
+    let on_a_board = |names: &[&str]| {
+        find_file(root, names)
+            .and_then(|name| root.join(name).canonicalize().ok())
+            .is_some_and(|own| boards.contains(&own))
+    };
+    if on_a_board(HUMAN_TODO_FILES) {
+        files.human_todos = Some(Vec::new());
+    }
+    if on_a_board(AGENT_TODO_FILES) {
+        files.agent_todos = Some(Vec::new());
+    }
 }
 
 fn rewrite_line(

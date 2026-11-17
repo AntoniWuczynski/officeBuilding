@@ -139,6 +139,7 @@ pub(super) fn desk_session(terminal: &str, desk: &Desk, idle: Duration) -> Sessi
         control: ControlMode::Full,
         model: Some(desk.model.clone()),
         effort: Some(desk.effort.clone()),
+        last_reply: None,
         last_activity_at: last.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         pending_question_ids: Vec::new(),
         spend: Spend::default(),

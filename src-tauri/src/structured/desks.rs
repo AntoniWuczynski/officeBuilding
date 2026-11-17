@@ -211,6 +211,7 @@ impl Desks {
                 control: ControlMode::Structured,
                 model: Some(d.info.model.clone()),
                 effort: Some(d.info.effort.clone()),
+                last_reply: None,
                 last_activity_at: iso(d.last),
                 pending_question_ids: Vec::new(),
                 spend: Spend::default(),
@@ -239,6 +240,7 @@ impl Desks {
                     ended_at: iso(d.last),
                     model: Some(d.info.model.clone()),
                     effort: Some(d.info.effort.clone()),
+                    last_reply: None,
                 };
                 (d.last, session)
             })

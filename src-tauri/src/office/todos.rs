@@ -4,6 +4,7 @@ use super::{Inner, Office};
 use crate::connectors;
 use crate::model::{Party, TodoItem};
 use crate::project_files;
+use std::path::Path;
 
 impl Office {
     /// A floor's TODOs for one assignee: its file when it has one, else the app's store.
@@ -46,6 +47,24 @@ impl Office {
             // The Office lock is released before the hub calls the connector.
             let (root, link) = self.link_of(project_id, kind)?;
             return self.connectors.tick(&root, &link, external_id);
+        }
+        let on_board = {
+            let inner = self.lock();
+            let is_item = inner
+                .boards
+                .iter()
+                .flat_map(|b| &b.items)
+                .any(|t| t.id == todo_id);
+            is_item.then(|| {
+                project_files::parse_item_id(todo_id).map(|(file, line)| (file.to_string(), line))
+            })
+        };
+        if let Some(location) = on_board {
+            // A board's file is absolute: joined to nothing it stays as it is.
+            let (file, line) = location.ok_or("malformed todo id")?;
+            project_files::tick(Path::new(""), &file, line)?;
+            self.refresh();
+            return Ok(());
         }
         let from_file = {
             let inner = self.lock();
@@ -138,6 +157,7 @@ mod tests {
         {
             let mut inner = office.lock();
             inner.store.records.todos.push(TodoItem {
+                project_tag: None,
                 id: "t-1".to_string(),
                 project_id: floor.id.clone(),
                 text: "own".to_string(),

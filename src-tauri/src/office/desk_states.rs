@@ -51,6 +51,7 @@ mod tests {
             control,
             model: None,
             effort: None,
+            last_reply: None,
             last_activity_at: "2000-01-01T00:00:00Z".to_string(),
             pending_question_ids: Vec::new(),
             spend: Spend::default(),

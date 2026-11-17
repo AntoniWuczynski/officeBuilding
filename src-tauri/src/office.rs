@@ -7,8 +7,8 @@ use crate::feed::Feed;
 use crate::focus;
 use crate::model::{
     AgentMessage, AnswerVia, ControlMode, DeskView, EndedSession, HireFailed, HireRequest,
-    OfficeSnapshot, Project, Question, QuestionAnswer, Session, SessionState, Shell, Spend,
-    TerminalBacklog, TerminalExit, ToolKind,
+    OfficeSnapshot, Project, Question, QuestionAnswer, Session, SessionState, SharedBoard, Shell,
+    Spend, TerminalBacklog, TerminalExit, ToolKind,
 };
 use crate::project_files::{self, ProjectFiles};
 use crate::pty::{self, Terminals};
@@ -36,6 +36,8 @@ struct Inner {
     moved_from: BTreeMap<String, String>,
     /// Decisions and TODOs from each floor's own files, by project id.
     files: BTreeMap<String, ProjectFiles>,
+    /// The checklist files `boards.shared_files` names, in that order.
+    boards: Vec<SharedBoard>,
     store: Store,
     /// The session each app-owned terminal is running, by terminal id. It
     /// outlives the agent so its last output stays readable.
@@ -430,6 +432,7 @@ impl Office {
                 found: Discovered::default(),
                 moved_from: BTreeMap::new(),
                 files: BTreeMap::new(),
+                boards: Vec::new(),
                 store,
                 owned: BTreeMap::new(),
                 ran_in: BTreeMap::new(),
@@ -544,14 +547,29 @@ impl Office {
         reopen_earlier_sessions(&mut found.sessions, &inner.ran_in);
         inner.feed.collect(SystemTime::now());
         inner.feed.apply(&mut found.sessions);
+        let shared = self.settings.as_ref().map(|s| s.get().boards.shared_files);
+        let boards: Vec<SharedBoard> = shared
+            .iter()
+            .flatten()
+            .map(|path| project_files::read_board(path))
+            .collect();
+        let canonical: Vec<PathBuf> = boards
+            .iter()
+            .filter_map(|b| Path::new(&b.path).canonicalize().ok())
+            .collect();
         let files: BTreeMap<String, ProjectFiles> = found
             .roots
             .iter()
-            .map(|(id, root)| (id.clone(), project_files::read(root, id)))
+            .map(|(id, root)| {
+                let mut files = project_files::read(root, id);
+                project_files::leave_to_boards(&mut files, root, &canonical);
+                (id.clone(), files)
+            })
             .collect();
-        let changed = found != inner.found || files != inner.files;
+        let changed = found != inner.found || files != inner.files || boards != inner.boards;
         inner.found = found;
         inner.files = files;
+        inner.boards = boards;
         changed
     }
 
@@ -577,7 +595,7 @@ impl Office {
             questions,
             decisions,
             todos,
-            messages: r.messages.clone(),
+            messages: crate::store::recent_messages(&r.messages, &inner.found.peer_messages),
             setup_project_id: self.setup_project_id.clone(),
             shells: inner.shells.values().cloned().collect(),
             connections: self.connections(&inner),
@@ -586,6 +604,7 @@ impl Office {
             chat_desks: Self::chat_desks(&inner),
             queued: self.queued_messages(&inner),
             handover: inner.handover.view.clone(),
+            shared_boards: inner.boards.clone(),
         }
     }
 
@@ -666,6 +685,7 @@ impl Office {
             pets: Vec::new(),
             worktree: false,
             branch: None,
+            last_reply: None,
         };
         Ok((session, Some(terminal)))
     }
@@ -1085,6 +1105,8 @@ mod qa_desk;
 mod reviewers;
 mod routed;
 mod setup;
+#[cfg(test)]
+mod shared_tests;
 mod shells;
 mod staff;
 mod structured_desks;
