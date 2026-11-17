@@ -1,0 +1,149 @@
+/* The place panel and the nameplate badges, as the office and the islands share them. The panel's position is each view's own. */
+.place-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.place-panel h2 {
+  margin: 0 0 2px;
+  font: 700 20px/1 var(--font-sign);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.place-panel p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.place-panel ul {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* An agent's row: its name and state (and what it waits to be asked) opens it; the small Move menu sits beside it. */
+.place-panel li {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.place-row {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.place-row:hover {
+  background: var(--paper-hover);
+}
+.place-panel li span {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.place-panel li[data-state="waiting-human"] .place-row,
+.place-panel li[data-state="error"] .place-row {
+  border-color: var(--ink);
+}
+.place-panel li .place-ask {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.place-move {
+  flex: none;
+  align-self: flex-start;
+  width: 76px;
+  padding: 2px 2px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font: 12px var(--font-ui);
+}
+.place-enter,
+.place-close {
+  width: 100%;
+  flex: none;
+}
+.place-close {
+  margin-top: 6px;
+}
+/* Naming a place (the name is the rename button). A pencil says it can be changed. */
+.place-panel .roof-sign {
+  position: static;
+  transform: none;
+  max-width: 100%;
+  padding: 0 2px;
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.place-panel .roof-sign::after {
+  content: " \270E";
+  color: var(--ink-soft);
+}
+.place-panel .roof-sign:hover {
+  border-bottom-color: var(--ink-soft);
+}
+.place-panel .roof-sign-input {
+  border-color: var(--ink);
+  background: var(--paper);
+}
+
+/* In the office the panel takes the usage signs' column and the signs step aside while it is open. */
+.office-panel {
+  position: absolute;
+  z-index: 3;
+  top: 9%;
+  right: 16px;
+  width: clamp(230px, 20vw, 280px);
+  max-height: calc(100% - 9% - 16px);
+}
+.building-body.has-place-panel > .usage-signs {
+  visibility: hidden;
+}
+
+.nameplate-pending {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--wait);
+  font: 700 12px/17px var(--font-num);
+  text-align: center;
+}
+.nameplate-more {
+  font: 700 12px/1 var(--font-num);
+  color: var(--ink-soft);
+}
+
+/* On a storey the waiting badge rides the plate's corner, so it does not widen the plate that stands in the stage's left pad. */
+.storey .nameplate-pending {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+}

@@ -99,7 +99,10 @@ export function HireDialog({
       aria-labelledby="hire-title"
       data-testid="hire-dialog"
       onKeyDown={(e) => {
-        if (e.key === "Escape") onCancel();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
       }}
       onSubmit={(e) => {
         e.preventDefault();

@@ -14,7 +14,7 @@ async function enterShop(api: MockApi): Promise<void> {
   const storeys = await screen.findAllByTestId("storey");
   const shop = storeys.find((s) => s.getAttribute("data-project") === "p-shop");
   if (shop === undefined) throw new Error("no shop storey");
-  await userEvent.click(within(shop).getByTestId("floor-nameplate"));
+  await userEvent.click(shop);
   await screen.findByTestId("back-button");
 }
 
@@ -87,7 +87,7 @@ describe("connectors in the app", () => {
     const storeys = await screen.findAllByTestId("storey");
     const notes = storeys.find((s) => s.getAttribute("data-project") === "p-notes");
     if (notes === undefined) throw new Error("no notes storey");
-    await userEvent.click(within(notes).getByTestId("floor-nameplate"));
+    await userEvent.click(notes);
     await screen.findByTestId("back-button");
     await userEvent.click(screen.getByTestId("rail-info"));
 
@@ -119,7 +119,7 @@ describe("connectors in the app", () => {
     const storeys = await screen.findAllByTestId("storey");
     const notes = storeys.find((s) => s.getAttribute("data-project") === "p-notes");
     if (notes === undefined) throw new Error("no notes storey");
-    await userEvent.click(within(notes).getByTestId("floor-nameplate"));
+    await userEvent.click(notes);
     await userEvent.click(await screen.findByTestId("rail-info"));
     await userEvent.click(await screen.findByTestId("linear-connect"));
     await userEvent.click(await screen.findByTestId("linear-open-settings"));

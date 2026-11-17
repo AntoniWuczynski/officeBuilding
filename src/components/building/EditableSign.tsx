@@ -37,7 +37,11 @@ export function EditableSign({ name, onRename, noun = "building" }: Props): Reac
       onBlur={() => finish(true)}
       onKeyDown={(e) => {
         if (e.key === "Enter") finish(true);
-        else if (e.key === "Escape") finish(false);
+        else if (e.key === "Escape") {
+          // The place panel closes on Escape too: this one only ends the rename.
+          e.stopPropagation();
+          finish(false);
+        }
       }}
     />
   );

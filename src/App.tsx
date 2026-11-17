@@ -6,11 +6,14 @@ import type { Editor, Place, Session, SettingsPatch } from "./types";
 import { TOOL_LABEL, editorLabel, sessionById } from "./state/selectors";
 import { useNow } from "./state/useNow";
 import { useOffice } from "./state/useOffice";
+import { SeenContext, useSeen } from "./state/useSeen";
 import { ViewSwitch } from "./components/ViewSwitch";
 import { PLACE } from "./state/placeWords";
 import { useViewMode } from "./state/useViewMode";
 import { applyOverrides, dropLegacyMoves, legacyMoves, useOverrides } from "./state/overrides";
 import type { OverrideActions } from "./state/overrides";
+import { BoardsContext } from "./components/building/BoardsContext";
+import type { BoardLinks } from "./components/building/BoardsContext";
 import { BuildingView } from "./components/building/BuildingView";
 import type { ScreenOrigin } from "./components/building/BuildingView";
 import { FloorView } from "./components/floor/FloorView";
@@ -44,7 +47,10 @@ const TOAST_MS = 4500;
 export function App({ api }: Props): React.ReactElement {
   const { state: discovered, retry } = useOffice(api);
   // Your names for floors, applied once so every view agrees. Moves of sessions live in the backend.
-  const [overrides, nameActions] = useOverrides();
+  const [overrides, { linkTags, ...nameActions }] = useOverrides();
+  const seen = useSeen();
+  const markSeen = seen.markSeen;
+  const boardLinks = useMemo<BoardLinks>(() => ({ linked: overrides.tags, link: linkTags }), [overrides.tags, linkTags]);
   const state = useMemo(
     () => (discovered.status === "ready" ? { ...discovered, snapshot: applyOverrides(discovered.snapshot, overrides) } : discovered),
     [discovered, overrides],
@@ -112,6 +118,7 @@ export function App({ api }: Props): React.ReactElement {
 
   const openSession = useCallback(
     (session: Session) => {
+      markSeen(session.id);
       if (session.control !== "raise-window") {
         showTerminal(session.id);
         return;
@@ -121,7 +128,7 @@ export function App({ api }: Props): React.ReactElement {
         .then(() => toast("ok", `Brought the ${TOOL_LABEL[session.tool]} window for “${session.title}” to the front.`))
         .catch((err: unknown) => toast("error", `Could not raise the window for “${session.title}”: ${message(err)}.`));
     },
-    [api, toast, showTerminal],
+    [api, toast, showTerminal, markSeen],
   );
 
   const hire = useCallback(
@@ -168,6 +175,13 @@ export function App({ api }: Props): React.ReactElement {
     [api, editorList, toast, reloadEditors],
   );
   const editorActions = useMemo<EditorActions>(() => ({ list: editorList, open: openInEditor }), [editorList, openInEditor]);
+
+  // A session open in the docked terminal is being looked at: it stopping while you watch is not news.
+  const openNow = snapshot?.sessions.find((s) => s.id === openSessionId);
+  const watchedNews = openNow !== undefined && seen.isNew(openNow) ? openNow.id : null;
+  useEffect(() => {
+    if (watchedNews !== null) markSeen(watchedNews);
+  }, [watchedNews, markSeen]);
 
   // Cmd+Shift+O opens the desk whose panel is open, else the keyboard-focused worker. Captured first so a focused terminal cannot swallow it.
   const sessions = snapshot?.sessions;
@@ -406,6 +420,9 @@ export function App({ api }: Props): React.ReactElement {
               onDemolishFloor={demolishFloor}
               loadUsage={loadUsage}
               onOpenPlate={closeSettings}
+              onAnswer={answer}
+              onTick={tick}
+              onOpenSettings={openSettings}
               mode={viewMode}
               viewSwitch={<ViewSwitch mode={viewMode} onChange={setViewMode} />}
               onOpenSession={(s) => {
@@ -462,11 +479,15 @@ export function App({ api }: Props): React.ReactElement {
       <ConnectorsContext value={connectorActions}>
       <QaContext value={qaActions}>
       <ManagerContext value={managerActions}>
+      <SeenContext value={seen}>
+      <BoardsContext value={boardLinks}>
         <div className={viewMode === "islands" && project === undefined ? "app is-islands" : "app"}>
           {body}
           {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </BoardsContext>
+      </SeenContext>
       </ManagerContext>
       </QaContext>
       </ConnectorsContext>

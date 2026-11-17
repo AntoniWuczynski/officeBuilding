@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeDemoSnapshot } from "../api/mockData";
 import { act, renderHook } from "@testing-library/react";
-import { applyOverrides, dropLegacyMoves, legacyMoves, NO_OVERRIDES, useOverrides, withName } from "./overrides";
+import { applyOverrides, dropLegacyMoves, legacyMoves, NO_OVERRIDES, useOverrides, withName, withTags } from "./overrides";
 
 const snap = makeDemoSnapshot();
 const [a] = snap.projects;
@@ -56,5 +56,39 @@ describe("legacy moves", () => {
     const { result } = renderHook(() => useOverrides());
     act(() => result.current[1].renameFloor("p1", "Home base"));
     expect(stored()).toEqual({ names: { p1: "Home base" }, moves: { s1: "p2" } });
+  });
+});
+
+describe("tags shown on an island", () => {
+  const KEY = "office-building:overrides";
+  const stored = (): unknown => JSON.parse(localStorage.getItem(KEY) ?? "null");
+  beforeEach(() => localStorage.clear());
+
+  it("are trimmed, kept once whatever their case, and a blank list takes them away", () => {
+    const linked = withTags(NO_OVERRIDES, "p1", [" Office Building ", "office building", "", "Ops"]);
+    expect(linked.tags).toEqual({ p1: ["Office Building", "Ops"] });
+    expect(withTags(linked, "p1", [" "])).toEqual(NO_OVERRIDES);
+  });
+
+  it("are saved beside the names, come back after a reload, and leave a names-only entry as it was", () => {
+    const { result } = renderHook(() => useOverrides());
+    act(() => result.current[1].renameFloor("p1", "Home base"));
+    expect(stored()).toEqual({ names: { p1: "Home base" } });
+    act(() => result.current[1].linkTags("p1", ["Ops"]));
+    expect(stored()).toEqual({ names: { p1: "Home base" }, tags: { p1: ["Ops"] } });
+    expect(renderHook(() => useOverrides()).result.current[0].tags).toEqual({ p1: ["Ops"] });
+  });
+
+  it("do not rename anything, and keep legacy moves", () => {
+    localStorage.setItem(KEY, JSON.stringify({ names: {}, moves: { s1: "p2" } }));
+    const { result } = renderHook(() => useOverrides());
+    act(() => result.current[1].linkTags("p1", ["Ops"]));
+    expect(stored()).toEqual({ names: {}, tags: { p1: ["Ops"] }, moves: { s1: "p2" } });
+    expect(applyOverrides(snap, result.current[0])).toBe(snap);
+  });
+
+  it("survive a damaged entry without throwing", () => {
+    localStorage.setItem(KEY, JSON.stringify({ names: {}, tags: { p1: "Ops", p2: [3, "Ok"] } }));
+    expect(renderHook(() => useOverrides()).result.current[0].tags).toEqual({ p2: ["Ok"] });
   });
 });

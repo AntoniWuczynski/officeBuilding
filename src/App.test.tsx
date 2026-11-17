@@ -107,7 +107,7 @@ function storey(projectId: string): HTMLElement {
 
 async function enter(projectId: string): Promise<void> {
   const user = userEvent.setup();
-  await user.click(within(await findStorey(projectId)).getByTestId("floor-nameplate"));
+  await user.click(await findStorey(projectId));
   await screen.findByTestId("back-button");
 }
 

@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { DESK, seatOf } from "../lib/layout";
+import { DESK, doorOf, seatOf } from "../lib/layout";
 import { FLOOR_CAMERA, project, projectedBounds } from "../lib/iso";
 import type { Camera } from "../lib/iso";
 import type { Look } from "../lib/looks";
@@ -122,6 +122,23 @@ const PALM_OUT = 18;
 const SHORE = 14;
 const SURF = 6;
 
+/**
+ * Where the palms stand: off each corner of the room except the open one by the door. The sign-out stand stands there,
+ * and a palm drawn in front of it covered its sign.
+ */
+function palmSpots(width: number, depth: number): readonly (readonly [number, number])[] {
+  const door = doorOf(depth);
+  const corners: readonly (readonly [number, number])[] = [
+    [-PALM_OUT, -PALM_OUT],
+    [width + PALM_OUT, -PALM_OUT],
+    [-PALM_OUT, depth + PALM_OUT],
+    [width + PALM_OUT, depth + PALM_OUT],
+  ];
+  const away = ([x, y]: readonly [number, number]): number => Math.hypot(x - door.x, y - door.y);
+  const open = Math.min(...corners.map(away));
+  return corners.filter((c) => away(c) !== open);
+}
+
 /** Radius of the sand round a W x D room: past its corner palms. */
 function beachRadius(width: number, depth: number): number {
   return Math.hypot(width / 2 + PALM_OUT, depth / 2 + PALM_OUT) + SHORE;
@@ -135,7 +152,7 @@ export function beachSidePad(cam: Camera, width: number, depth: number): number 
 
 /**
  * The island under an open-air room: a disc of sand ringed with surf and a pale lagoon, on the floor plane so it zooms
- * and pans with the room, and a palm off each corner.
+ * and pans with the room, and a palm off each corner but the door's.
  */
 export function Beach({ width, depth }: { readonly width: number; readonly depth: number }): React.ReactElement {
   const r = beachRadius(width, depth);
@@ -155,12 +172,7 @@ export function Beach({ width, depth }: { readonly width: number; readonly depth
         style={{ ...disc(lagoon), transform: "translateZ(-1px)", background: "radial-gradient(closest-side, rgba(155, 232, 226, 0.95) 60%, rgba(155, 232, 226, 0))" }}
       />
       <div data-testid="beach" style={{ ...disc(r), background: CAMP.sand, boxShadow: `0 0 0 ${SURF}px #fff` }} />
-      {[
-        [-PALM_OUT, -PALM_OUT],
-        [width + PALM_OUT, -PALM_OUT],
-        [-PALM_OUT, depth + PALM_OUT],
-        [width + PALM_OUT, depth + PALM_OUT],
-      ].map(([px = 0, py = 0]) => (
+      {palmSpots(width, depth).map(([px, py]) => (
         <Palm key={`${px},${py}`} x={px} y={py} />
       ))}
     </>

@@ -1,4 +1,4 @@
-// Your own say over what the app discovered: a name for a floor.
+// Your own say over what the app discovered: a name for a floor, and the board tags shown on it.
 // Kept in the webview's storage (as the Office/Islands choice is) and applied once, right after a snapshot arrives,
 // so every view sees the same floors. Which floor a session sits on is the backend's (`moveSession`), not kept here.
 
@@ -9,9 +9,11 @@ import type { OfficeSnapshot } from "../types";
 export interface Overrides {
   /** Floor id to the name you gave it. */
   readonly names: Readonly<Record<string, string>>;
+  /** Floor id to the shared-board tags you linked to it, besides its own names. */
+  readonly tags: Readonly<Record<string, readonly string[]>>;
 }
 
-export const NO_OVERRIDES: Overrides = { names: {} };
+export const NO_OVERRIDES: Overrides = { names: {}, tags: {} };
 
 const without = <T>(rec: Readonly<Record<string, T>>, key: string): Record<string, T> => Object.fromEntries(Object.entries(rec).filter(([k]) => k !== key));
 
@@ -21,10 +23,16 @@ export function withName(o: Overrides, projectId: string, name: string): Overrid
   return { ...o, names: trimmed === "" ? without(o.names, projectId) : { ...o.names, [projectId]: trimmed } };
 }
 
-const isEmpty = (o: Overrides): boolean => Object.keys(o.names).length === 0;
+/** Tags are trimmed and kept once whatever their case; no tags takes the link away. */
+export function withTags(o: Overrides, projectId: string, tags: readonly string[]): Overrides {
+  const kept = tags.map((t) => t.trim()).filter((t, i, all) => t !== "" && all.findIndex((u) => u.trim().toLowerCase() === t.toLowerCase()) === i);
+  return { ...o, tags: kept.length === 0 ? without(o.tags, projectId) : { ...o.tags, [projectId]: kept } };
+}
+
+const isEmpty = (o: Overrides): boolean => Object.keys(o.names).length === 0 && Object.keys(o.tags).length === 0;
 
 export function applyOverrides(s: OfficeSnapshot, o: Overrides): OfficeSnapshot {
-  if (isEmpty(o)) return s;
+  if (Object.keys(o.names).length === 0) return s;
   return { ...s, projects: s.projects.map((p) => ({ ...p, name: o.names[p.id] ?? p.name })) };
 }
 
@@ -33,7 +41,7 @@ const KEY = "office-building:overrides";
 const rec = (v: unknown): Record<string, string> =>
   typeof v === "object" && v !== null ? Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string")) : {};
 
-function stored(): { names?: unknown; moves?: unknown } {
+function stored(): { names?: unknown; tags?: unknown; moves?: unknown } {
   try {
     const parsed: unknown = JSON.parse(readPref(KEY) ?? "null");
     return typeof parsed === "object" && parsed !== null ? parsed : {};
@@ -42,8 +50,18 @@ function stored(): { names?: unknown; moves?: unknown } {
   }
 }
 
+const tagLists = (v: unknown): Record<string, string[]> => {
+  const lists: Record<string, string[]> = {};
+  for (const [id, list] of typeof v === "object" && v !== null ? Object.entries(v) : []) {
+    const tags = Array.isArray(list) ? list.filter((t): t is string => typeof t === "string") : [];
+    if (tags.length > 0) lists[id] = tags;
+  }
+  return lists;
+};
+
 function load(): Overrides {
-  return { names: rec(stored().names) };
+  const s = stored();
+  return { names: rec(s.names), tags: tagLists(s.tags) };
 }
 
 /** Moves an earlier version kept in this storage. They stay there until the backend has taken them or they can no longer apply. */
@@ -54,10 +72,11 @@ export function dropLegacyMoves(sessionIds: readonly string[]): void {
   save(load(), Object.fromEntries(Object.entries(legacyMoves()).filter(([id]) => !sessionIds.includes(id))));
 }
 
-/** The names, and any legacy moves not yet settled: a rename must not lose them. */
+/** The names and tags, and any legacy moves not yet settled: a rename must not lose them. */
 function save(o: Overrides, moves: Record<string, string>): void {
   const keepMoves = Object.keys(moves).length > 0;
-  writePref(KEY, isEmpty(o) && !keepMoves ? null : JSON.stringify(keepMoves ? { ...o, moves } : o));
+  const keepTags = Object.keys(o.tags).length > 0;
+  writePref(KEY, isEmpty(o) && !keepMoves ? null : JSON.stringify({ names: o.names, ...(keepTags ? { tags: o.tags } : {}), ...(keepMoves ? { moves } : {}) }));
 }
 
 export interface OverrideActions {
@@ -65,10 +84,12 @@ export interface OverrideActions {
   readonly moveSession: (sessionId: string, projectId: string | null) => void;
 }
 
-/** The part of {@link OverrideActions} the webview keeps itself. */
-type NameActions = Pick<OverrideActions, "renameFloor">;
+/** What the webview keeps itself: names (part of {@link OverrideActions}) and the tags linked to a floor. */
+interface KeptActions extends Pick<OverrideActions, "renameFloor"> {
+  readonly linkTags: (projectId: string, tags: readonly string[]) => void;
+}
 
-export function useOverrides(): readonly [Overrides, NameActions] {
+export function useOverrides(): readonly [Overrides, KeptActions] {
   const [overrides, setOverrides] = useState<Overrides>(load);
   const change = useCallback((next: (o: Overrides) => Overrides) => {
     setOverrides((o) => {
@@ -78,5 +99,6 @@ export function useOverrides(): readonly [Overrides, NameActions] {
     });
   }, []);
   const renameFloor = useCallback((projectId: string, name: string) => change((o) => withName(o, projectId, name)), [change]);
-  return [overrides, { renameFloor }];
+  const linkTags = useCallback((projectId: string, tags: readonly string[]) => change((o) => withTags(o, projectId, tags)), [change]);
+  return [overrides, { renameFloor, linkTags }];
 }

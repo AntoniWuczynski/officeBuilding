@@ -214,6 +214,16 @@ describe("MockApi", () => {
     await expect(api.tickTodo("t-nope")).rejects.toThrow(/unknown todo/);
   });
 
+  it("tickTodo ticks a shared-board item, in the board's list only", async () => {
+    const api = new MockApi();
+    const id = "board:~/Desktop/MY-ACTIONS.md|3";
+    await api.tickTodo(id);
+    const snap = await api.getSnapshot();
+    expect(snap.sharedBoards[0]?.items.find((t) => t.id === id)?.done).toBe(true);
+    expect(snap.sharedBoards[0]?.items.filter((t) => t.done)).toHaveLength(1);
+    expect(snap.todos.some((t) => t.id === id)).toBe(false);
+  });
+
   it("sendAgentMessage records the note and validates its ends and text", async () => {
     const api = new MockApi(makeSeedSnapshot(), fixedNow);
     await api.sendAgentMessage("s-1", "s-2", " need your fetcher types ");
@@ -502,6 +512,18 @@ describe("MockApi floors", () => {
       const expected = { ...makeSettings(), notifications };
       await expect(api.updateSettings({ notifications })).resolves.toEqual(expected);
       await expect(api.getSettings()).resolves.toEqual(expected);
+    });
+
+    it("saves the shared boards and lists one board for each file, in order, keeping a file's ticks", async () => {
+      const api = new MockApi();
+      await api.tickTodo("board:~/Desktop/MY-ACTIONS.md|1");
+      const sharedFiles = ["/notes/QUEUE.md", "~/Desktop/MY-ACTIONS.md"];
+      await expect(api.updateSettings({ boards: { sharedFiles } })).resolves.toMatchObject({ boards: { sharedFiles } });
+      const boards = (await api.getSnapshot()).sharedBoards;
+      expect(boards.map((b) => [b.name, b.items.length])).toEqual([["QUEUE.md", 0], ["MY-ACTIONS.md", 3]]);
+      expect(boards[1]?.items[0]?.done).toBe(true);
+      await api.updateSettings({ boards: { sharedFiles: [] } });
+      expect((await api.getSnapshot()).sharedBoards).toEqual([]);
     });
 
     it("resolves an empty patch and changes nothing", async () => {

@@ -1,7 +1,8 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 import type { AgentMessage, DeskHandover, EditorList, Helper, ManagerFloor, Place, QaFloor, Session } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, handoverOf, helpersLine, notesFor, plural, sessionMatches } from "../../state/selectors";
+import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, handoverOf, helpersLine, notesFor, plural, sessionMatches, tripTag } from "../../state/selectors";
+import { useNewMessages } from "../../state/useNewMessages";
 import { cardLine, tagWord } from "../../lib/handover";
 import { poseForState } from "../../lib/animation";
 import { headsLeft } from "../../lib/iso";
@@ -42,6 +43,8 @@ interface Walk {
   readonly to: PlanPoint;
   /** 1 for an agent, smaller for a helper bound for a tiny desk. */
   readonly scale: number;
+  /** A note's "sender to recipient", as the island map tags its boats and parrots. */
+  readonly tag?: string;
 }
 
 /** A session and the desk it sits at: the seated ones in grid order, then the QA reviewer in the corner. */
@@ -141,7 +144,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
     [sessions, reviewer, depth],
   );
   const managerId = manager?.status.kind === "hired" ? manager.status.sessionId : null;
-  const seenMessages = useRef<Set<string>>(new Set(messages.map((m) => m.id)));
+  const takeNewMessages = useNewMessages(messages);
   const seenWorkers = useRef<Set<string>>(new Set(workerIds(placements)));
   // Where each agent and helper sat last time, so one that finishes can walk out from there.
   const lastSeats = useRef<Map<string, Seat>>(seatsFor(placements));
@@ -167,13 +170,13 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
     // The manager walks its notes from its own seat, but takes no part in arrivals and departures.
     const noteSeats = managerId === null ? seats : new Map(seats).set(managerId, { at: managerSeat(), scale: 1 });
     const fresh: Walk[] = [];
-    for (const m of messages) {
-      if (seenMessages.current.has(m.id)) continue;
-      seenMessages.current.add(m.id);
+    const titled = new Map(placements.map(({ session }) => [session.id, session]));
+    for (const m of takeNewMessages()) {
       const from = noteSeats.get(m.fromSessionId);
       const to = noteSeats.get(m.toSessionId);
       if (!reduced && from !== undefined && to !== undefined) {
-        fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from: from.at, via: null, to: to.at, scale: 1 });
+        const [a, b] = [titled.get(m.fromSessionId), titled.get(m.toSessionId)];
+        fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from: from.at, via: null, to: to.at, scale: 1, ...(a === undefined || b === undefined ? {} : { tag: tripTag(a, b) }) });
       }
     }
     for (const id of workerIds(placements)) {
@@ -203,7 +206,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
       const busy = new Set(current.map((w) => w.walkerId));
       return [...current, ...fresh.filter((w) => !busy.has(w.walkerId))];
     });
-  }, [messages, placements, depth, reduced, managerId]);
+  }, [messages, placements, depth, reduced, managerId, takeNewMessages]);
 
   const walking = new Set(walks.map((w) => w.walkerId));
   const managed = new Set(manager?.managed ?? []);
@@ -381,6 +384,11 @@ function WalkView({ walk, depth, managerId, managerLook, onDone }: { readonly wa
     >
       <Billboard x={0} y={0}>
         {walk.scale === 1 ? walker : <PodScale scale={walk.scale}>{walker}</PodScale>}
+        {walk.tag === undefined ? null : (
+          <span className="name-tag" style={{ maxWidth: "none" }} aria-hidden>
+            {walk.tag}
+          </span>
+        )}
       </Billboard>
     </div>
   );

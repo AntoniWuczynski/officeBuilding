@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import type { Connection, OfficeSnapshot, Project, QaFloor, Session } from "../../types";
+import type { Connection, OfficeSnapshot, Project, QaFloor, Session, TodoItem } from "../../types";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
 import {
   STATE_LABEL,
@@ -38,6 +38,8 @@ interface Props {
   readonly section: Section;
   readonly project: Project;
   readonly snapshot: OfficeSnapshot;
+  /** The floor's own Human TODOs and the board lines tagged for it. */
+  readonly humanTodos: readonly TodoItem[];
   readonly now: Date;
   readonly onClose: () => void;
   readonly onOpenSection: (section: Section) => void;
@@ -75,7 +77,7 @@ export function Sidebar({ onClose, ...body }: Props): React.ReactElement {
   );
 }
 
-function SectionBody({ section, project, snapshot, now, onOpenSection, onAnswer, onTick, onOpenSession, onResume, onOpenShell, onNewShell, onEndShell, setup }: Omit<Props, "onClose">): React.ReactElement {
+function SectionBody({ section, project, snapshot, humanTodos, now, onOpenSection, onAnswer, onTick, onOpenSession, onResume, onOpenShell, onNewShell, onEndShell, setup }: Omit<Props, "onClose">): React.ReactElement {
   const sessions = sessionsForProject(snapshot, project.id);
   switch (section) {
     case "setup":
@@ -111,12 +113,13 @@ function SectionBody({ section, project, snapshot, now, onOpenSection, onAnswer,
     case "human-todo":
       return (
         <TodoList
-          items={todosForProject(snapshot, project.id, "human")}
+          items={humanTodos}
           empty="Nothing for you to do on this floor."
           hint="Tick an item off when you have done it."
           connection={connectionFor(snapshot, project.id)}
           now={now}
           onTick={onTick}
+          boardNames={Object.fromEntries(snapshot.sharedBoards.map((b) => [b.id, b.name]))}
         />
       );
     case "todo":
