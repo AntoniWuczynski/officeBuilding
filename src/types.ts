@@ -179,6 +179,10 @@ export interface Session {
   readonly effort: string | null;
   readonly lastActivityAt: string;
   readonly pendingQuestionIds: readonly string[];
+  /** The name the human gave the session, if any. */
+  readonly sessionName: string | null;
+  /** Whether the session already reviewed its own work. */
+  readonly selfReviewed: boolean;
   readonly spend: Spend;
   /** Sub-agents (plain or in a workflow) still working for this session. */
   readonly helpers: readonly Helper[];
@@ -396,6 +400,20 @@ export interface OfficeSnapshot {
   readonly handover: HandoverView;
   /** The building-wide checklist files, in Settings order. */
   readonly sharedBoards: readonly SharedBoard[];
+  /** How sessions group into projects, from the rules file. */
+  readonly projectRules: readonly ProjectRule[];
+  readonly harnessId: string | null;
+  /** Why the rules file could not be read, if it could not. */
+  readonly projectRulesError: string | null;
+}
+
+/** One grouping rule: a session joins the project when any matcher hits. */
+export interface ProjectRule {
+  readonly id: string;
+  readonly name: string;
+  readonly prefixes: readonly string[];
+  readonly contains: readonly string[];
+  readonly repos: readonly string[];
 }
 
 /** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */

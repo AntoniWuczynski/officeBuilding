@@ -4,6 +4,7 @@ import { STRUCTURED } from "./mockConversation";
 import { makeSeedSnapshot } from "./mockData";
 import { addContext } from "../lib/routing";
 import { makeSettings } from "./mockSettings";
+import { snapshotSchema } from "./wire";
 
 const NOW = new Date("2026-09-29T12:00:00Z");
 const fixedNow = (): Date => NOW;
@@ -566,5 +567,19 @@ describe("MockApi floors", () => {
     const api = new MockApi();
     await expect(api.attachSession("s-3")).resolves.toBe(false);
     await expect(api.attachSession("ghost")).rejects.toThrow(/unknown session/);
+  });
+});
+
+describe("snapshotSchema defaults", () => {
+  it("parses a payload without the project-cluster fields and fills defaults", () => {
+    const { projectRules: _r, harnessId: _h, projectRulesError: _e, ...older } = JSON.parse(JSON.stringify(makeSeedSnapshot()));
+    older.sessions = older.sessions.map(({ sessionName: _n, selfReviewed: _s, ...rest }: Record<string, unknown>) => rest);
+    const parsed = snapshotSchema.safeParse(older);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.projectRules).toEqual([]);
+    expect(parsed.data.harnessId).toBeNull();
+    expect(parsed.data.projectRulesError).toBeNull();
+    expect(parsed.data.sessions[0]).toMatchObject({ sessionName: null, selfReviewed: false });
   });
 });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, QueuedNote, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
+import type { ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, ProjectRule, QueuedNote, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
 import { handoverSettingsSchema, handoverViewSchema } from "./handoverWire";
 import { routingSettingsSchema } from "./routingWire";
@@ -12,6 +12,14 @@ const toolKind = z.enum(["claude-code", "codex", "opencode", "antigravity", "cur
 const sessionState = z.enum(["error", "waiting-human", "running", "thinking", "idle", "done"]);
 const party = z.enum(["ai", "human"]);
 
+const projectRuleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  prefixes: z.array(z.string()),
+  contains: z.array(z.string()),
+  repos: z.array(z.string()),
+}) satisfies z.ZodType<ProjectRule>;
+
 export const sessionSchema = z.object({
   id: z.string(),
   tool: toolKind,
@@ -23,6 +31,8 @@ export const sessionSchema = z.object({
   effort: z.string().nullable(),
   lastActivityAt: z.string(),
   pendingQuestionIds: z.array(z.string()),
+  sessionName: z.string().nullable().default(null),
+  selfReviewed: z.boolean().default(false),
   spend: z.object({ usd: z.number(), tokens: z.number(), unpricedTokens: z.number() }),
   helpers: z.array(z.object({ id: z.string(), state: sessionState, worktree: z.boolean(), branch: z.string().nullable() })),
   pets: z.array(z.object({ id: z.string(), kind: z.enum(["shell", "monitor", "browser", "process"]), label: z.string() })),
@@ -180,6 +190,9 @@ export const snapshotSchema = z.object({
   queued: z.array(queuedNoteSchema),
   handover: handoverViewSchema,
   sharedBoards: z.array(sharedBoardSchema),
+  projectRules: z.array(projectRuleSchema).default([]),
+  harnessId: z.string().nullable().default(null),
+  projectRulesError: z.string().nullable().default(null),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [
