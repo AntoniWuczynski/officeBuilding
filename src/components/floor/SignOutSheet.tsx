@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { DeskHandover, EndedSession } from "../../types";
-import { TOOL_LABEL, handoverOf } from "../../state/selectors";
+import { TOOL_LABEL, handoverOf, lastReplyLine } from "../../state/selectors";
 import { message } from "../../lib/errors";
 import { OpenInEditor } from "../editor/OpenInEditor";
 import { signOutLine } from "../../lib/handover";
 import { relativeTime } from "../../lib/time";
+import "../building/boards.css";
 
 interface Props {
   readonly ended: readonly EndedSession[];
@@ -49,6 +50,7 @@ function SignOutRow({ ended, handover, now, onResume }: { readonly ended: EndedS
   };
   const handedOver = handover === undefined ? null : signOutLine(handover.state);
   const model = ended.model === null ? "" : `, ${ended.model}`;
+  const reply = lastReplyLine(ended.lastReply);
   return (
     <li className="signout-row" data-testid="signed-out-row">
       <span className="signout-name" data-testid="signed-out-title">
@@ -58,6 +60,11 @@ function SignOutRow({ ended, handover, now, onResume }: { readonly ended: EndedS
         {TOOL_LABEL[ended.tool]}
         {model}, left {relativeTime(ended.endedAt, now)}
       </span>
+      {reply === null ? null : (
+        <span className="signout-meta reply-line" data-testid="signed-out-reply">
+          {reply}
+        </span>
+      )}
       {handedOver === null ? null : (
         <span className="signout-meta" data-testid="signed-out-handover">
           {handedOver}

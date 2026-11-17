@@ -81,11 +81,14 @@ export function NeedsYou({ snapshot, onOpen, onAnswer }: Props): React.ReactElem
   const queue = needsYouQueue(snapshot);
   useEffect(() => {
     if (!open) return;
+    // Captured, and marked handled, so the panel under the list does not also take this Escape.
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [open]);
   return (
     <span className="needs-you-menu">
@@ -108,7 +111,7 @@ export function NeedsYou({ snapshot, onOpen, onAnswer }: Props): React.ReactElem
                     setOpen(false);
                     onOpen(question);
                   }}
-                  onAnswer={(id, a) => onAnswer(id, a)}
+                  onAnswer={onAnswer}
                 />
               ))}
             </ol>

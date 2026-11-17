@@ -1,6 +1,10 @@
+import { useContext } from "react";
 import type { Question, Session } from "../../types";
-import { SESSION_STATE_SEVERITY, STATE_LABEL, TOOL_LABEL, helpersLine } from "../../state/selectors";
+import { STATE_LABEL, TOOL_LABEL, helpersLine, lastReplyLine, sessionsByUrgency } from "../../state/selectors";
+import { SeenContext } from "../../state/useSeen";
+import { BoardsContext } from "./BoardsContext";
 import { EditableSign } from "./EditableSign";
+import { PlaceTags } from "./PlaceTags";
 import "./place.css";
 
 /** The panel's element id: only one is open at a time, so the nameplates can all point at it. */
@@ -39,14 +43,11 @@ interface Props {
   readonly onClose?: () => void;
 }
 
-/** The most urgent agent first; agents equally urgent keep the place's own order. */
-export function byUrgency(sessions: readonly Session[]): Session[] {
-  return [...sessions].sort((a, b) => SESSION_STATE_SEVERITY[b.state] - SESSION_STATE_SEVERITY[a.state]);
-}
-
 /** One place's agents, shared by both views: rename it, open an agent (with what it waits to be asked shown), move an agent, go inside. */
 export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, counts, asks, moveTargets, leaving, className, headingRef, onRename, onMove, onOpenSession, onEnter, onClose }: Props): React.ReactElement {
   const pending = asks.length;
+  const { isNew } = useContext(SeenContext);
+  const links = useContext(BoardsContext);
   return (
     <aside id={id} className={`place-panel ${className}`} data-testid="place-panel" aria-label={`${name} ${noun}`}>
       <h2 ref={headingRef} tabIndex={-1}>
@@ -57,17 +58,26 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
         {pending > 0 ? `, ${pending} waiting on you` : ""}
       </p>
       <ul>
-        {byUrgency(sessions).map((s) => {
+        {sessionsByUrgency(sessions).map((s) => {
           const ask = asks.find((q) => q.sessionId === s.id);
+          const reply = lastReplyLine(s.lastReply);
           return (
             <li key={s.id} data-state={s.state}>
               <button type="button" className="place-row" data-testid="place-row" onClick={() => onOpenSession(s)}>
-                <b>{s.title}</b>
+                <b>
+                  {s.title}
+                  {isNew(s) ? <i className="new-dot" role="img" aria-label="New since you looked" data-testid="new-dot" /> : null}
+                </b>
                 <span>
                   {STATE_LABEL[s.state]} · {TOOL_LABEL[s.tool]}
                   {helpersLine(s) === null ? "" : ` · ${helpersLine(s)}`}
                   {s.worktree ? " · in a worktree" : ""}
                 </span>
+                {reply === null ? null : (
+                  <span className="reply-line place-reply" data-testid="place-reply">
+                    {reply}
+                  </span>
+                )}
                 {ask === undefined ? null : <span className="place-ask">{ask.prompt}</span>}
               </button>
               {moveTargets.length > 0 ? (
@@ -84,6 +94,7 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
           );
         })}
       </ul>
+      {links === null ? null : <PlaceTags key={projectId} noun={noun} tags={links.linked[projectId] ?? []} onChange={(tags) => links.link(projectId, tags)} />}
       <button type="button" className="btn btn-primary place-enter" data-testid="place-enter" disabled={leaving} onClick={() => onEnter(projectId)}>
         {enterLabel}
       </button>

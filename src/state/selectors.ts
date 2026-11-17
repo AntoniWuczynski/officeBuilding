@@ -208,6 +208,16 @@ export function openCount(items: readonly TodoItem[]): number {
   return items.filter((t) => !t.done).length;
 }
 
+/** What a tag is compared by: the way you would type it, trimmed and in any case. */
+const tagKey = (tag: string): string => tag.trim().toLowerCase();
+
+/** Shared-board items tagged for this place: the tag is its folder's name, the name it shows now, or a tag you linked to it. */
+export function boardItemsForProject(snapshot: OfficeSnapshot, project: Project, linked: readonly string[]): TodoItem[] {
+  const folder = project.path.replace(/\/+$/, "").split("/").pop() ?? "";
+  const names = new Set([folder, project.name, ...linked].map(tagKey).filter((t) => t !== ""));
+  return snapshot.sharedBoards.flatMap((b) => b.items).filter((t) => t.projectTag !== null && names.has(tagKey(t.projectTag)));
+}
+
 /** Sum of spend across the given sessions. */
 export function totalSpend(sessions: readonly Session[]): Spend {
   return sessions.reduce<Spend>(
@@ -232,6 +242,17 @@ export function sessionById(
 export function helpersLine(session: Session): string | null {
   const n = session.helpers.length;
   return n === 0 ? null : `${n} ${n === 1 ? "helper" : "helpers"} working`;
+}
+
+/** "Last reply: ...", or null when the agent has no reply to show (a null or blank one shows nothing). */
+export function lastReplyLine(reply: string | null): string | null {
+  const text = reply?.trim() ?? "";
+  return text === "" ? null : `Last reply: ${text}`;
+}
+
+/** The most urgent agent first; agents equally urgent keep the place's own order. */
+export function sessionsByUrgency(sessions: readonly Session[]): Session[] {
+  return [...sessions].sort((a, b) => SESSION_STATE_SEVERITY[b.state] - SESSION_STATE_SEVERITY[a.state]);
 }
 
 export function modelLine(session: Session): string | null {

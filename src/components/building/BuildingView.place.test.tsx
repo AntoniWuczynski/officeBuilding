@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BuildingView } from "./BuildingView";
 import { makeSeedSnapshot } from "../../api/mockData";
+import type { OfficeSnapshot } from "../../types";
+import type { ViewMode } from "../../state/useViewMode";
 
 function setup() {
   const onEnter = vi.fn();
@@ -20,6 +22,7 @@ function setup() {
       onOpenSession={onOpenSession}
       overrideActions={{ renameFloor: () => {}, moveSession: () => {} }}
       onAnswer={() => Promise.resolve()}
+      onTick={() => {}}
     />,
   );
   const storey = (id: string): HTMLElement => screen.getAllByTestId("storey").find((s) => s.getAttribute("data-project") === id) as HTMLElement;
@@ -75,5 +78,77 @@ describe("a person at a desk on the overview", () => {
     await userEvent.setup().click(within(storey("p-arcade")).getByRole("button", { name: /netcode prototype, Idle\. Open it\./ }));
     expect(onOpenSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s-6" }));
     expect(onEnter).not.toHaveBeenCalled();
+  });
+});
+
+describe("Escape closes one thing at a time", () => {
+  it("cancels a rename in the panel heading without closing the panel; a second Escape closes it", async () => {
+    const { storey } = setup();
+    const user = userEvent.setup();
+    await user.click(within(storey("p-shop")).getByTestId("floor-nameplate"));
+    const panel = screen.getByTestId("place-panel");
+    await user.click(within(panel).getByTestId("roof-sign"));
+    await user.keyboard("Typed over{Escape}");
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    expect(within(panel).queryByTestId("roof-sign-input")).not.toBeInTheDocument();
+    expect(within(panel).getByTestId("roof-sign")).toHaveTextContent("corner_shop");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+  });
+
+  it("closes the Needs-you list before the panel under it", async () => {
+    const { storey } = setup();
+    const user = userEvent.setup();
+    await user.click(within(storey("p-shop")).getByTestId("floor-nameplate"));
+    await user.click(screen.getByTestId("needs-you"));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Waiting on you" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+  });
+});
+
+describe("the panel does not come back by itself", () => {
+  const shown = (snapshot: OfficeSnapshot, mode: ViewMode): React.ReactElement => (
+    <BuildingView
+      snapshot={snapshot}
+      mode={mode}
+      onEnter={() => {}}
+      canPickFolder={false}
+      onPickFolder={() => Promise.resolve(null)}
+      onAddFloor={(path) => Promise.resolve({ id: "p-new", name: path, path, sessionIds: [] })}
+      onDemolishFloor={() => Promise.resolve()}
+      loadUsage={() => Promise.resolve([])}
+      onOpenPlate={() => {}}
+      onOpenSession={() => {}}
+      overrideActions={{ renameFloor: () => {}, moveSession: () => {} }}
+      onAnswer={() => Promise.resolve()}
+      onTick={() => {}}
+    />
+  );
+  const plate = (): HTMLElement => screen.getAllByTestId("floor-nameplate").find((p) => p.getAttribute("data-project") === "p-shop") as HTMLElement;
+
+  it("stays shut after a switch to Islands and back", async () => {
+    const seed = makeSeedSnapshot();
+    const { rerender } = render(shown(seed, "office"));
+    await userEvent.setup().click(plate());
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    rerender(shown(seed, "islands"));
+    rerender(shown(seed, "office"));
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+  });
+
+  it("stays shut when its floor is demolished and built again", async () => {
+    const seed = makeSeedSnapshot();
+    const { rerender } = render(shown(seed, "office"));
+    await userEvent.setup().click(plate());
+    rerender(shown({ ...seed, projects: seed.projects.filter((p) => p.id !== "p-shop"), sessions: seed.sessions.filter((s) => s.projectId !== "p-shop") }, "office"));
+    const rubble = screen.getAllByTestId("storey").find((s) => s.getAttribute("data-project") === "p-shop")?.querySelector(".rubble") ?? document.body;
+    act(() => {
+      rubble.dispatchEvent(Object.assign(new Event("animationend", { bubbles: true }), { animationName: "rubble-clear" }));
+    });
+    rerender(shown(seed, "office"));
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
   });
 });

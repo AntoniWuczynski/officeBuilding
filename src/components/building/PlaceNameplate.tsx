@@ -9,9 +9,9 @@ import { QaStamp } from "../qa/QaStamp";
 import "./place.css";
 
 /** What differs between the two skins: the words, the icon and the hooks the tests and scripts find them by. */
-const SKIN: Readonly<Record<ViewMode, { readonly kind: string; readonly go: string; readonly removeTitle: string; readonly plateId: string; readonly removeId: string | undefined; readonly icon: React.ReactElement }>> = {
-  office: { kind: "Plant room", go: "Go to floor.", removeTitle: "Demolish this floor", plateId: "floor-nameplate", removeId: "demolish-floor", icon: <DemolishIcon /> },
-  islands: { kind: "Lighthouse", go: "Show island.", removeTitle: "Sink this island", plateId: "island-nameplate", removeId: undefined, icon: <SinkIcon /> },
+const SKIN: Readonly<Record<ViewMode, { readonly kind: string; readonly plateId: string; readonly removeId: string | undefined; readonly icon: React.ReactElement }>> = {
+  office: { kind: "Plant room", plateId: "floor-nameplate", removeId: "demolish-floor", icon: <DemolishIcon /> },
+  islands: { kind: "Lighthouse", plateId: "island-nameplate", removeId: undefined, icon: <SinkIcon /> },
 };
 
 interface Props {
@@ -37,7 +37,7 @@ interface Props {
 
 /** One spoken line for a place: its name, how busy it is, what waits on you, and what the plate does. */
 function spoken({ mode, name, light, counts, pending, overflow, stamp }: Pick<Props, "mode" | "name" | "light" | "counts" | "pending" | "overflow" | "stamp">): string {
-  return `${name}: ${counts.active} of ${counts.total} active, ${lightWords(light)}${pending > 0 ? `, ${pending} waiting on you` : ""}${overflow > 0 ? `, ${overflow} more not shown` : ""}${stamp === null ? "" : `, ${STAMP_WORDS[stamp].spoken}`}. ${SKIN[mode].go}`;
+  return `${name}: ${counts.active} of ${counts.total} active, ${lightWords(light)}${pending > 0 ? `, ${pending} waiting on you` : ""}${overflow > 0 ? `, ${overflow} more not shown` : ""}${stamp === null ? "" : `, ${STAMP_WORDS[stamp].spoken}`}. Show ${PLACE[mode].noun}.`;
 }
 
 /** A place's plate and its remove button, in either view: lamp, name, count (with the agents that do not fit), QA stamp, waiting count. */
@@ -79,7 +79,7 @@ export function PlaceNameplate(p: Props): React.ReactElement {
           className="demolish-btn"
           data-testid={skin.removeId}
           aria-label={PLACE[p.mode].removeLabel(p.name)}
-          title={skin.removeTitle}
+          title={`${PLACE[p.mode].removeVerb} this ${PLACE[p.mode].noun}`}
           disabled={p.leaving}
           onClick={(e) => {
             e.stopPropagation();

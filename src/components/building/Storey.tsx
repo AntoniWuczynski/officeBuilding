@@ -64,7 +64,7 @@ const RUBBLE: readonly (readonly [number, number, number, number, number])[] = [
 
 const WALL_H = STOREY.height - STOREY.slab;
 
-/** One storey of the cutaway: a room you can see into. Click it to go inside. */
+/** One storey of the cutaway: a room you can see into. Click the room to go inside; its nameplate opens the place panel instead. */
 export function Storey({ level, width, floor, phase, animate, onEnter, onOpenSession, onShow, panelOpen, onDemolish, onGone }: StoreyProps): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null);
   const { project, sessions, light, counts, pending, dimmed, plant, stamp } = floor;

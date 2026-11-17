@@ -140,6 +140,13 @@ export class MockApi implements DiscoveryApi {
     const managerError = patch.manager === undefined ? null : managerPatchError(patch.manager);
     if (managerError !== null) return Promise.reject(new Error(managerError));
     this.settings = { ...this.settings, ...patch };
+    if (patch.boards !== undefined) {
+      // One board for each saved file, in order; a file already shown keeps its items.
+      const sharedBoards = patch.boards.sharedFiles.map(
+        (path) => this.snapshot.sharedBoards.find((b) => b.path === path) ?? { id: `board:${path}`, path, name: path.split("/").pop() ?? path, items: [] },
+      );
+      this.commit({ ...this.snapshot, sharedBoards });
+    }
     return Promise.resolve(this.settings);
   }
 
@@ -463,7 +470,7 @@ export class MockApi implements DiscoveryApi {
   }
 
   tickTodo(todoId: string): Promise<void> {
-    const item = this.snapshot.todos.find((t) => t.id === todoId);
+    const item = [...this.snapshot.todos, ...this.snapshot.sharedBoards.flatMap((b) => b.items)].find((t) => t.id === todoId);
     if (item === undefined) {
       return Promise.reject(new Error(`unknown todo: ${todoId}`));
     }
@@ -472,10 +479,8 @@ export class MockApi implements DiscoveryApi {
       this.linearTickFailure = null;
       return Promise.reject(new Error(message));
     }
-    const todos = this.snapshot.todos.map((t) =>
-      t.id === todoId ? { ...t, done: true } : t,
-    );
-    this.commit({ ...this.snapshot, todos });
+    const tick = (t: typeof item): typeof item => (t.id === todoId ? { ...t, done: true } : t);
+    this.commit({ ...this.snapshot, todos: this.snapshot.todos.map(tick), sharedBoards: this.snapshot.sharedBoards.map((b) => ({ ...b, items: b.items.map(tick) })) });
     return Promise.resolve();
   }
 

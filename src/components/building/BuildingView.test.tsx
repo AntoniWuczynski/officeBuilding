@@ -21,6 +21,7 @@ function view(snapshot: OfficeSnapshot, onDemolishFloor: Demolish = () => Promis
       onOpenSession={() => {}}
       overrideActions={{ renameFloor: () => {}, moveSession: () => {} }}
       onAnswer={() => Promise.resolve()}
+      onTick={() => {}}
     />
   );
 }
@@ -111,7 +112,7 @@ describe("QA stamps on the nameplates", () => {
     render(view(makeSeedSnapshot()));
     const plate = within(storey("p-shop") ?? document.body).getByTestId("floor-nameplate");
     expect(within(plate).getByTestId("qa-stamp")).toHaveTextContent("QA notes");
-    expect(plate).toHaveAttribute("aria-label", expect.stringContaining(", QA found problems. Go to floor."));
+    expect(plate).toHaveAttribute("aria-label", expect.stringContaining(", QA found problems. Show floor."));
   });
 
   it("shows none for a floor with QA off, or a stamp left over from before it was switched off", () => {

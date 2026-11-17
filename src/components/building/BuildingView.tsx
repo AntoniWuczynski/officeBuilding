@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
 import type { OfficeSnapshot, Project, Question, Session, ToolUsage } from "../../types";
@@ -17,8 +17,10 @@ import { BUILDING_CAMERA } from "../../lib/iso";
 import { STOREY, storeyWidth } from "../../lib/layout";
 import { DEFAULT_BUILDING_NAME, useBuildingName } from "../../state/useBuildingName";
 import { usePresence } from "../../state/usePresence";
+import { SeenContext } from "../../state/useSeen";
 import { Stage } from "../../scene/Stage";
 import { AddFloorDialog } from "./AddFloorDialog";
+import { BoardsSheet } from "./BoardsSheet";
 import { DemolishDialog } from "./DemolishDialog";
 import { EditableSign } from "./EditableSign";
 import { NeedsYou } from "./NeedsYou";
@@ -54,6 +56,10 @@ interface Props {
   readonly overrideActions: OverrideActions;
   /** Answer a waiting question from the Needs-you list. */
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
+  /** Tick an item off a shared board. */
+  readonly onTick: (todoId: string) => void;
+  /** Open Settings, where the shared files are chosen. */
+  readonly onOpenSettings?: () => void;
 }
 
 // The island map pulls in three.js (a 596 kB chunk, 152 kB gzipped): load it only when Islands is chosen.
@@ -67,7 +73,7 @@ const PLATE_CLEAR = 16;
 const ISLANDS_DEFAULT_NAME = "The Islands";
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions, onAnswer }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions, onAnswer, onTick, onOpenSettings }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
@@ -98,6 +104,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   const doomed = floors.find((f) => f.project.id === demolishing);
   const matching = floors.filter((f) => !f.dimmed).length;
   const tally = sessionCounts(snapshot.sessions);
+  const { isNew } = useContext(SeenContext);
+  const news = snapshot.sessions.filter(isNew).length;
   const needsYou = floors.filter((f) => f.light === "red" || f.light === "yellow");
   const width = storeyWidth(Math.max(0, ...floors.map((f) => f.sessions.length)));
   const islands = mode === "islands";
@@ -139,11 +147,15 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
     if (placed === undefined) return;
     panelHeading.current?.focus();
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setPlaceId(null);
+      if (e.key === "Escape" && !e.defaultPrevented) setPlaceId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [placed?.key]);
+  // A switch to Islands, or the floor being demolished, forgets the panel: it must not reopen when the floor is back.
+  useEffect(() => {
+    if (placeId !== null && placed === undefined) setPlaceId(null);
+  }, [placeId, placed]);
   const openAsk = (q: Question): void => {
     const asker = sessionById(snapshot, q.sessionId);
     if (asker !== undefined) onOpenSession(asker);
@@ -175,6 +187,12 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
           </b>{" "}
           active
         </span>
+        {news === 0 ? null : (
+          <span className="new-count" data-testid="new-count" aria-label={`${news} ${news === 1 ? "agent has" : "agents have"} news since you looked`}>
+            <i className="new-dot" aria-hidden /> {news}
+            <span className="new-word"> new</span>
+          </span>
+        )}
         {viewSwitch}
         {needsYou.length > 0 ? (
           <span className="needs-you">
@@ -194,6 +212,7 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             ))}
           </span>
         ) : null}
+        <BoardsSheet boards={snapshot.sharedBoards} onTick={onTick} {...(onOpenSettings === undefined ? {} : { onOpenSettings })} />
         <NeedsYou snapshot={snapshot} onOpen={openAsk} onAnswer={onAnswer} />
       </header>
 

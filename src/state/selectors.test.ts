@@ -38,6 +38,9 @@ import {
   sessionsForProject,
   todosForProject,
   totalSpend,
+  boardItemsForProject,
+  lastReplyLine,
+  sessionsByUrgency,
 } from "./selectors";
 import { makeSeedSnapshot } from "../api/mockData";
 import type { EditorList, QaFloor, Question, Review, Session, SessionState } from "../types";
@@ -366,5 +369,52 @@ describe("tripTag", () => {
     const [a, b] = makeSeedSnapshot().sessions;
     if (a === undefined || b === undefined) throw new Error("seed");
     expect(tripTag(a, b)).toBe("audit checkout to orders ingest\u2026");
+  });
+});
+
+describe("sessionsByUrgency", () => {
+  it("puts the most urgent first and keeps the place's own order among equals", () => {
+    const sessions = [session("idle", { id: "a" }), session("error", { id: "b" }), session("idle", { id: "c" }), session("waiting-human", { id: "d" })];
+    expect(sessionsByUrgency(sessions).map((s) => s.id)).toEqual(["b", "d", "a", "c"]);
+    expect(sessions.map((s) => s.id)).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+describe("lastReplyLine", () => {
+  it("says the reply, and nothing when there is none", () => {
+    expect(lastReplyLine("Done: 3 findings.")).toBe("Last reply: Done: 3 findings.");
+    expect(lastReplyLine(null)).toBeNull();
+    expect(lastReplyLine("  \n ")).toBeNull();
+  });
+});
+
+describe("boardItemsForProject", () => {
+  const snap = makeSeedSnapshot();
+  const ids = (project: string, linked: readonly string[] = []): string[] => {
+    const p = snap.projects.find((x) => x.id === project);
+    if (p === undefined) throw new Error("seed");
+    return boardItemsForProject(snap, p, linked).map((t) => t.id.slice(-1));
+  };
+
+  it("takes the items tagged with the folder's name, and only those", () => {
+    expect(ids("p-shop")).toEqual(["1"]);
+    expect(ids("p-arcade")).toEqual([]);
+  });
+
+  it("matches the folder name after a rename, and the name you gave it", () => {
+    const renamed = { ...snap, projects: snap.projects.map((p) => (p.id === "p-shop" ? { ...p, name: "Home base" } : p)) };
+    const p = renamed.projects[0];
+    if (p === undefined) throw new Error("seed");
+    expect(boardItemsForProject(renamed, p, []).map((t) => t.id.slice(-1))).toEqual(["1"]);
+    const gave = { ...snap, projects: snap.projects.map((x) => (x.id === "p-notes" ? { ...x, name: "OFFICE building " } : x)) };
+    const n = gave.projects[3];
+    if (n === undefined) throw new Error("seed");
+    expect(boardItemsForProject(gave, n, []).map((t) => t.id.slice(-1))).toEqual(["2"]);
+  });
+
+  it("matches a linked tag whatever its case or spacing, and never an untagged item", () => {
+    expect(ids("p-office")).toEqual([]);
+    expect(ids("p-office", ["  office BUILDING"])).toEqual(["2"]);
+    expect(ids("p-arcade", ["", "  "])).toEqual([]);
   });
 });
