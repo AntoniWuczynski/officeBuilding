@@ -124,8 +124,16 @@ export function App({ api }: Props): React.ReactElement {
         return;
       }
       api
-        .focusSession(session.id)
-        .then(() => toast("ok", `Brought the ${TOOL_LABEL[session.tool]} window for “${session.title}” to the front.`))
+        .attachSession(session.id)
+        .then((docked) => {
+          if (docked) {
+            showTerminal(session.id);
+            return undefined;
+          }
+          return api
+            .focusSession(session.id)
+            .then(() => toast("ok", `Brought the ${TOOL_LABEL[session.tool]} window for “${session.title}” to the front.`));
+        })
         .catch((err: unknown) => toast("error", `Could not raise the window for “${session.title}”: ${message(err)}.`));
     },
     [api, toast, showTerminal, markSeen],

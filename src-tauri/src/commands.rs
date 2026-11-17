@@ -229,6 +229,15 @@ pub fn send_agent_message(
     office.send_agent_message(&from_session_id, &to_session_id, &text)
 }
 
+/// On a blocking thread: it waits for `claude attach` to start.
+#[tauri::command]
+pub async fn attach_session(office: OfficeState<'_>, session_id: String) -> Result<bool, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.attach_session(&session_id))
+        .await
+        .map_err(|e| format!("the attach did not finish: {e}"))?
+}
+
 #[tauri::command]
 pub fn focus_session(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
     office.focus_session(&session_id)

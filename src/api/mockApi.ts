@@ -514,6 +514,13 @@ export class MockApi implements DiscoveryApi {
     return Promise.resolve();
   }
 
+  attachSession(sessionId: string): Promise<boolean> {
+    // Mock: none of the seed sessions is a background job.
+    return this.snapshot.sessions.some((s) => s.id === sessionId)
+      ? Promise.resolve(false)
+      : Promise.reject(new Error(`unknown session: ${sessionId}`));
+  }
+
   focusSession(sessionId: string): Promise<void> {
     const session = this.snapshot.sessions.find((s) => s.id === sessionId);
     if (session === undefined) {

@@ -552,4 +552,10 @@ describe("MockApi floors", () => {
       expect(api.openDesk).toBeNull();
     });
   });
+
+  it("attachSession finds no background session among the mock's", async () => {
+    const api = new MockApi();
+    await expect(api.attachSession("s-3")).resolves.toBe(false);
+    await expect(api.attachSession("ghost")).rejects.toThrow(/unknown session/);
+  });
 });

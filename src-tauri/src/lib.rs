@@ -258,6 +258,7 @@ pub fn run() -> tauri::Result<()> {
             commands::tick_todo,
             commands::send_agent_message,
             commands::focus_session,
+            commands::attach_session,
             commands::add_floor,
             commands::demolish_floor,
             commands::move_session,

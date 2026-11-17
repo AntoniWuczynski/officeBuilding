@@ -163,6 +163,12 @@ export interface DiscoveryApi {
   focusSession(sessionId: string): Promise<void>;
 
   /**
+   * Open a Claude Code background session with `claude attach` in the docked terminal.
+   * Resolves false when it is not one, so its own window is raised instead.
+   */
+  attachSession(sessionId: string): Promise<boolean>;
+
+  /**
    * Watch the in-app terminal of a `full`-control session: replays what it
    * kept, then streams. Returns a function that stops watching; the agent
    * keeps running.

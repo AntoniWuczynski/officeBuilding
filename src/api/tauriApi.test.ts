@@ -112,6 +112,7 @@ describe("TauriApi", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(true)
       .mockResolvedValueOnce(floor)
       .mockResolvedValueOnce("/Users/me/code/app")
       .mockResolvedValueOnce(null);
@@ -122,6 +123,7 @@ describe("TauriApi", () => {
     await api.tickTodo("t-1");
     await api.sendAgentMessage("s-1", "s-2", "hi");
     await api.focusSession("s-1");
+    await expect(api.attachSession("s-1")).resolves.toBe(true);
     await expect(api.addFloor("~/code/app")).resolves.toEqual(floor);
     await expect(api.pickFolder()).resolves.toBe("/Users/me/code/app");
     await api.resumeSession("e-1");
@@ -133,6 +135,7 @@ describe("TauriApi", () => {
       ["tick_todo", { todoId: "t-1" }],
       ["send_agent_message", { fromSessionId: "s-1", toSessionId: "s-2", text: "hi" }],
       ["focus_session", { sessionId: "s-1" }],
+      ["attach_session", { sessionId: "s-1" }],
       ["add_floor", { path: "~/code/app" }],
       ["pick_folder", undefined],
       ["resume_session", { sessionId: "e-1" }],

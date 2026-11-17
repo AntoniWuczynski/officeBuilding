@@ -45,6 +45,8 @@ struct Inner {
     /// Every session a terminal has run, by session id, so a panel opened on an
     /// earlier session (before a `/clear`) keeps reaching the same terminal.
     ran_in: BTreeMap<String, String>,
+    /// The terminal running `claude attach` for each background session, by session id.
+    attached: BTreeMap<String, String>,
     /// Hired terminals no session has been bound to yet, with the task they
     /// were hired for: if one exits first, the hire failed after all.
     hired: BTreeMap<String, String>,
@@ -356,6 +358,10 @@ fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<Stri
     start_agent_with(terminals, root, command, &[])
 }
 
+fn attach_command(job: &str, shell: &str) -> String {
+    format!("claude attach {}", pty::quote(shell, job))
+}
+
 /// The tool's own resume command for an ended session, on the model and effort it ran with.
 /// `setup`'s environment goes before the binary, its options after it.
 fn resume_command(ended: &EndedSession, shell: &str, setup: &Launch) -> Result<String, String> {
@@ -436,6 +442,7 @@ impl Office {
                 store,
                 owned: BTreeMap::new(),
                 ran_in: BTreeMap::new(),
+                attached: BTreeMap::new(),
                 hired: BTreeMap::new(),
                 desks: BTreeMap::new(),
                 shells: BTreeMap::new(),
@@ -724,6 +731,73 @@ impl Office {
         .map(|terminal| self.note_view(tool, &terminal))
     }
 
+    /// Open a background session in a docked terminal running `claude attach <job>`.
+    /// Ok(false) when it is not a background session, so its own window is raised instead.
+    pub fn attach_session(&self, session_id: &str) -> Result<bool, String> {
+        let (dir, pid) = {
+            let inner = self.lock();
+            let session = inner
+                .found
+                .sessions
+                .iter()
+                .find(|s| s.id == session_id)
+                .ok_or_else(|| format!("unknown session: {session_id}"))?;
+            let dir = inner.found.roots.get(&session.project_id).unwrap_or(&self.home);
+            (dir.clone(), inner.discovery.pid_of(session_id))
+        };
+        let Some(job) = pid.and_then(|p| focus::background_job_of(&self.home, p)) else {
+            return Ok(false);
+        };
+        let command = attach_command(&job, &pty::login_shell());
+        self.attach_in_terminal(session_id, &dir, &command)?;
+        Ok(true)
+    }
+
+    /// Run `command` in a docked terminal for `session_id`, unless one is still running.
+    /// Not a hire: its exit is not a failure to report, and it is no desk of its own.
+    fn attach_in_terminal(&self, session_id: &str, dir: &Path, command: &str) -> Result<(), String> {
+        let live = |t: &String| self.terminals.wait_exit(t, Duration::ZERO) == Ok(None);
+        if self.lock().attached.get(session_id).is_some_and(live) {
+            return Ok(());
+        }
+        let terminal = start_agent_with(&self.terminals, dir, command, &[])?;
+        let mut inner = self.lock();
+        // A second click may have attached while this one was starting: keep the first.
+        if inner.attached.get(session_id).is_some_and(live) {
+            drop(inner);
+            self.hang_up(&terminal);
+            self.terminals.release(&terminal);
+            return Ok(());
+        }
+        if let Some(old) = inner.attached.insert(session_id.to_string(), terminal) {
+            self.terminals.release(&old);
+        }
+        Ok(())
+    }
+
+    /// Hang up and forget the attach terminals of `project_id`'s sessions, as its floor goes.
+    fn hang_up_attached(&self, project_id: &str) {
+        let gone: Vec<String> = {
+            let mut guard = self.lock();
+            let inner = &mut *guard;
+            let on_floor: Vec<String> = inner
+                .found
+                .sessions
+                .iter()
+                .filter(|s| s.project_id == project_id)
+                .map(|s| s.id.clone())
+                .collect();
+            on_floor
+                .iter()
+                .filter_map(|id| inner.attached.remove(id))
+                .collect()
+        };
+        for terminal in gone {
+            self.hang_up(&terminal);
+            self.terminals.release(&terminal);
+        }
+    }
+
     /// Run `command` in a new in-app terminal in `dir`. An agent that stops at
     /// once is an error; one that stops later, before reaching a desk, is
     /// reported by `hire_failed`.
@@ -792,6 +866,7 @@ impl Office {
         };
         stop_agents(&agents, STOP_WAIT)?;
         self.hang_up_shells(project_id);
+        self.hang_up_attached(project_id);
         {
             let mut guard = self.lock();
             let inner = &mut *guard;
@@ -1015,6 +1090,7 @@ impl Office {
             .find(|(_, s)| s.as_str() == session_id)
             .map(|(t, _)| t)
             .or_else(|| inner.ran_in.get(session_id))
+            .or_else(|| inner.attached.get(session_id))
             .cloned()
             .ok_or_else(|| {
                 format!("{session_id} was not started in the app, so it has no terminal here")
@@ -1115,3 +1191,29 @@ use floor_list::{add_pinned_floors, drop_demolished};
 use structured_desks::with_structured;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod attach_tests {
+    use super::tests::office;
+    use super::*;
+
+    #[test]
+    fn a_background_job_is_attached_to_in_the_docked_terminal_and_reused() {
+        let (office, dir) = office("attach");
+        assert_eq!(attach_command("9c4967e5", "/bin/zsh"), "claude attach '9c4967e5'");
+        assert!(office.terminal_of("s-bg").is_err());
+        office.attach_in_terminal("s-bg", &dir, "sleep 20").expect("attach");
+        let first = office.terminal_of("s-bg").expect("the session reaches the attach terminal");
+        office.attach_in_terminal("s-bg", &dir, "sleep 20").expect("attach again");
+        assert_eq!(office.terminal_of("s-bg"), Ok(first));
+        assert!(office.lock().hired.is_empty(), "an attach is not a hire that can fail");
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_session_without_a_background_job_is_left_to_its_window() {
+        let (office, dir) = office("attach-none");
+        assert_eq!(office.attach_session("ghost"), Err("unknown session: ghost".to_string()));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+}

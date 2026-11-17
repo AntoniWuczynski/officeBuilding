@@ -229,6 +229,10 @@ export class TauriApi implements DiscoveryApi {
     await call("focus_session", { sessionId });
   }
 
+  async attachSession(sessionId: string): Promise<boolean> {
+    return (await call("attach_session", { sessionId })) === true;
+  }
+
   async addFloor(path: string): Promise<Project> {
     return parseWire(projectSchema, "floor", await call("add_floor", { path }));
   }

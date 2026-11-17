@@ -961,6 +961,24 @@ fn demolishing_a_floor_stops_its_terminal_desks() {
 }
 
 #[test]
+fn demolishing_a_floor_hangs_up_its_attach_terminals() {
+    let (office, dir, floor) = floor_office("attach-demolish");
+    launch_desk(&office, &dir, &floor);
+    let id = desks_of(&office)[0].id.clone();
+    office.attach_in_terminal(&id, &dir, "sleep 30").expect("attach");
+    let attach = office.lock().attached.get(&id).cloned().expect("attached");
+    let pid = office.terminals.pid(&attach).expect("pid");
+    office.demolish_floor(&floor.id).expect("demolish");
+    assert!(office.lock().attached.is_empty());
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while crate::discovery::claude_code::pid_alive(pid) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!crate::discovery::claude_code::pid_alive(pid), "the attach terminal is hung up");
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
 fn a_desk_whose_terminal_is_quiet_is_idle() {
     let desk = Desk {
         tool: ToolKind::Cursor,

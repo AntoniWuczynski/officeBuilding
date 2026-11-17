@@ -71,7 +71,7 @@ impl Office {
         unsafe_code,
         reason = "kill(2) has no safe wrapper in the standard library"
     )]
-    fn hang_up(&self, terminal_id: &str) {
+    pub(super) fn hang_up(&self, terminal_id: &str) {
         if let Ok(pid) = self.terminals.pid(terminal_id) {
             // SAFETY: kill(2) with SIGHUP touches no memory; a failure only means the shell is gone.
             unsafe { libc::kill(pid, libc::SIGHUP) };
