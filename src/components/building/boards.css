@@ -90,6 +90,8 @@
 
 .place-tags {
   display: grid;
+  /* An auto column grows to the input's intrinsic width and pushes Link out of a narrow panel. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   margin: 0 0 10px;
 }

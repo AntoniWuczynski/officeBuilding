@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { makeSeedSnapshot } from "../api/mockData";
@@ -35,6 +36,7 @@ describe("useSeen", () => {
   afterEach(() => vi.useRealTimers());
 
   it("clears an agent's news when it is opened, and keeps that across a reload", () => {
+    localStorage.setItem("office-building:seen-since", String(Date.parse("2026-09-28T00:00:00Z")));
     const idle = at("idle", "2026-09-28T12:00:00Z");
     const { result } = renderHook(() => useSeen());
     expect(result.current.isNew(idle)).toBe(true);
@@ -46,6 +48,7 @@ describe("useSeen", () => {
 
   it("works without storage, and with a damaged entry", () => {
     localStorage.setItem(KEY, "{not json");
+    localStorage.setItem("office-building:seen-since", String(Date.parse("2026-09-28T00:00:00Z")));
     const { result } = renderHook(() => useSeen());
     expect(result.current.isNew(at("idle", "2026-09-28T12:00:00Z"))).toBe(true);
     const broken = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
@@ -65,5 +68,61 @@ describe("useSeen", () => {
     const kept = Object.keys(JSON.parse(localStorage.getItem(KEY) ?? "{}") as object);
     expect(kept).toHaveLength(500);
     expect(kept).not.toContain("s0");
+  });
+});
+
+describe("useSeen on a first launch", () => {
+  const SINCE_KEY = "office-building:seen-since";
+  const before = "2026-09-28T12:00:00Z";
+  const after = "2026-09-29T09:00:01Z";
+  beforeEach(() => {
+    localStorage.clear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-29T09:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("treats what happened before the first launch as seen, and what moves after it as new", () => {
+    const { result } = renderHook(() => useSeen());
+    expect(result.current.isNew(at("idle", before))).toBe(false);
+    expect(result.current.isNew(at("idle", after))).toBe(true);
+    expect(result.current.isNew(at("running", after))).toBe(false);
+  });
+
+  it("keeps the first launch across a reload, writing it only once", () => {
+    renderHook(() => useSeen());
+    vi.setSystemTime(new Date("2026-09-30T09:00:00Z"));
+    const write = vi.spyOn(Storage.prototype, "setItem");
+    const { result } = renderHook(() => useSeen());
+    expect(write).not.toHaveBeenCalled();
+    expect(localStorage.getItem(SINCE_KEY)).toBe(String(Date.parse("2026-09-29T09:00:00Z")));
+    expect(result.current.isNew(at("idle", "2026-09-29T12:00:00Z"))).toBe(true);
+    write.mockRestore();
+  });
+
+  it("marks an opened agent new only when it moves again", () => {
+    const { result } = renderHook(() => useSeen());
+    vi.setSystemTime(new Date("2026-09-29T10:00:00Z"));
+    act(() => result.current.markSeen("x"));
+    expect(result.current.isNew(at("idle", after))).toBe(false);
+    expect(result.current.isNew(at("idle", "2026-09-29T10:00:01Z"))).toBe(true);
+  });
+
+  it("without storage, counts from the start of this run", () => {
+    const broken = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    const { result } = renderHook(() => useSeen());
+    expect(result.current.isNew(at("idle", before))).toBe(false);
+    expect(result.current.isNew(at("idle", after))).toBe(true);
+    broken.mockRestore();
+  });
+
+  it("writes the marks once per markSeen even when React runs updaters twice", () => {
+    const { result } = renderHook(() => useSeen(), { wrapper: StrictMode });
+    const write = vi.spyOn(Storage.prototype, "setItem");
+    act(() => result.current.markSeen("x"));
+    expect(write.mock.calls.filter(([key]) => key === KEY)).toHaveLength(1);
+    write.mockRestore();
   });
 });

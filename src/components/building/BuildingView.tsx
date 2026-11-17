@@ -127,13 +127,18 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
     return { x: r.left + r.width / 2 - view.left, y: r.top + r.height / 2 - view.top };
   };
 
-  const plateSignature = floors.map((f) => `${f.project.name}\u0000${f.stamp ?? ""}\u0000${f.counts.total}`).join("\u0001");
+  const plateSignature = floors.map((f) => `${f.project.name}\u0000${f.stamp ?? ""}\u0000${f.counts.total}\u0000${f.pending > 0}`).join("\u0001");
   useLayoutEffect(() => {
     const root = viewRef.current;
     if (root === null || islands) return;
     const measure = (): void => {
       const zoom = parseFloat(getComputedStyle(root.querySelector(".stage-camera") ?? root).zoom) || 1;
-      const widest = Math.max(0, ...[...root.querySelectorAll(".storey .nameplate")].map((p) => p.getBoundingClientRect().width / zoom));
+      // From the plate's right edge to its leftmost part: the waiting badge hangs past the plate's left edge.
+      const reach = (p: Element): number => {
+        const r = p.getBoundingClientRect();
+        return (r.right - Math.min(r.left, ...[...p.querySelectorAll("*")].map((c) => c.getBoundingClientRect().left))) / zoom;
+      };
+      const widest = Math.max(0, ...[...root.querySelectorAll(".storey .nameplate")].map(reach));
       setPlateRoom(Math.max(0, Math.ceil(widest + PLATE_CLEAR) - PAD.left));
     };
     measure();
@@ -146,11 +151,6 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   useEffect(() => {
     if (placed === undefined) return;
     panelHeading.current?.focus();
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape" && !e.defaultPrevented) setPlaceId(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, [placed?.key]);
   // A switch to Islands, or the floor being demolished, forgets the panel: it must not reopen when the floor is back.
   useEffect(() => {

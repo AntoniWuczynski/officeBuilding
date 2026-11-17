@@ -1,23 +1,26 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
-/** The popovers open now, oldest first: one Escape closes only the newest. */
+/** The layers open now, oldest first: one Escape closes only the newest. */
 const opened: symbol[] = [];
 
-/** While `open`, Escape closes this popover first, and is marked handled so a panel under it keeps its own Escape. */
+/** While `open`, Escape closes this layer if it is the newest and nothing nearer the focus (a dialog, a field) handled the key first. */
 export function useEscapeClose(open: boolean, close: () => void): void {
+  // Held in a ref so a fresh `close` each render does not re-register the layer and move it to the top of the stack.
+  const closeRef = useRef(close);
+  closeRef.current = close;
   useEffect(() => {
     if (!open) return;
-    const me = Symbol("popover");
+    const me = Symbol("layer");
     opened.push(me);
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape" || opened[opened.length - 1] !== me) return;
+      if (e.key !== "Escape" || e.defaultPrevented || opened[opened.length - 1] !== me) return;
       e.preventDefault();
-      close();
+      closeRef.current();
     };
-    window.addEventListener("keydown", onKey, { capture: true });
+    window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("keydown", onKey, { capture: true });
+      window.removeEventListener("keydown", onKey);
       opened.splice(opened.indexOf(me), 1);
     };
-  }, [open, close]);
+  }, [open]);
 }

@@ -5,6 +5,7 @@ import { SeenContext } from "../../state/useSeen";
 import { BoardsContext } from "./BoardsContext";
 import { EditableSign } from "./EditableSign";
 import { PlaceTags } from "./PlaceTags";
+import { useEscapeClose } from "./useEscapeClose";
 import "./place.css";
 
 /** The panel's element id: only one is open at a time, so the nameplates can all point at it. */
@@ -48,6 +49,7 @@ export function PlacePanel({ id, projectId, name, noun, enterLabel, sessions, co
   const pending = asks.length;
   const { isNew } = useContext(SeenContext);
   const links = useContext(BoardsContext);
+  useEscapeClose(onClose !== undefined, () => onClose?.());
   return (
     <aside id={id} className={`place-panel ${className}`} data-testid="place-panel" aria-label={`${name} ${noun}`}>
       <h2 ref={headingRef} tabIndex={-1}>

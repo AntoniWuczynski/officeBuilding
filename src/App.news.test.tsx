@@ -48,7 +48,11 @@ const SEEN = "office-building:seen";
 const MODES = ["office", "islands"] as const;
 type Mode = (typeof MODES)[number];
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  // A news baseline older than the seed data, so its idle agents count as new.
+  localStorage.setItem("office-building:seen-since", "0");
+});
 
 async function show(mode: Mode, api = new MockApi()): Promise<ReturnType<typeof userEvent.setup>> {
   localStorage.setItem(VIEW, mode);

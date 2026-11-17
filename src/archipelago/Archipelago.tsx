@@ -888,6 +888,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
             onMove={onMoveSession}
             onOpenSession={onOpenSession}
             onEnter={onEnter}
+            onClose={() => setSelected(null)}
           />
         )}
       </div>

@@ -22,6 +22,8 @@ function Around({ link, children }: { readonly link: (projectId: string, tags: r
 }
 
 function setup(mode: ViewMode) {
+  // A news baseline older than the seed data, so its idle agents count as new.
+  localStorage.setItem("office-building:seen-since", "0");
   const spies = {
     onEnter: vi.fn(),
     onOpenSession: vi.fn(),
@@ -102,6 +104,44 @@ describe.each(MODES)("shared capabilities in the %s view", (mode) => {
     await user.keyboard("Typed over{Escape}");
     expect(within(panel).queryByTestId("roof-sign-input")).not.toBeInTheDocument();
     expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+  });
+
+  it("puts the panel away on Escape, or on its Close button", async () => {
+    setup(mode);
+    const user = userEvent.setup();
+    await openPanel(mode);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+    await openPanel(mode);
+    await user.click(within(screen.getByTestId("place-panel")).getByRole("button", { name: "Close" }));
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["needs-you", "Waiting on you"],
+    ["boards", "Shared boards"],
+  ])("closes the %s popover on the first Escape and the panel under it on the second", async (button, label) => {
+    setup(mode);
+    const user = userEvent.setup();
+    await openPanel(mode);
+    await user.click(screen.getByTestId(button));
+    expect(screen.getByRole("region", { name: label })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: label })).not.toBeInTheDocument();
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+  });
+
+  it("closes only the dialog on an Escape pressed inside it, over an open popover", async () => {
+    setup(mode);
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("needs-you"));
+    await user.click(screen.getByTestId(mode === "office" ? "add-floor" : "add-island"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Waiting on you" })).toBeInTheDocument();
   });
 
   it("opens the Boards sheet and ticks one of its items", async () => {
