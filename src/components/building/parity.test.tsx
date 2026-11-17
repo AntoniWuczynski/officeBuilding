@@ -6,6 +6,8 @@ import { BoardsContext } from "./BoardsContext";
 import { makeSeedSnapshot } from "../../api/mockData";
 import { SeenContext, useSeen } from "../../state/useSeen";
 import type { ViewMode } from "../../state/useViewMode";
+import { ProjectsContext, type ProjectsValue } from "../../state/ProjectsContext";
+import type { Cluster, SessionTag } from "../../state/clusters";
 
 // The parity rule: what the views can do belongs to both; only the skin differs. Each test drives the same action
 // through the real BuildingView in each view, from the one snapshot, and the last one compares what each offers.
@@ -21,7 +23,7 @@ function Around({ link, children }: { readonly link: (projectId: string, tags: r
   );
 }
 
-function setup(mode: ViewMode, setupProjectId?: string) {
+function setup(mode: ViewMode, setupProjectId?: string, projects?: ProjectsValue) {
   // A news baseline older than the seed data, so its idle agents count as new.
   localStorage.setItem("office-building:seen-since", "0");
   const spies = {
@@ -34,10 +36,13 @@ function setup(mode: ViewMode, setupProjectId?: string) {
     link: vi.fn(),
     exileSession: vi.fn(() => Promise.resolve()),
   };
-  render(
+  const seed = makeSeedSnapshot();
+  // With projects given, two seed sessions get names so the tag and the Which project? row have someone to belong to.
+  const named = projects === undefined ? seed.sessions : seed.sessions.map((s) => (s.id === "s-1" ? { ...s, sessionName: "beta-web" } : s.id === "s-5" ? { ...s, sessionName: "loose-one" } : s));
+  const tree = (
     <Around link={spies.link}>
       <BuildingView
-        snapshot={{ ...makeSeedSnapshot(), ...(setupProjectId === undefined ? {} : { setupProjectId }) }}
+        snapshot={{ ...seed, sessions: named, ...(setupProjectId === undefined ? {} : { setupProjectId }) }}
         mode={mode}
         onEnter={spies.onEnter}
         canPickFolder={false}
@@ -52,8 +57,9 @@ function setup(mode: ViewMode, setupProjectId?: string) {
         onAnswer={spies.onAnswer}
         onTick={spies.onTick}
       />
-    </Around>,
+    </Around>
   );
+  render(projects === undefined ? tree : <ProjectsContext value={projects}>{tree}</ProjectsContext>);
   return spies;
 }
 
@@ -249,6 +255,47 @@ describe("what the two views offer", () => {
     const islands = await inventory("islands");
     expect(office).toEqual(islands);
     expect(office).toMatchObject({ rename: 1, move: 3, open: 3, enter: 1, needsYou: 1, boards: 1, newCount: 1, newDots: 2, replies: 2, tags: 1, exile: 3, exileNamed: 3 });
+  });
+});
+
+describe("project clusters in both views", () => {
+  const alpha: Cluster = { id: "alpha", label: "Alpha", kind: "project", source: "rule", repoIds: ["p-shop"] };
+  const tag: SessionTag = { sessionId: "s-1", kind: "project", label: "Beta", home: null };
+  const value = (withTag: boolean): ProjectsValue => ({
+    clusters: [alpha],
+    clusterOf: new Map([["p-shop", alpha]]),
+    tags: withTag ? new Map([["s-1", tag]]) : new Map(),
+    unplaced: [{ ...makeSeedSnapshot().sessions[4]!, sessionName: "loose-one" }],
+    rules: [],
+    rulesError: null,
+    similar: () => [],
+    assignProject: () => Promise.resolve(),
+  });
+
+  /** What each view shows for the one project value: the panel's field, the tag text, and the Which project? rows. */
+  async function seen(mode: ViewMode, projects: ProjectsValue) {
+    setup(mode, undefined, projects);
+    const panel = await openPanel(mode);
+    await userEvent.setup().click(screen.getByTestId("needs-you"));
+    return {
+      field: within(panel).queryAllByRole("combobox", { name: "Project" }).length,
+      tag: [...panel.querySelectorAll(".place-tag")].map((t) => t.textContent),
+      count: screen.getByTestId("needs-you").textContent,
+      which: screen.queryAllByTestId("which-project-row").map((r) => r.textContent),
+    };
+  }
+
+  it("shows the same Project field, tag text and Which project? rows in each view", async () => {
+    const office = await seen("office", value(true));
+    document.body.innerHTML = "";
+    const islands = await seen("islands", value(true));
+    expect(office.field).toBe(1);
+    expect(islands.field).toBe(1);
+    expect(office.tag).toEqual(["Beta"]);
+    expect(islands.tag).toEqual(office.tag);
+    expect(office.which).toHaveLength(1);
+    expect(islands.which).toEqual(office.which);
+    expect(islands.count).toBe(office.count);
   });
 });
 
