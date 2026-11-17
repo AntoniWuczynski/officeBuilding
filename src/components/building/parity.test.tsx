@@ -7,7 +7,7 @@ import { makeSeedSnapshot } from "../../api/mockData";
 import { SeenContext, useSeen } from "../../state/useSeen";
 import type { ViewMode } from "../../state/useViewMode";
 
-// Brittany's rule: what the views can do belongs to both; only the skin differs. Each test drives the same action
+// The parity rule: what the views can do belongs to both; only the skin differs. Each test drives the same action
 // through the real BuildingView in each view, from the one snapshot, and the last one compares what each offers.
 const MODES: readonly ViewMode[] = ["office", "islands"];
 
@@ -104,6 +104,18 @@ describe.each(MODES)("shared capabilities in the %s view", (mode) => {
     await user.keyboard("Typed over{Escape}");
     expect(within(panel).queryByTestId("roof-sign-input")).not.toBeInTheDocument();
     expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+  });
+
+  it("clears a half-typed tag on Escape before the panel closes", async () => {
+    setup(mode);
+    const panel = await openPanel(mode);
+    const user = userEvent.setup();
+    const field = within(panel).getByRole("textbox", { name: /Link a board tag/ });
+    await user.type(field, "half{Escape}");
+    expect(field).toHaveValue("");
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
   });
 
   it("puts the panel away on Escape, or on its Close button", async () => {

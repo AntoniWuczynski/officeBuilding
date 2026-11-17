@@ -34,7 +34,14 @@ export function PlaceTags({ noun, tags, onChange }: Props): React.ReactElement {
           setDraft("");
         }}
       >
-        <input aria-label={`Link a board tag to this ${noun}`} value={draft} placeholder="Link a tag" spellCheck={false} onChange={(e) => setDraft(e.target.value)} />
+        <input aria-label={`Link a board tag to this ${noun}`} value={draft} placeholder="Link a tag" spellCheck={false} onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // A first Escape drops the draft; handled here, so the panel's Escape waits for the next one.
+            if (e.key !== "Escape" || draft === "") return;
+            e.preventDefault();
+            setDraft("");
+          }}
+        />
         <button type="submit" className="btn" disabled={draft.trim() === ""}>
           Link
         </button>
