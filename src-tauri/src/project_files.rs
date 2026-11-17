@@ -666,6 +666,9 @@ pub fn read_board(path: &str) -> SharedBoard {
 /// A floor whose own Human TODO or agent TODO file is one of `boards` (canonical paths) leaves
 /// those lines to the board: the file stays the floor's, with no items of its own, so they show once.
 pub fn leave_to_boards(files: &mut ProjectFiles, root: &Path, boards: &[PathBuf]) {
+    if boards.is_empty() {
+        return;
+    }
     let on_a_board = |names: &[&str]| {
         find_file(root, names)
             .and_then(|name| root.join(name).canonicalize().ok())

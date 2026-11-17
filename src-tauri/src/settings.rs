@@ -308,7 +308,7 @@ impl Settings {
             self.handover = handover.checked()?;
         }
         if let Some(boards) = patch.boards {
-            self.boards = boards.checked()?;
+            self.boards = boards.checked(&self.boards)?;
         }
         Ok(())
     }
@@ -511,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hand_edited_file_keeps_only_the_boards_that_pass_the_check() {
+    fn a_hand_edited_file_keeps_the_boards_that_are_absolute_paths_without_a_pipe() {
         let path = with_file("boards-load", "");
         let dir = path.parent().expect("dir").to_path_buf();
         let board = dir.join("board.md");
@@ -523,10 +523,43 @@ mod tests {
         ] } });
         fs::write(&path, json.to_string()).expect("write");
         let store = SettingsStore::open(path.clone());
+        // A file missing at start stays: an unmounted drive must not lose its board.
         assert_eq!(
             store.get().boards.shared_files,
-            vec![board.to_string_lossy().into_owned()]
+            vec![
+                board.to_string_lossy().into_owned(),
+                "/nowhere/board.md".to_string(),
+                dir.to_string_lossy().into_owned(),
+            ]
         );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_saved_board_whose_file_is_gone_does_not_block_editing_the_list() {
+        let path = with_file("boards-gone", "");
+        let dir = path.parent().expect("dir").to_path_buf();
+        let board = dir.join("board.md");
+        fs::write(&board, "- [ ] a\n").expect("board");
+        let json = serde_json::json!({ "boards": { "sharedFiles": ["/nowhere/board.md"] } });
+        fs::write(&path, json.to_string()).expect("write");
+        let store = SettingsStore::open(path.clone());
+        let boards = |files: &[&str]| SettingsPatch {
+            boards: Some(BoardSettings {
+                shared_files: files.iter().map(ToString::to_string).collect(),
+            }),
+            ..SettingsPatch::default()
+        };
+        let both = ["/nowhere/board.md", board.to_str().expect("utf8")];
+        assert_eq!(
+            store
+                .update(boards(&both))
+                .expect("kept")
+                .boards
+                .shared_files,
+            both
+        );
+        assert!(store.update(boards(&["/nowhere/new.md"])).is_err());
         cleanup(&path);
     }
 

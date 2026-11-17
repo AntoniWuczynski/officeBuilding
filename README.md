@@ -40,10 +40,12 @@ sessions as an **office building**:
   the door; the floor stays for 12 hours after its last activity. A floor's
   light is green while an agent works, yellow when one needs you, red when one
   is stuck and grey when all are idle. Colleagues walk notes to each other's
-  desks (agent-to-agent messages); new hires walk in. A session's running
+  desks (agent-to-agent messages, also read from the Claude Code transcripts
+  of sessions that sent each other messages); new hires walk in. A session's running
   subagents, plain or in a workflow, sit at tiny desks beside its own, and one
   that finishes walks a manila folder of its work to its agent on its way out
-  of the door. The desks
+  of the door. A session's last reply to you, cut to its first sentence (140
+  characters at most), is kept for its card and the sign-out sheet. The desks
   shrink as the team grows, and past 64 the rest show as a count. An agent or
   subagent working in a git worktree stays on its repo's floor, with a potted
   plant on its desk. What an agent leaves running stands in front of its desk:
@@ -78,7 +80,10 @@ sessions as an **office building**:
   group heading says Answered or Decided). Hyphenated names such as
   `FOUNDER-DECISIONS.md` and `FOUNDER-TODO.md` work too. Answering a call or ticking an item in the app writes
   back into the file (a checklist call gets ticked and a `**Ruled <date>:**` line).
-  Repos without these files fall back to the app's own records.
+  Repos without these files fall back to the app's own records. A checklist file named
+  in Settings under Boards is read the same way and shown as a shared board;
+  the second `|` column of a line is its project tag, and a floor's own file
+  that is also a board lists its lines once, on the board.
 - **Connectors: a floor's TODOs can also come from Linear.** Paste one Linear
   key (a personal application programming interface key, or API key) in
   Settings, under Connectors. It is checked with Linear, then kept in the
@@ -241,7 +246,8 @@ sessions as an **office building**:
 - **Settings open with Cmd+,** from the building or any floor, and from the
   fuse box beside the toolbox on the Setup floor. Each event and each method
   has its own switch, the cooldown runs from 0 to 600 seconds, and "Test in 3
-  seconds" sends a test alert. The Editor group picks the default editor for
+  seconds" sends a test alert. The Boards group lists the shared checklist files
+  by absolute path; a file missing at start stays listed and shows no items. The Editor group picks the default editor for
   "Open in". The Agents group picks the view new desks open in, Terminal or
   Chat. A change saves at once. Settings are kept in `settings.json` in the
   app's data folder. The Connectors group holds the agent label and the Linear

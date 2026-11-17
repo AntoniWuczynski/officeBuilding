@@ -100,21 +100,58 @@ pub(crate) fn sent_at(at: &str) -> Option<chrono::DateTime<chrono::FixedOffset>>
 pub(crate) const REPLY_CHARS: usize = 140;
 
 /// The first sentence of a reply, at most `max` chars. None when it says nothing.
-/// A `.` `!` or `?` ends it only before whitespace, so `v1.2` and `foo.rs` stay whole.
+/// Blank lines and fenced code come first and are skipped; a heading's `#`s or a list marker
+/// (`-`, `*`, `1.`) is not part of the sentence. A `.` `!` or `?` ends it only before whitespace,
+/// so `v1.2` and `foo.rs` stay whole, and a `.` after a lone letter or a number (`e.g.`, `1.`) does not end it.
 #[must_use]
 pub(crate) fn first_sentence(text: &str, max: usize) -> Option<String> {
-    let text = text.trim();
-    let line = text.lines().next()?;
+    let mut in_fence = false;
+    let line = text.lines().map(str::trim).find(|l| {
+        if l.starts_with("```") {
+            in_fence = !in_fence;
+            return false;
+        }
+        !in_fence && !l.is_empty()
+    })?;
+    let line = unmarked(line);
     let mut end = line.len();
     let mut chars = line.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
-        if matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|(_, n)| n.is_whitespace()) {
+        let spaced = chars.peek().is_none_or(|(_, n)| n.is_whitespace());
+        if matches!(c, '.' | '!' | '?') && spaced && !(c == '.' && abbreviation(&line[..i])) {
             end = i + c.len_utf8();
             break;
         }
     }
     let sentence = line[..end].trim();
     (!sentence.is_empty()).then(|| crate::project_files::truncate(sentence, max))
+}
+
+/// The line without a markdown heading's `#`s or a list marker.
+fn unmarked(line: &str) -> &str {
+    let line = line.trim_start_matches('#').trim_start();
+    if let Some(rest) = line.strip_prefix(['-', '*']).filter(|r| r.starts_with(' ')) {
+        return rest.trim_start();
+    }
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    match line[digits..].strip_prefix(". ") {
+        Some(rest) if digits > 0 => rest.trim_start(),
+        _ => line,
+    }
+}
+
+/// Whether the word ending `before` is one letter or a run of digits, so a `.` after it is `e.g.` or `1.`.
+fn abbreviation(before: &str) -> bool {
+    let word: Vec<char> = before
+        .chars()
+        .rev()
+        .take_while(|c| c.is_alphanumeric())
+        .collect();
+    match word.as_slice() {
+        [] => false,
+        [_] => true,
+        w => w.iter().all(char::is_ascii_digit),
+    }
 }
 
 /// The key of a helper's entry in `Discovered::checkouts`. Session ids hold no `/`.
@@ -225,7 +262,7 @@ impl Discovery {
             .flat_map(|f| f.transcript.peer_messages.iter().cloned())
             .collect();
         peer_messages.sort_by_cached_key(|m| sent_at(&m.sent_at));
-        // A resumed transcript repeats the records of the one it continues.
+        // A resumed transcript repeats its msg_ids; none of 526 real msg_ids repeated across receivers (16 Nov 2026).
         let mut seen = std::collections::HashSet::new();
         peer_messages.retain(|m| seen.insert(m.id.clone()));
         let inputs = claude
@@ -757,8 +794,66 @@ mod tests {
             Some("a.rs fixed")
         );
         assert_eq!(first_sentence("  \n ", 140), None);
+        assert_eq!(
+            first_sentence("\n\n  Done. More.", 140).as_deref(),
+            Some("Done.")
+        );
         let long = first_sentence(&"x".repeat(500), 140).expect("long");
         assert_eq!(long.chars().count(), 140);
+    }
+
+    #[test]
+    fn a_reply_skips_a_code_fence_and_drops_its_markdown_marker() {
+        let first = |t: &str| first_sentence(t, 140);
+        assert_eq!(
+            first("```rust\nlet x = 1.\n```\nIt works. Next.").as_deref(),
+            Some("It works.")
+        );
+        assert_eq!(first("```\nunclosed code. here"), None);
+        assert_eq!(first("## Summary\nAll good.").as_deref(), Some("Summary"));
+        assert_eq!(
+            first("# Plan: ship it. Then rest").as_deref(),
+            Some("Plan: ship it.")
+        );
+        for line in [
+            "- Fix it. Then",
+            "* Fix it. Then",
+            "1. Fix it. Then",
+            "12. Fix it. Then",
+        ] {
+            assert_eq!(first(line).as_deref(), Some("Fix it."), "{line}");
+        }
+        assert_eq!(first("-5 is low. Ok").as_deref(), Some("-5 is low."));
+        assert_eq!(
+            first("**bold** start. Ok").as_deref(),
+            Some("**bold** start.")
+        );
+    }
+
+    #[test]
+    fn a_dot_after_one_letter_or_a_number_does_not_end_a_sentence() {
+        let first = |t: &str| first_sentence(t, 140);
+        assert_eq!(
+            first("1. Fix the parser. Then x").as_deref(),
+            Some("Fix the parser.")
+        );
+        assert_eq!(
+            first("Use e.g. a map. Done").as_deref(),
+            Some("Use e.g. a map.")
+        );
+        assert_eq!(
+            first("That is, i.e. the map. Done").as_deref(),
+            Some("That is, i.e. the map.")
+        );
+        assert_eq!(
+            first("Fixed in step 2. Done").as_deref(),
+            Some("Fixed in step 2. Done")
+        );
+        assert_eq!(first("It ran. Fine.").as_deref(), Some("It ran."));
+        assert_eq!(
+            first("It ends with e.g.").as_deref(),
+            Some("It ends with e.g.")
+        );
     }
 
     #[test]

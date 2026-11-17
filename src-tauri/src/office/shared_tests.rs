@@ -167,6 +167,35 @@ fn only_an_absolute_path_to_a_file_that_exists_can_be_a_board() {
 }
 
 #[test]
+fn a_board_whose_file_is_missing_at_start_survives_a_save_and_shows_empty() {
+    let (office, dir, _floor) = floor_office("board-missing");
+    let settings = dir.join("settings.json");
+    let gone = dir.join("unmounted/board.md");
+    let json = serde_json::json!({ "boards": { "sharedFiles": [gone] } });
+    fs::write(&settings, json.to_string()).expect("write");
+    let store = Arc::new(SettingsStore::open(settings.clone()));
+    let office = office.with_settings(Arc::clone(&store));
+    store
+        .update(SettingsPatch {
+            notifications: Some(crate::settings::NotificationSettings {
+                sound: false,
+                ..Default::default()
+            }),
+            ..SettingsPatch::default()
+        })
+        .expect("save another group");
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("read")).expect("json");
+    assert_eq!(saved["boards"]["sharedFiles"], serde_json::json!([gone]));
+    office.refresh();
+    let boards = office.snapshot().shared_boards;
+    assert_eq!(boards.len(), 1);
+    assert_eq!(boards[0].path, gone.to_string_lossy());
+    assert!(boards[0].items.is_empty());
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn a_floor_human_todo_that_is_a_board_lists_its_lines_once() {
     let (office, dir, floor) = floor_office("board-double");
     let own = dir.join("home/code/app/MY-ACTIONS.md");
