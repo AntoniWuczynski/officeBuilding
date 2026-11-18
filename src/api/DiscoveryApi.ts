@@ -189,6 +189,9 @@ export interface DiscoveryApi {
    */
   attachSession(sessionId: string): Promise<boolean>;
 
+  /** Hang up the app's `claude attach` for a session, so another terminal keeps its full size. */
+  detachSession(sessionId: string): Promise<void>;
+
   /**
    * Watch the in-app terminal of a `full`-control session: replays what it
    * kept, then streams. Returns a function that stops watching; the agent

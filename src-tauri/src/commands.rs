@@ -239,6 +239,12 @@ pub async fn attach_session(office: OfficeState<'_>, session_id: String) -> Resu
 }
 
 #[tauri::command]
+pub fn detach_session(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
+    office.detach_session(&session_id);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn focus_session(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
     office.focus_session(&session_id)
 }

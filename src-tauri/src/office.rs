@@ -820,6 +820,12 @@ impl Office {
         Ok(())
     }
 
+    /// Let go of the app's `claude attach` for one session, so a terminal of the
+    /// user's own keeps the session at its full size. A no-op when none is attached.
+    pub fn detach_session(&self, session_id: &str) {
+        self.hang_up_attached(&[session_id.to_string()]);
+    }
+
     /// Hang up and forget the attach terminals of the sessions `ids`, as they go.
     fn hang_up_attached(&self, ids: &[String]) {
         let gone: Vec<String> = {
@@ -1284,6 +1290,23 @@ mod attach_tests {
         office.attach_in_terminal("s-bg", &dir, "sleep 20").expect("attach again");
         assert_eq!(office.terminal_of("s-bg"), Ok(first));
         assert!(office.lock().hired.is_empty(), "an attach is not a hire that can fail");
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn detaching_hangs_up_the_attach_and_an_unknown_session_is_a_no_op() {
+        let (office, dir) = office("attach-detach");
+        office.attach_in_terminal("s-bg", &dir, "sleep 20").expect("attach");
+        let terminal = office.terminal_of("s-bg").expect("attached");
+        let pid = office.terminals.pid(&terminal).expect("pid");
+        office.detach_session("s-bg");
+        let end = std::time::Instant::now() + Duration::from_secs(10);
+        while crate::discovery::claude_code::pid_alive(pid) && std::time::Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!crate::discovery::claude_code::pid_alive(pid), "the attach process ended");
+        assert!(!office.lock().attached.contains_key("s-bg"));
+        office.detach_session("ghost");
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 

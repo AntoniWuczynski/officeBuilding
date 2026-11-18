@@ -528,6 +528,14 @@ export class MockApi implements DiscoveryApi {
       : Promise.reject(new Error(`unknown session: ${sessionId}`));
   }
 
+  /** Session ids the app let go of, in order. */
+  readonly detached: string[] = [];
+
+  detachSession(sessionId: string): Promise<void> {
+    this.detached.push(sessionId);
+    return Promise.resolve();
+  }
+
   focusSession(sessionId: string): Promise<void> {
     const session = this.snapshot.sessions.find((s) => s.id === sessionId);
     if (session === undefined) {

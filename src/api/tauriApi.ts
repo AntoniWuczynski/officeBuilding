@@ -233,6 +233,10 @@ export class TauriApi implements DiscoveryApi {
     return (await call("attach_session", { sessionId })) === true;
   }
 
+  async detachSession(sessionId: string): Promise<void> {
+    await call("detach_session", { sessionId });
+  }
+
   async addFloor(path: string): Promise<Project> {
     return parseWire(projectSchema, "floor", await call("add_floor", { path }));
   }

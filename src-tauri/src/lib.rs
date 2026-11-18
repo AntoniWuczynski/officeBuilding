@@ -260,6 +260,7 @@ pub fn run() -> tauri::Result<()> {
             commands::send_agent_message,
             commands::focus_session,
             commands::attach_session,
+            commands::detach_session,
             commands::add_floor,
             commands::demolish_floor,
             commands::exile_session,

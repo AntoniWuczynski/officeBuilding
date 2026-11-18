@@ -69,6 +69,8 @@ export function App({ api }: Props): React.ReactElement {
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
   const toastSeq = useRef(0);
+  const attachedIds = useRef(new Set<string>());
+  const lastOpenId = useRef<string | null>(null);
 
   const dismiss = useCallback((id: number) => {
     setToasts((ts) => ts.filter((t) => t.id !== id));
@@ -136,6 +138,7 @@ export function App({ api }: Props): React.ReactElement {
         .attachSession(session.id)
         .then((docked) => {
           if (docked) {
+            attachedIds.current.add(session.id);
             showTerminal(session.id);
             return undefined;
           }
@@ -146,6 +149,21 @@ export function App({ api }: Props): React.ReactElement {
         .catch((err: unknown) => toast("error", `Could not raise the window for “${session.title}”: ${message(err)}.`));
     },
     [api, toast, showTerminal, markSeen],
+  );
+
+  // Closing or leaving an attached session hangs up the app's `claude attach`.
+  useEffect(() => {
+    const prev = lastOpenId.current;
+    lastOpenId.current = openSessionId;
+    if (prev === null || prev === openSessionId || !attachedIds.current.delete(prev)) return;
+    api.detachSession(prev).catch((err: unknown) => toast("error", `Could not release the attach: ${message(err)}.`));
+  }, [api, toast, openSessionId]);
+
+  useEffect(
+    () => () => {
+      attachedIds.current.forEach((id) => void api.detachSession(id).catch(() => {}));
+    },
+    [api],
   );
 
   const hire = useCallback(
