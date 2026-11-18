@@ -18,7 +18,7 @@ export function repoFolder(p: Project): string {
   return parts[parts.length - 1] ?? "";
 }
 
-/** Whether `prefix` ends at a hyphen (or the end) of the lower-cased name. */
+/** Whether the lower-cased name starts with `prefix`; a prefix ending in `-` also matches the bare word (`alpha-` fits `alpha`). */
 const hasPrefix = (lower: string, prefix: string): boolean => prefix !== "" && `${lower}-`.startsWith(prefix.toLowerCase());
 
 export const firstWord = (key: string): string => key.split("-")[0] ?? key;
