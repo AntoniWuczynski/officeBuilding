@@ -14,7 +14,7 @@ describe("mockManager", () => {
     expect(shop?.managed).toEqual(["s-1"]);
     expect(shop?.queue).toHaveLength(1);
     expect(shop?.queue[0]?.hold).toBe("busy");
-    expect(shop?.log.map((e) => (e.event.kind === "note" ? e.event.state : e.event.kind))).toEqual(["refused", "queued", "delivered"]);
+    expect(shop?.log.map((e) => (e.event.kind === "note" ? e.event.state : e.event.kind))).toEqual(["end", "refused", "queued", "delivered"]);
     expect(office?.status.kind).toBe("absent");
     expect(arcade?.status.kind).toBe("hired");
     expect(arcade?.paused).toBe(true);
@@ -55,6 +55,14 @@ describe("mockManager", () => {
     expect(added[added.length - 1]).toEqual({ ...makeAbsentManager("p-new"), mayHire: true });
   });
 
+  it("seeds one end entry with its ended line, and no floor starts with others", () => {
+    const list = makeSeedManagers();
+    const shop = list.find((m) => m.projectId === "p-shop");
+    expect(shop?.ended).toHaveLength(1);
+    expect(shop?.log.filter((e) => e.event.kind === "end")).toHaveLength(1);
+    expect(makeAbsentManager("p-x").ended).toEqual([]);
+  });
+
   it("withdraws a waiting note and marks its log entry", () => {
     const list = makeSeedManagers();
     expect(hasQueuedNote(list, "p-shop", "n-2")).toBe(true);
@@ -63,7 +71,7 @@ describe("mockManager", () => {
     const next = withNoteWithdrawn(list, "p-shop", "n-2");
     const shop = next.find((m) => m.projectId === "p-shop");
     expect(shop?.queue).toEqual([]);
-    expect(shop?.log.map((e) => (e.event.kind === "note" ? e.event.state : e.event.kind))).toEqual(["refused", "withdrawn", "delivered"]);
+    expect(shop?.log.map((e) => (e.event.kind === "note" ? e.event.state : e.event.kind))).toEqual(["end", "refused", "withdrawn", "delivered"]);
     expect(next.find((m) => m.projectId === "p-office")).toBe(list[1]);
   });
 });

@@ -765,11 +765,23 @@ export interface QueuedNote {
 /** What became of a note (`NoteState` in manager/wire.rs). */
 export type NoteState = "queued" | "delivered" | "withdrawn" | "overridden" | "dropped" | "failed";
 
+/** How a desk a manager ended went (`EndHow` in manager/wire.rs). */
+export type EndHow = "stopped" | "forced";
+
+/** A desk a floor's manager ended (`EndedDesk` in manager/wire.rs). */
+export interface EndedDesk {
+  readonly sessionId: string;
+  readonly at: string;
+  readonly reason: string;
+  readonly how: EndHow;
+}
+
 export type ManagerLogEvent =
   | { readonly kind: "note"; readonly noteId: string; readonly toSessionId: string; readonly toTitle: string; readonly text: string; readonly state: NoteState }
   | { readonly kind: "hire"; readonly tool: ToolKind; readonly task: string }
   | { readonly kind: "escalation"; readonly title: string }
-  | { readonly kind: "refused"; readonly tool: string; readonly reason: string };
+  | { readonly kind: "refused"; readonly tool: string; readonly reason: string }
+  | { readonly kind: "end"; readonly sessionId: string; readonly title: string; readonly reason: string; readonly how: EndHow };
 
 export interface ManagerLogEntry {
   readonly id: string;
@@ -804,6 +816,8 @@ export interface ManagerFloor {
   readonly queue: readonly QueuedNote[];
   /** Newest first, at most 50. */
   readonly log: readonly ManagerLogEntry[];
+  /** Every desk this floor's manager ended that the kept log still holds, newest first. */
+  readonly ended: readonly EndedDesk[];
 }
 
 /** The tools that can be a floor's manager (`ManagerTool` in settings.rs). */
@@ -873,9 +887,25 @@ export interface UsedUpView {
   readonly resetAt: number | null;
   readonly seenAt: number;
 }
+/** What you chose for the new session of a take-over (`TakeOverStart` in handover/view.rs). */
+export interface TakeOverStart {
+  readonly tool: HandoverTool;
+  readonly model: string;
+  readonly effort: string;
+}
+/** A new session started beside an old one (`TakeOver` in handover/view.rs). `at` is Unix seconds. */
+export interface TakeOver {
+  readonly id: string;
+  readonly fromSession: string;
+  readonly from: HandoverTool;
+  readonly to: HandoverTool;
+  readonly toSession: string | null;
+  readonly at: number;
+}
 export interface HandoverView {
   readonly usedUp: readonly UsedUpView[];
   readonly desks: readonly DeskHandover[];
+  readonly takeOvers: readonly TakeOver[];
 }
 /** What the receiving tool starts with (`StartWith` in settings/handover.rs). */
 export type StartWith = { readonly kind: "tool-default" } | { readonly kind: "chosen"; readonly model: string; readonly effort: string };

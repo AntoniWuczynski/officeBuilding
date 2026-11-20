@@ -50,10 +50,11 @@ describe("wire manager shapes", () => {
       { kind: "hire", tool: "codex", task: "x" },
       { kind: "escalation", title: "x" },
       { kind: "refused", tool: "hire_desk", reason: "x" },
+      { kind: "end", sessionId: "s", title: "t", reason: "x", how: "forced" },
     ];
     const log = events.map((event, i) => ({ id: `l-${i}`, at: "2026-11-12T10:00:00Z", event }));
     const parsed = parseWire(snapshotSchema, "snapshot", { ...base, managers: [{ ...first, log }] });
-    expect(parsed.managers[0]?.log.map((e) => e.event.kind)).toEqual(["note", "hire", "escalation", "refused"]);
+    expect(parsed.managers[0]?.log.map((e) => e.event.kind)).toEqual(["note", "hire", "escalation", "refused", "end"]);
   });
 
   it("rejects an unknown hold or note state", () => {
@@ -64,6 +65,19 @@ describe("wire manager shapes", () => {
     expect(() => parseWire(snapshotSchema, "snapshot", { ...base, managers: [{ ...first, queue: [note] }] })).toThrow(/unexpected snapshot/);
     const entry = { id: "l", at: "2026-11-12T10:00:00Z", event: { kind: "note", noteId: "n", toSessionId: "s", toTitle: "t", text: "x", state: "lost" } };
     expect(() => parseWire(snapshotSchema, "snapshot", { ...base, managers: [{ ...first, log: [entry] }] })).toThrow(/unexpected snapshot/);
+  });
+
+  it("accepts an ended list and refuses a floor without one or an end entry with an unknown how", () => {
+    const base = makeSeedSnapshot();
+    const [first] = base.managers;
+    if (first === undefined) throw new Error("no manager");
+    const ended = [{ sessionId: "s", at: "2026-11-12T10:00:00Z", reason: "x", how: "stopped" }];
+    expect(parseWire(snapshotSchema, "snapshot", { ...base, managers: [{ ...first, ended }] }).managers[0]?.ended).toEqual(ended);
+    const { ended: _ended, ...without } = first;
+    expect(() => parseWire(snapshotSchema, "snapshot", { ...base, managers: [without] })).toThrow(/unexpected snapshot at managers/);
+    const entry = { id: "l", at: "2026-11-12T10:00:00Z", event: { kind: "end", sessionId: "s", title: "t", reason: "x", how: "vanished" } };
+    expect(() => parseWire(snapshotSchema, "snapshot", { ...base, managers: [{ ...first, log: [entry] }] })).toThrow(/unexpected snapshot/);
+    expect(() => parseWire(snapshotSchema, "snapshot", { ...base, managers: [{ ...first, ended: [{ ...ended[0], how: "vanished" }] }] })).toThrow(/unexpected snapshot/);
   });
 
   it("parses answerVia store and rejects a snapshot without managers", () => {

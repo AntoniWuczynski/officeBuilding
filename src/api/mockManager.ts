@@ -27,6 +27,7 @@ export function makeAbsentManager(projectId: string): ManagerFloor {
     caps: { maxDesks, hiredNow: 0, spendCeilingUsd, spentUsd: 0, unpricedDesks: 0 },
     queue: [],
     log: [],
+    ended: [],
   };
 }
 
@@ -39,7 +40,9 @@ export function makeSeedManagers(): ManagerFloor[] {
     managed: ["s-1"],
     caps: { maxDesks: 3, hiredNow: 1, spendCeilingUsd: 20, spentUsd: 1.82, unpricedDesks: 0 },
     queue: [{ id: "n-2", toSessionId: "s-1", text: "When the checkout audit is done, list the files you changed.", queuedAt: "2026-09-28T15:36:00Z", hold: "busy" }],
+    ended: [{ sessionId: "e-1", at: "2026-09-28T15:38:00Z", reason: "The refund emails work was finished", how: "stopped" }],
     log: [
+      { id: "l-4", at: "2026-09-28T15:38:00Z", event: { kind: "end", sessionId: "e-1", title: "refund emails", reason: "The refund emails work was finished", how: "stopped" } },
       { id: "l-3", at: "2026-09-28T15:37:00Z", event: { kind: "refused", tool: "hire_desk", reason: "3 desks are already hired" } },
       { id: "l-2", at: "2026-09-28T15:36:00Z", event: { kind: "note", noteId: "n-2", toSessionId: "s-1", toTitle: "audit checkout", text: "When the checkout audit is done, list the files you changed.", state: "queued" } },
       { id: "l-1", at: "2026-09-28T15:20:00Z", event: { kind: "note", noteId: "n-1", toSessionId: "s-1", toTitle: "audit checkout", text: "Start with the price list.", state: "delivered" } },

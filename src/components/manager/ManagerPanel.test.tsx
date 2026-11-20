@@ -174,6 +174,13 @@ describe("ManagerPanel lists", () => {
     expect(screen.queryByTestId("manager-withdraw")).not.toBeInTheDocument();
   });
 
+  it("uses the Codex sentence for a Codex desk held for want of an idle signal", () => {
+    const codex = found(sessions.find((x) => x.tool === "codex"));
+    const note = { id: "n-7", toSessionId: codex.id, text: "go", queuedAt: "2026-09-28T15:36:00Z", hold: "no-idle-signal" as const };
+    show(actionsFor(), { manager: { ...hired, queue: [note] } });
+    expect(screen.getByTestId("manager-note")).toHaveTextContent("Waiting: Codex has not run the building's hooks. Type /hooks in its terminal and trust them once.");
+  });
+
   it("says when nothing waits", () => {
     show(actionsFor(), { manager: { ...hired, queue: [] } });
     expect(screen.getByText("No notes are waiting.")).toBeInTheDocument();
@@ -185,6 +192,8 @@ describe("ManagerPanel lists", () => {
       { kind: "hire", tool: "codex", task: "write tests" },
       { kind: "escalation", title: "Which database?" },
       { kind: "refused", tool: "hire_desk", reason: "3 desks are already hired" },
+      { kind: "end", sessionId: "s-1", title: "audit checkout", reason: "It was done", how: "stopped" },
+      { kind: "end", sessionId: "s-2", title: "price import", reason: "It was looping", how: "forced" },
     ];
     show(actionsFor(), { manager: { ...hired, log: events.map((event, i) => ({ id: `g-${i}`, at: "2026-09-28T15:40:00Z", event })) } });
     const log = within(screen.getByTestId("manager-log"));
@@ -195,6 +204,15 @@ describe("ManagerPanel lists", () => {
     expect(entries[1]).toContain("Hired Codex for “write tests”");
     expect(entries[2]).toContain("Asked you: Which database?");
     expect(entries[3]).toContain("Refused a hire: 3 desks are already hired");
+    expect(entries[4]).toContain("Ended “audit checkout”: It was done");
+    expect(entries[4]).toContain("It stopped when asked");
+    expect(entries[5]).toContain("Ended “price import”: It was looping");
+    expect(entries[5]).toContain("It did not stop when asked and was forced");
+  });
+
+  it("says what the manager can end, and that pausing stops that", () => {
+    show(actionsFor());
+    expect(screen.getByText(/the building does not end the manager itself\. The manager can end a desk on this floor that the building started, and pausing it stops that\./)).toBeInTheDocument();
   });
 
   it("says when the log is empty", () => {

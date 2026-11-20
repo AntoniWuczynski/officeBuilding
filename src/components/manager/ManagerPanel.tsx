@@ -1,6 +1,6 @@
 import { useContext, useState } from "react";
 import type { ManagerFloor, Project, QueuedNote, Session, TodoItem } from "../../types";
-import { HOLD_WORDS, NOTE_STATE_WORDS, capsLine, logLine, managerLine, plural } from "../../state/selectors";
+import { holdWords, END_WORDS, NOTE_STATE_WORDS, capsLine, logLine, managerLine, plural } from "../../state/selectors";
 import { relativeTime } from "../../lib/time";
 import { message } from "../../lib/errors";
 import { Toggle } from "../Toggle";
@@ -125,7 +125,7 @@ function Hired({ projectId, manager, lastCallAt, session, actions, now, onOpenSe
           </div>
         </>
       )}
-      <p className="panel-hint">To send the manager home, type /exit in its terminal. The building never stops an agent itself.</p>
+      <p className="panel-hint">To send the manager home, type /exit in its terminal: the building does not end the manager itself. The manager can end a desk on this floor that the building started, and pausing it stops that.</p>
     </>
   );
 }
@@ -167,7 +167,7 @@ function Waiting({ projectId, queue, sessions, actions }: { readonly projectId: 
             <li key={n.id} data-testid="manager-note">
               <b>To {titleOf(n.toSessionId)}</b>
               <span className="manager-text">{n.text}</span>
-              <span className="manager-when">Waiting: {HOLD_WORDS[n.hold]}.</span>
+              <span className="manager-when">Waiting: {holdWords(n.hold, sessions.find((s) => s.id === n.toSessionId)?.tool)}.</span>
               {actions === null ? null : (
                 <button type="button" className="link" data-testid="manager-withdraw" onClick={() => actions.withdraw(projectId, n.id)}>
                   Withdraw
@@ -200,6 +200,7 @@ function Log({ manager, now }: { readonly manager: ManagerFloor | undefined; rea
               <span className="manager-when">{relativeTime(e.at, now)}</span>
               <span className="manager-text">{logLine(e)}</span>
               {e.event.kind === "note" ? <span className="manager-when">{NOTE_STATE_WORDS[e.event.state]}</span> : null}
+              {e.event.kind === "end" ? <span className="manager-when">{END_WORDS[e.event.how]}</span> : null}
             </li>
           ))}
         </ul>

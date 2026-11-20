@@ -105,6 +105,8 @@ const reviewSchema = z.object({
 const noteHold = z.enum(["busy", "waiting-on-you", "stuck", "finished", "you-typed", "awaiting-turn", "hand-started", "no-idle-signal", "paused"]);
 const queuedNoteSchema = z.object({ id: z.string(), toSessionId: z.string(), text: z.string(), queuedAt: z.string(), hold: noteHold }) satisfies z.ZodType<QueuedNote>;
 
+const endHow = z.enum(["stopped", "forced"]);
+
 const managerFloorSchema = z.object({
   projectId: z.string(),
   status: z.discriminatedUnion("kind", [
@@ -126,9 +128,11 @@ const managerFloorSchema = z.object({
         z.object({ kind: z.literal("hire"), tool: toolKind, task: z.string() }),
         z.object({ kind: z.literal("escalation"), title: z.string() }),
         z.object({ kind: z.literal("refused"), tool: z.string(), reason: z.string() }),
+        z.object({ kind: z.literal("end"), sessionId: z.string(), title: z.string(), reason: z.string(), how: endHow }),
       ]),
     }),
   ),
+  ended: z.array(z.object({ sessionId: z.string(), at: z.string(), reason: z.string(), how: endHow })),
 });
 
 const qaFloorSchema = z.object({

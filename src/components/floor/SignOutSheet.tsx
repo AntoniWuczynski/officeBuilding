@@ -1,21 +1,26 @@
 import { useState } from "react";
-import type { DeskHandover, EndedSession } from "../../types";
-import { TOOL_LABEL, handoverOf, lastReplyLine } from "../../state/selectors";
+import type { DeskHandover, EndedDesk, EndedSession } from "../../types";
+import { END_WORDS, TOOL_LABEL, handoverOf, lastReplyLine } from "../../state/selectors";
 import { message } from "../../lib/errors";
 import { OpenInEditor } from "../editor/OpenInEditor";
 import { signOutLine } from "../../lib/handover";
 import { relativeTime } from "../../lib/time";
 import "../building/boards.css";
 
+/** The end's `at` is cut to whole seconds, while a session's last activity keeps its milliseconds. */
+const END_AT_TRUNCATION_MS = 1000;
+
 interface Props {
   readonly ended: readonly EndedSession[];
   readonly handovers: readonly DeskHandover[];
   readonly now: Date;
+  /** What a floor's manager recorded when it ended this session, if it did. */
+  readonly endedBy: (sessionId: string) => EndedDesk | undefined;
   readonly onResume: (sessionId: string) => Promise<void>;
 }
 
 /** The floor's sign-out sheet: agents that left in the last 12 hours, each a Resume away. */
-export function SignOutSheet({ ended, handovers, now, onResume }: Props): React.ReactElement {
+export function SignOutSheet({ ended, handovers, now, endedBy, onResume }: Props): React.ReactElement {
   return (
     <div className="panel-body">
       {ended.length === 0 ? (
@@ -27,7 +32,7 @@ export function SignOutSheet({ ended, handovers, now, onResume }: Props): React.
           </p>
           <ul className="signout-list">
             {ended.map((e) => (
-              <SignOutRow key={e.id} ended={e} handover={handoverOf(handovers, e.id)} now={now} onResume={onResume} />
+              <SignOutRow key={e.id} ended={e} handover={handoverOf(handovers, e.id)} byManager={endedBy(e.id)} now={now} onResume={onResume} />
             ))}
           </ul>
         </>
@@ -36,7 +41,7 @@ export function SignOutSheet({ ended, handovers, now, onResume }: Props): React.
   );
 }
 
-function SignOutRow({ ended, handover, now, onResume }: { readonly ended: EndedSession; readonly handover: DeskHandover | undefined; readonly now: Date; readonly onResume: (sessionId: string) => Promise<void> }): React.ReactElement {
+function SignOutRow({ ended, handover, byManager, now, onResume }: { readonly ended: EndedSession; readonly handover: DeskHandover | undefined; readonly byManager: EndedDesk | undefined; readonly now: Date; readonly onResume: (sessionId: string) => Promise<void> }): React.ReactElement {
   const [resuming, setResuming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const resume = (): void => {
@@ -48,6 +53,8 @@ function SignOutRow({ ended, handover, now, onResume }: { readonly ended: EndedS
       setResuming(false);
     });
   };
+  // The manager's end is this sign-out only if the session did nothing after it (no resume since).
+  const byManagerNow = byManager !== undefined && Date.parse(ended.endedAt) < Date.parse(byManager.at) + END_AT_TRUNCATION_MS ? byManager : undefined;
   const handedOver = handover === undefined ? null : signOutLine(handover.state);
   const model = ended.model === null ? "" : `, ${ended.model}`;
   const reply = lastReplyLine(ended.lastReply);
@@ -68,6 +75,12 @@ function SignOutRow({ ended, handover, now, onResume }: { readonly ended: EndedS
       {handedOver === null ? null : (
         <span className="signout-meta" data-testid="signed-out-handover">
           {handedOver}
+        </span>
+      )}
+      {byManagerNow === undefined ? null : (
+        <span className="signout-meta" data-testid="signed-out-ended">
+          Ended by the floor's manager {relativeTime(byManagerNow.at, now)}: {byManagerNow.reason}.
+          {byManagerNow.how === "forced" ? ` ${END_WORDS.forced}.` : ""}
         </span>
       )}
       <span className="signout-resume signout-actions">

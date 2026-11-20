@@ -4,6 +4,21 @@ import { TerminalApiContext, TerminalPanel } from "./TerminalPanel";
 import type { TerminalApi } from "./TerminalPanel";
 import { makeSeedSnapshot } from "../../api/mockData";
 import type { ManagerFloor, Session } from "../../types";
+import { ConversationApiContext } from "./Conversation";
+import type { ConversationApi } from "./Conversation";
+import type { ConversationBacklog } from "../../types";
+import { CLAUDE_TERMINAL } from "../chat/fixtures";
+
+const backlog: ConversationBacklog = { transcript: [], state: "idle", approval: null, ended: null, capabilities: CLAUDE_TERMINAL, earlier: false };
+const conversationApi: ConversationApi = {
+  structuredBacklog: () => Promise.resolve(backlog),
+  subscribeStructured: () => () => {},
+  structuredPrompt: () => Promise.resolve(),
+  structuredAnswer: () => Promise.resolve(),
+  structuredCancel: () => Promise.resolve(),
+  structuredStop: () => Promise.resolve(),
+  withdrawMessage: () => Promise.resolve(),
+};
 
 
 const api: TerminalApi = {
@@ -47,5 +62,40 @@ describe("TerminalPanel for a managed desk", () => {
   it("says nothing without a manager", () => {
     show(pieces().session, undefined);
     expect(screen.queryByTestId("terminal-managed")).not.toBeInTheDocument();
+  });
+
+  it("shows the waiting note's strip, and none for a desk without notes", () => {
+    const { session, manager } = pieces();
+    show(session, manager);
+    expect(screen.getByTestId("manager-note-strip")).toHaveTextContent("When the checkout audit is done");
+  });
+
+  it("shows no strip when no note waits for the desk", () => {
+    const { session, manager } = pieces();
+    show(session, { ...manager, queue: [] });
+    expect(screen.queryByTestId("manager-note-strip")).not.toBeInTheDocument();
+  });
+
+  it("shows no strip for a shell", () => {
+    const { manager } = pieces();
+    render(
+      <TerminalApiContext value={api}>
+        <TerminalPanel shell={{ id: "sh-1", projectId: "p-shop", number: 1, startedAt: "2026-09-28T15:00:00Z" }} path="/tmp" manager={manager} onClose={() => {}} />
+      </TerminalApiContext>,
+    );
+    expect(screen.queryByTestId("manager-note-strip")).not.toBeInTheDocument();
+  });
+
+  it("shows the strip in the chat face too", async () => {
+    const { session, manager } = pieces();
+    render(
+      <TerminalApiContext value={api}>
+        <ConversationApiContext value={conversationApi}>
+          <TerminalPanel session={session} manager={manager} chat onClose={() => {}} />
+        </ConversationApiContext>
+      </TerminalApiContext>,
+    );
+    expect(await screen.findByTestId("conversation")).toBeInTheDocument();
+    expect(screen.getByTestId("manager-note-strip")).toBeInTheDocument();
   });
 });

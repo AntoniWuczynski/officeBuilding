@@ -5,7 +5,9 @@ import type {
   Decision,
   Editor,
   EditorList,
+  EndedDesk,
   EndedSession,
+  EndHow,
   FloorLight,
   FloorLink,
   ManagerCaps,
@@ -431,12 +433,21 @@ export const HOLD_WORDS: Record<NoteHold, string> = {
   "waiting-on-you": "it is waiting on you",
   stuck: "it is stuck",
   finished: "it has finished",
-  "you-typed": "you typed there in the last minute",
+  "you-typed": "you typed in its terminal in the last minute, or left a line there unsent. Press Enter or Ctrl-C there to let it through",
   "awaiting-turn": "it has not picked up the last note yet",
   "hand-started": "it was started outside the building, so nothing is typed into it",
   "no-idle-signal": "its tool does not tell the building when it is idle",
   paused: "the manager is paused",
 };
+
+/** Why a note waits, in the words for the desk's tool: the missing idle signal differs by tool. */
+export function holdWords(hold: NoteHold, tool: ToolKind | undefined): string {
+  if (hold === "no-idle-signal") {
+    if (tool === "codex") return "Codex has not run the building's hooks. Type /hooks in its terminal and trust them once";
+    if (tool === "claude-code") return "Claude Code has not run the building's hooks yet. If this stays, check that hooks are not switched off in its settings";
+  }
+  return HOLD_WORDS[hold];
+}
 
 export const NOTE_STATE_WORDS: Record<NoteState, string> = {
   queued: "Waiting",
@@ -465,7 +476,19 @@ export function capsLine(caps: ManagerCaps): string {
   return `${caps.hiredNow} of ${caps.maxDesks} desks hired, ${formatUsd(caps.spentUsd)} of ${formatUsd(caps.spendCeilingUsd)} spent`;
 }
 
-const REFUSED_WHAT: Partial<Record<string, string>> = { send_to_desk: "a note", hire_desk: "a hire", escalate: "a question for you" };
+export const REFUSED_WHAT: Partial<Record<string, string>> = { send_to_desk: "a note", hire_desk: "a hire", escalate: "a question for you", end_desk: "ending a desk" };
+
+/** How a desk a manager ended went, in words. */
+export const END_WORDS: Record<EndHow, string> = { stopped: "It stopped when asked", forced: "It did not stop when asked and was forced" };
+
+/** The record of a manager ending this session, from any floor. */
+export function endedByManager(snapshot: OfficeSnapshot, sessionId: string): EndedDesk | undefined {
+  for (const m of snapshot.managers) {
+    const found = m.ended.find((e) => e.sessionId === sessionId);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
 
 /** One log entry in words. */
 export function logLine(entry: ManagerLogEntry): string {
@@ -479,6 +502,8 @@ export function logLine(entry: ManagerLogEntry): string {
       return `Asked you: ${event.title}`;
     case "refused":
       return `Refused ${REFUSED_WHAT[event.tool] ?? "a request"}: ${event.reason}`;
+    case "end":
+      return `Ended \u201c${event.title}\u201d: ${event.reason}`;
   }
 }
 

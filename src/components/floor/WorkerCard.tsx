@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import type { DeskHandoverState, QueuedNote, Session } from "../../types";
-import { HOLD_WORDS, STATE_LABEL, TOOL_LABEL, helpersLine, lastReplyLine, modelLine, plural } from "../../state/selectors";
+import { holdWords, STATE_LABEL, TOOL_LABEL, helpersLine, lastReplyLine, modelLine, plural } from "../../state/selectors";
 import { cardLine } from "../../lib/handover";
 import { relativeTime } from "../../lib/time";
 import { tagText } from "../building/ProjectField";
@@ -21,6 +21,8 @@ interface Props {
   readonly waiting: readonly QueuedNote[];
   /** What this desk's handover has to say, if anything. */
   readonly handover: DeskHandoverState | undefined;
+  /** What a take-over of or by this desk has to say, if anything. */
+  readonly takeOver?: string | undefined;
 }
 
 /**
@@ -28,7 +30,7 @@ interface Props {
  * inside the scene it is a plane at the worker's depth, and walls behind a
  * corner desk slice straight through it (WebKit sorts 3D planes strictly).
  */
-export function WorkerCard({ session, x, y, now, editorHint, managed, waiting, handover }: Props): React.ReactElement {
+export function WorkerCard({ session, x, y, now, editorHint, managed, waiting, handover, takeOver }: Props): React.ReactElement {
   const tag = tagText(useProjects().tags.get(session.id));
   const model = modelLine(session);
   const helpers = helpersLine(session);
@@ -53,10 +55,11 @@ export function WorkerCard({ session, x, y, now, editorHint, managed, waiting, h
       {managed ? <span>Managed by the floor&apos;s manager</span> : null}
       {waiting[0] === undefined ? null : (
         <span>
-          {plural(waiting.length, "note", "notes")} from the manager waiting: {HOLD_WORDS[waiting[0].hold]}
+          {plural(waiting.length, "note", "notes")} from the manager waiting: {holdWords(waiting[0].hold, session.tool)}
         </span>
       )}
       {handedOver === null ? null : <span>{handedOver}</span>}
+      {takeOver === undefined ? null : <span data-testid="worker-take-over">{takeOver}</span>}
       {editorHint === null ? null : <span>{editorHint}</span>}
     </div>,
     document.body,

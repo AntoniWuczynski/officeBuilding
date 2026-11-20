@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeSeedSnapshot } from "../api/mockData";
-import type { ManagerFloor, ManagerLogEntry, NoteHold, NoteState, Session } from "../types";
-import { HOLD_WORDS, NOTE_STATE_WORDS, capsLine, logLine, managerFor, managerLamp, managerLine, notesFor, sessionsForProject, splitManager, staffOf } from "./selectors";
+import type { ManagerFloor, ManagerLogEntry, NoteHold, NoteState, Session, ToolKind } from "../types";
+import { END_WORDS, HOLD_WORDS, REFUSED_WHAT, endedByManager, NOTE_STATE_WORDS, capsLine, holdWords, logLine, managerFor, managerLamp, managerLine, notesFor, sessionsForProject, splitManager, staffOf } from "./selectors";
 
 const seed = makeSeedSnapshot();
 const floor = (id: string): ManagerFloor => {
@@ -58,7 +58,7 @@ describe("words", () => {
     const holds: NoteHold[] = ["busy", "waiting-on-you", "stuck", "finished", "you-typed", "awaiting-turn", "hand-started", "no-idle-signal", "paused"];
     for (const h of holds) expect(HOLD_WORDS[h].length).toBeGreaterThan(0);
     expect(HOLD_WORDS.busy).toBe("it is busy");
-    expect(HOLD_WORDS["you-typed"]).toBe("you typed there in the last minute");
+    expect(HOLD_WORDS["you-typed"]).toContain("you typed in its terminal in the last minute");
     expect(HOLD_WORDS["hand-started"]).toBe("it was started outside the building, so nothing is typed into it");
     expect(HOLD_WORDS.paused).toBe("the manager is paused");
     const states: Record<NoteState, string> = {
@@ -117,5 +117,41 @@ describe("logLine", () => {
     expect(refused("hire_desk")).toBe("Refused a hire: too many");
     expect(refused("escalate")).toBe("Refused a question for you: too many");
     expect(refused("read_desk")).toBe("Refused a request: too many");
+  });
+});
+
+describe("holdWords", () => {
+  const holds: NoteHold[] = ["busy", "waiting-on-you", "stuck", "finished", "you-typed", "awaiting-turn", "hand-started", "no-idle-signal", "paused"];
+  it("covers every hold", () => {
+    expect([...holds].sort()).toEqual(Object.keys(HOLD_WORDS).sort());
+  });
+  const tools: (ToolKind | undefined)[] = ["claude-code", "codex", "opencode", undefined];
+  const special: Partial<Record<ToolKind, string>> = {
+    codex: "Codex has not run the building's hooks. Type /hooks in its terminal and trust them once",
+    "claude-code": "Claude Code has not run the building's hooks yet. If this stays, check that hooks are not switched off in its settings",
+  };
+  const cases = holds.flatMap((hold) => tools.map((tool) => ({ hold, tool })));
+  it.each(cases)("words $hold for $tool", ({ hold, tool }) => {
+    const expected = hold === "no-idle-signal" && tool !== undefined ? special[tool] : undefined;
+    expect(holdWords(hold, tool)).toBe(expected ?? HOLD_WORDS[hold]);
+  });
+  it("tells the human what to do about their own typing", () => {
+    expect(HOLD_WORDS["you-typed"]).toBe("you typed in its terminal in the last minute, or left a line there unsent. Press Enter or Ctrl-C there to let it through");
+  });
+});
+
+describe("what the manager ended", () => {
+  it("writes an end entry and the words for how it went", () => {
+    const entry: ManagerLogEntry = { id: "l", at: "2026-11-12T10:00:00Z", event: { kind: "end", sessionId: "s", title: "price import", reason: "It was looping", how: "forced" } };
+    expect(logLine(entry)).toBe("Ended \u201cprice import\u201d: It was looping");
+    expect(REFUSED_WHAT["end_desk"]).toBe("ending a desk");
+    expect(END_WORDS).toEqual({ stopped: "It stopped when asked", forced: "It did not stop when asked and was forced" });
+  });
+
+  it("finds an ended desk on any floor and nothing for a session no manager ended", () => {
+    const record = { sessionId: "gone", at: "2026-11-12T10:00:00Z", reason: "done", how: "stopped" as const };
+    const snap = { ...seed, managers: seed.managers.map((m) => (m.projectId === "p-arcade" ? { ...m, ended: [record] } : m)) };
+    expect(endedByManager(snap, "gone")).toEqual(record);
+    expect(endedByManager(snap, "never")).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { MockApi } from "../../api/mockApi";
-import type { ManagerFloor, OfficeSnapshot, Session } from "../../types";
+import type { ManagerFloor, OfficeSnapshot, Session, ToolOptions } from "../../types";
 import type { FloorLook } from "../../scene/Desk";
 import { FloorView } from "./FloorView";
 import type { Section } from "./sections";
@@ -13,10 +13,12 @@ interface Options {
   readonly section?: Section | null;
   readonly look?: FloorLook;
   readonly onOpenSession?: (s: Session) => void;
+  readonly openSessionId?: string | null;
+  readonly loadHireOptions?: () => Promise<readonly ToolOptions[]>;
 }
 
 /** A floor of the snapshot, as the tests of the floor's objects draw it. */
-export function floor(snapshot: OfficeSnapshot, projectId: string, { onSection = () => {}, section = null, look, onOpenSession = () => {} }: Options = {}): React.ReactElement {
+export function floor(snapshot: OfficeSnapshot, projectId: string, { onSection = () => {}, section = null, look, onOpenSession = () => {}, openSessionId = null, loadHireOptions = () => Promise.resolve([]) }: Options = {}): React.ReactElement {
   const project = snapshot.projects.find((p) => p.id === projectId);
   if (project === undefined) throw new Error(`no project ${projectId}`);
   return (
@@ -25,7 +27,7 @@ export function floor(snapshot: OfficeSnapshot, projectId: string, { onSection =
       snapshot={snapshot}
       now={NOW}
       section={section}
-      openSessionId={null}
+      openSessionId={openSessionId}
       onSection={onSection}
       onOpenSettings={() => {}}
       onOpenPlate={() => {}}
@@ -33,7 +35,7 @@ export function floor(snapshot: OfficeSnapshot, projectId: string, { onSection =
       {...(look === undefined ? {} : { look })}
       onCloseTerminal={() => {}}
       onBack={() => {}}
-      loadHireOptions={() => Promise.resolve([])}
+      loadHireOptions={loadHireOptions}
       onHire={() => Promise.resolve()}
       onAnswer={() => Promise.resolve()}
       onTick={() => {}}
