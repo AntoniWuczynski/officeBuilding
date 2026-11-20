@@ -682,10 +682,33 @@ pub fn leave_to_boards(files: &mut ProjectFiles, root: &Path, boards: &[PathBuf]
     }
 }
 
+/// Replace a file's text through a temp file beside it, renamed over the original with its mode,
+/// so an agent reading a shared file never sees it half written.
+fn replace_file(path: &Path, text: &str) -> Result<(), String> {
+    let path = path
+        .canonicalize()
+        .map_err(|e| format!("could not find {}: {e}", path.display()))?;
+    let mode = fs::metadata(&path)
+        .map_err(|e| format!("could not read {}: {e}", path.display()))?
+        .permissions();
+    let mut tmp_name = std::ffi::OsString::from(".");
+    tmp_name.push(path.file_name().unwrap_or_default());
+    tmp_name.push(".ob-tmp");
+    let tmp = path.with_file_name(tmp_name);
+    fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+    fs::set_permissions(&tmp, mode)
+        .and_then(|()| fs::rename(&tmp, &path))
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("could not replace {}: {e}", path.display())
+        })
+}
+
+/// Rewrite one line; `edit` gets the line and the whole file as it is now.
 fn rewrite_line(
     path: &Path,
     line: usize,
-    edit: impl FnOnce(&str) -> Result<String, String>,
+    edit: impl FnOnce(&str, &str) -> Result<String, String>,
 ) -> Result<(), String> {
     let text =
         fs::read_to_string(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
@@ -693,15 +716,21 @@ fn rewrite_line(
     let current = *lines
         .get(line)
         .ok_or("the file changed since it was read; try again")?;
-    let replaced = edit(current)?;
+    let replaced = edit(current, &text)?;
     lines[line] = &replaced;
-    fs::write(path, lines.join("\n"))
-        .map_err(|e| format!("could not write {}: {e}", path.display()))
+    replace_file(path, &lines.join("\n"))
 }
 
-/// Tick a checklist item in its file.
-pub fn tick(root: &Path, file: &str, line: usize) -> Result<(), String> {
-    rewrite_line(&root.join(file), line, |current| {
+/// Tick a checklist item in its file, only while the line still holds the open item `expected`
+/// (its text as read): an item inserted above since then moves it, and the tick is refused.
+pub fn tick(root: &Path, file: &str, line: usize, expected: &str) -> Result<(), String> {
+    rewrite_line(&root.join(file), line, |current, text| {
+        let still_there = parse_checklist(text, "", file, Party::Human)
+            .iter()
+            .any(|t| t.id == item_id("", file, line) && !t.done && t.text == expected);
+        if !still_there {
+            return Err(format!("{file} changed since it was read; try again"));
+        }
         for open in ["- [ ]", "- [~]"] {
             if let Some(rest) = current.strip_prefix(open) {
                 return Ok(format!("- [x]{rest}"));
@@ -731,7 +760,7 @@ pub fn decide(
     {
         return decide_item(&path, &text, file, line, &answer, date);
     }
-    rewrite_line(&path, line, |current| {
+    rewrite_line(&path, line, |current, _| {
         let (level, heading) = current
             .strip_prefix("### ")
             .map(|h| ("###", h))
@@ -784,7 +813,7 @@ fn decide_item(
     out.extend(&lines[line + 1..end]);
     out.push(&ruling);
     out.extend(&lines[end..]);
-    fs::write(path, out.join("\n")).map_err(|e| format!("could not write {}: {e}", path.display()))
+    replace_file(path, &out.join("\n"))
 }
 
 pub mod append;

@@ -186,6 +186,31 @@ mod tests {
     }
 
     #[test]
+    fn a_reviewer_or_manager_is_not_thrown_out_or_moved() {
+        let (office, dir, floor) = floor_office("reviewer-exile");
+        {
+            let mut inner = office.lock();
+            inner
+                .reviewers
+                .insert("t-review".to_string(), floor.id.clone());
+            inner
+                .owned
+                .insert("t-review".to_string(), "s-review".to_string());
+        }
+        assert_eq!(
+            office.exile_session("s-review"),
+            Err("a floor's manager or QA reviewer is not thrown out".to_string())
+        );
+        assert_eq!(
+            office.move_session("s-review", Some("elsewhere")),
+            Err("a floor's manager or QA reviewer is not moved".to_string())
+        );
+        assert!(office.lock().store.records.moved_sessions.is_empty());
+        assert!(office.lock().reviewers.contains_key("t-review"));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
     fn a_plain_shell_cannot_be_dismissed_and_keeps_running() {
         let (office, dir, floor) = floor_office("reviewer-shell");
         let shell = office.open_shell(&floor.id).expect("open");

@@ -23,7 +23,7 @@ use crate::structured::desks::Backlog;
 use crate::watch::SNAPSHOT_EVENT;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 type OfficeState<'a> = State<'a, Arc<Office>>;
 type HubState<'a> = State<'a, Arc<Hub>>;
@@ -367,7 +367,6 @@ pub fn get_settings(settings: State<'_, Arc<SettingsStore>>) -> Settings {
 #[tauri::command]
 pub fn update_settings(
     app: AppHandle,
-    office: OfficeState<'_>,
     settings: State<'_, Arc<SettingsStore>>,
     hub: HubState<'_>,
     watch: WatchState<'_>,
@@ -387,10 +386,12 @@ pub fn update_settings(
         watch.recheck();
     }
     if boards_changed {
-        let office = Arc::clone(&office);
+        // The office comes from the handle, not a ninth command argument.
         drop(tauri::async_runtime::spawn_blocking(move || {
-            office.refresh();
-            push_snapshot(&app, &office);
+            if let Some(office) = app.try_state::<Arc<Office>>() {
+                office.refresh();
+                push_snapshot(&app, &office);
+            }
         }));
     }
     if let Some(before) = routing_before {

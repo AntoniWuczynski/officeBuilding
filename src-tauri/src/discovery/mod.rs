@@ -101,6 +101,8 @@ pub(crate) fn sent_at(at: &str) -> Option<chrono::DateTime<chrono::FixedOffset>>
 
 /// How long a session's `last_reply` may be.
 pub(crate) const REPLY_CHARS: usize = 140;
+/// How long an ended session stays on its floor's sign-out sheet.
+pub(crate) const KEEP_FINISHED: std::time::Duration = std::time::Duration::from_hours(12);
 
 /// The first sentence of a reply, at most `max` chars. None when it says nothing.
 /// Blank lines and fenced code come first and are skipped; a heading's `#`s or a list marker
@@ -346,7 +348,7 @@ struct SessionInput {
     last_reply: Option<String>,
     /// The name the tool's own registry gives it.
     session_name: Option<String>,
-    session_name_source: Option<String>,
+    session_name_source: Option<crate::model::NameSource>,
     skills: Vec<String>,
 }
 
@@ -407,7 +409,7 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
         resumable: !f.transcript.scripted,
         last_reply: f.transcript.last_reply,
         session_name: f.live.as_ref().and_then(|l| l.name.clone()),
-        session_name_source: f.live.as_ref().and_then(|l| l.name_source.clone()),
+        session_name_source: f.live.as_ref().and_then(|l| l.name_source),
         skills: f.transcript.skills_since_prompt,
     })
 }
@@ -510,6 +512,79 @@ fn still_there(input: &SessionInput) -> bool {
     input.live || Path::new(&input.cwd).is_dir()
 }
 
+/// Where a session sits: its floor, the checkout it works in, and its worktree badge.
+struct Placement {
+    root: PathBuf,
+    checkout: PathBuf,
+    worktree: bool,
+    branch: Option<String>,
+}
+
+fn place(
+    input: &SessionInput,
+    locate: &impl Fn(&Path) -> Location,
+    before: &BTreeMap<String, PathBuf>,
+) -> Placement {
+    let started = locate(Path::new(&input.cwd));
+    let now_in = locate(Path::new(&input.latest_cwd));
+    let earlier = before.get(&input.session_id);
+    // A session launched above a repo (from the plain folder that holds several) sits on the first repo
+    // it works in and stays there: a later `cd` into another repo does not move it (A Human, OB-055).
+    // One started inside a repo never moves, not into a submodule or a nested clone either.
+    // Only into a real checkout: `locate` returns a plain folder as its own root, and a `cd ~/Downloads/x`
+    // must not raise a floor called "x".
+    let plain_start = !started.root.join(".git").exists();
+    let below = |root: &Path| {
+        plain_start
+            && root != started.root
+            && root.starts_with(&started.root)
+            && root.join(".git").exists()
+    };
+    let pinned = earlier
+        .map(|was| locate(was).root)
+        .filter(|root| below(root));
+    let home = pinned.or_else(|| below(&now_in.root).then(|| now_in.root.clone()));
+    let root = home.clone().unwrap_or_else(|| started.root.clone());
+    let at_home = now_in.root == root;
+    let worktree = now_in.worktree && at_home;
+    let branch = if worktree {
+        branch_of(&now_in.checkout)
+    } else {
+        None
+    };
+    // Away from its floor's repo, a pinned session keeps that repo as its checkout, which is also
+    // what holds the pin at the next scan.
+    let checkout = lost_checkout(earlier, &input.latest_cwd).unwrap_or(if at_home {
+        now_in.checkout
+    } else if home.is_some() {
+        root.clone()
+    } else {
+        started.checkout
+    });
+    Placement {
+        root,
+        checkout,
+        worktree,
+        branch,
+    }
+}
+
+/// Each floor as a project, named after its folder.
+fn projects_of(floors: BTreeMap<PathBuf, Vec<String>>, home: &Path) -> Vec<Project> {
+    floors
+        .into_iter()
+        .map(|(root, session_ids)| Project {
+            id: project_id(&root),
+            name: root.file_name().map_or_else(
+                || root.to_string_lossy().into_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            ),
+            path: display_path(&root, home),
+            session_ids,
+        })
+        .collect()
+}
+
 /// Build floors, desks and questions from every tool's finds. `locate` places a
 /// working directory on its floor (git root in production, identity in tests).
 fn assemble(
@@ -527,35 +602,12 @@ fn assemble(
     let mut skills = BTreeMap::new();
 
     for input in inputs {
-        let started = locate(Path::new(&input.cwd));
-        let now_in = locate(Path::new(&input.latest_cwd));
-        // A session launched above a repo (from the folder that holds several) sits on the repo it is working
-        // in now. One that wanders outside the folder it started in stays on its first floor: a stray `cd`
-        // does not move it.
-        // Only into a real checkout: `locate` returns a plain folder as its own root, and a `cd ~/Downloads/x`
-        // must not raise a floor called "x".
-        let moved_in = now_in.root != started.root
-            && now_in.root.starts_with(&started.root)
-            && now_in.root.join(".git").exists();
-        let same_repo = moved_in || now_in.root == started.root;
-        let worktree = now_in.worktree && same_repo;
-        let branch = if worktree {
-            branch_of(&now_in.checkout)
-        } else {
-            None
-        };
-        let checkout = lost_checkout(before.get(&input.session_id), &input.latest_cwd).unwrap_or(
-            if same_repo {
-                now_in.checkout
-            } else {
-                started.checkout
-            },
-        );
-        let root = if moved_in {
-            now_in.root.clone()
-        } else {
-            started.root
-        };
+        let Placement {
+            root,
+            checkout,
+            worktree,
+            branch,
+        } = place(&input, &locate, before);
         // An ended session leaves the office; its floor stays while the session was recent.
         let ids = floors.entry(root.clone()).or_default();
         if !input.live {
@@ -612,18 +664,7 @@ fn assemble(
 
     let root_by_id: BTreeMap<String, PathBuf> =
         floors.keys().map(|r| (project_id(r), r.clone())).collect();
-    let projects: Vec<Project> = floors
-        .into_iter()
-        .map(|(root, session_ids)| Project {
-            id: project_id(&root),
-            name: root.file_name().map_or_else(
-                || root.to_string_lossy().into_owned(),
-                |n| n.to_string_lossy().into_owned(),
-            ),
-            path: display_path(&root, home),
-            session_ids,
-        })
-        .collect();
+    let projects = projects_of(floors, home);
     // Most urgent first, then oldest ask first.
     questions.sort_by(|a, b| {
         a.priority
@@ -672,483 +713,4 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
 mod checkout_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::claude_code::{Found, LiveEntry, parse_transcript};
-    use super::*;
-    use std::io::Cursor;
-
-    fn found(id: &str, cwd: &str, lines: &[&str], live: bool) -> Found {
-        Found {
-            session_id: id.to_string(),
-            transcript: parse_transcript(Cursor::new(lines.join("\n"))),
-            live: live.then(|| LiveEntry {
-                pid: 1,
-                session_id: id.to_string(),
-                cwd: cwd.to_string(),
-                busy: false,
-                waiting: false,
-                name: None,
-                name_source: None,
-            }),
-            helpers: Vec::new(),
-            helper_places: BTreeMap::new(),
-        }
-    }
-
-    /// Every folder is its own floor, outside any worktree.
-    fn own_floor(cwd: &Path) -> Location {
-        Location {
-            root: cwd.to_path_buf(),
-            worktree: false,
-            checkout: cwd.to_path_buf(),
-        }
-    }
-
-    fn claude_inputs(founds: Vec<Found>) -> Vec<SessionInput> {
-        founds
-            .into_iter()
-            .filter_map(|f| from_claude(f, &[]))
-            .collect()
-    }
-
-    const ASK: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:01:00Z","message":{"id":"m","content":[{"type":"tool_use","id":"toolu_1","name":"AskUserQuestion","input":{"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]}}]}}"#;
-    const PROSE: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:00:00Z","message":{"id":"m","content":[{"type":"text","text":"Fixed it. Should I also bump the version?"}]}}"#;
-    const DONE: &str = r#"{"type":"assistant","cwd":"/home/me/code/other","timestamp":"2026-09-29T09:00:00Z","message":{"id":"m","content":[{"type":"text","text":"All done."}]}}"#;
-
-    #[test]
-    fn an_ended_session_in_a_folder_that_is_gone_is_dropped() {
-        let here = std::env::temp_dir().to_string_lossy().into_owned();
-        let line = |cwd: &str| {
-            format!(
-                r#"{{"type":"assistant","cwd":"{cwd}","timestamp":"2026-09-29T09:00:00Z","message":{{"id":"m","content":[{{"type":"text","text":"Done."}}]}}}}"#
-            )
-        };
-        let (kept, gone) = (line(&here), line("/nowhere/deleted-checkout"));
-        let inputs = claude_inputs(vec![
-            found("a", &here, &[&kept], false),
-            found("b", "/nowhere/deleted-checkout", &[&gone], false),
-            found("c", "/nowhere/deleted-checkout", &[&gone], true),
-        ]);
-        let ids: Vec<&str> = inputs
-            .iter()
-            .filter(|i| still_there(i))
-            .map(|i| i.session_id.as_str())
-            .collect();
-        assert_eq!(
-            ids,
-            vec!["a", "c"],
-            "a live agent keeps its desk even there"
-        );
-    }
-
-    #[test]
-    fn groups_sessions_into_floors_and_queues_questions() {
-        let home = Path::new("/home/me");
-        let d = assemble(
-            home,
-            claude_inputs(vec![
-                found("s1", "/home/me/code/app", &[ASK], true),
-                found("s2", "/home/me/code/app", &[PROSE], true),
-                found("s3", "/home/me/code/other", &[DONE], false),
-            ]),
-            own_floor,
-            &BTreeMap::new(),
-        );
-        assert_eq!(d.projects.len(), 2);
-        let app = d
-            .projects
-            .iter()
-            .find(|p| p.name == "app")
-            .expect("app floor");
-        assert_eq!(app.path, "~/code/app");
-        assert_eq!(app.session_ids, vec!["s1".to_string(), "s2".to_string()]);
-
-        // An ended session leaves the office, but its recent floor stays.
-        assert!(d.sessions.iter().all(|s| s.id != "s3"));
-        let other = d
-            .projects
-            .iter()
-            .find(|p| p.name == "other")
-            .expect("other floor");
-        assert!(other.session_ids.is_empty());
-
-        assert_eq!(d.questions.len(), 2);
-        let formal = &d.questions[0];
-        assert_eq!(formal.id, "s1:toolu_1");
-        assert_eq!(
-            formal
-                .options
-                .iter()
-                .map(|o| o.label.as_str())
-                .collect::<Vec<_>>(),
-            vec!["A", "B"]
-        );
-        assert_eq!(formal.answer_via, AnswerVia::Terminal);
-        let prose = &d.questions[1];
-        assert_eq!(prose.prompt, "Fixed it. Should I also bump the version?");
-        assert!(prose.options.is_empty());
-        let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
-        assert_eq!(s1.pending_question_ids, vec!["s1:toolu_1".to_string()]);
-        assert_eq!(s1.control, ControlMode::RaiseWindow);
-    }
-
-    #[test]
-    fn the_registry_name_is_the_session_name_and_leaves_the_title_alone() {
-        let titled = r#"{"type":"ai-title","aiTitle":"Fix the parser"}"#;
-        let mut f = found("s", "/home/me/code/app", &[titled, PROSE], true);
-        f.live.as_mut().expect("live").name = Some("alpha-fix-2-X".to_string());
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![f]),
-            own_floor,
-            &BTreeMap::new(),
-        );
-        assert_eq!(d.sessions[0].session_name.as_deref(), Some("alpha-fix-2-X"));
-        assert_eq!(d.sessions[0].title, "Fix the parser");
-    }
-
-    #[test]
-    fn an_auto_named_registry_entry_carries_its_name_source() {
-        let entry = claude_code::parse_registry_entry(
-            r#"{"pid":7,"sessionId":"s","cwd":"/home/me/code/app","name":"beta-web","nameSource":"auto"}"#,
-        )
-        .expect("entry");
-        let mut f = found("s", "/home/me/code/app", &[PROSE], true);
-        f.live = Some(entry);
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![f]),
-            own_floor,
-            &BTreeMap::new(),
-        );
-        assert_eq!(d.sessions[0].session_name_source.as_deref(), Some("auto"));
-    }
-
-    fn skills_after(lines: &[&str]) -> Vec<String> {
-        parse_transcript(Cursor::new(lines.join("\n"))).skills_since_prompt
-    }
-
-    const SKILL: &str = r#"{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"review"}}]}}"#;
-    const OTHER_SKILL: &str = r#"{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"deploy"}}]}}"#;
-    const HUMAN: &str = r#"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"and now?"}}"#;
-    const META: &str =
-        r#"{"type":"user","isMeta":true,"message":{"role":"user","content":"caveat"}}"#;
-    const PEER: &str = r#"{"type":"user","isMeta":true,"origin":{"kind":"peer","from":"uds:/tmp/a.sock"},"message":{"role":"user","content":"hello"}}"#;
-
-    #[test]
-    fn skills_called_stay_until_the_human_speaks_again() {
-        assert_eq!(skills_after(&[SKILL, OTHER_SKILL]), ["review", "deploy"]);
-        assert_eq!(skills_after(&[SKILL, SKILL]), ["review"]);
-        assert_eq!(skills_after(&[SKILL, META, PEER]), ["review"]);
-        let notified = r#"{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"a task ended"}}"#;
-        assert_eq!(skills_after(&[SKILL, notified]), ["review"]);
-        assert!(skills_after(&[SKILL, HUMAN]).is_empty());
-        assert_eq!(skills_after(&[SKILL, HUMAN, OTHER_SKILL]), ["deploy"]);
-    }
-
-    #[test]
-    fn a_new_prompt_leaves_the_last_reply_on_the_desk_and_on_the_sign_out_sheet() {
-        let said = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:00:00Z","message":{"id":"m","content":[{"type":"text","text":"Shipped it. Next is tests."}]}}"#;
-        let asked = r#"{"type":"user","origin":{"kind":"human"},"cwd":"/home/me/code/app","timestamp":"2026-09-29T10:05:00Z","message":{"role":"user","content":"and the docs?"}}"#;
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![
-                found("live", "/home/me/code/app", &[said, asked], true),
-                found("gone", "/home/me/code/app", &[said, asked], false),
-            ]),
-            own_floor,
-            &BTreeMap::new(),
-        );
-        assert_eq!(d.sessions[0].last_reply.as_deref(), Some("Shipped it."));
-        assert_eq!(d.ended[0].last_reply.as_deref(), Some("Shipped it."));
-    }
-
-    #[test]
-    fn a_reply_is_cut_to_its_first_sentence_within_the_limit() {
-        assert_eq!(first_sentence("Done. More.", 140).as_deref(), Some("Done."));
-        assert_eq!(
-            first_sentence("v1.2 is out! Go.", 140).as_deref(),
-            Some("v1.2 is out!")
-        );
-        assert_eq!(
-            first_sentence("a.rs fixed\nsecond line", 140).as_deref(),
-            Some("a.rs fixed")
-        );
-        assert_eq!(first_sentence("  \n ", 140), None);
-        assert_eq!(
-            first_sentence("\n\n  Done. More.", 140).as_deref(),
-            Some("Done.")
-        );
-        let long = first_sentence(&"x".repeat(500), 140).expect("long");
-        assert_eq!(long.chars().count(), 140);
-    }
-
-    #[test]
-    fn a_reply_skips_a_code_fence_and_drops_its_markdown_marker() {
-        let first = |t: &str| first_sentence(t, 140);
-        assert_eq!(
-            first("```rust\nlet x = 1.\n```\nIt works. Next.").as_deref(),
-            Some("It works.")
-        );
-        assert_eq!(first("```\nunclosed code. here"), None);
-        assert_eq!(first("## Summary\nAll good.").as_deref(), Some("Summary"));
-        assert_eq!(
-            first("# Plan: ship it. Then rest").as_deref(),
-            Some("Plan: ship it.")
-        );
-        for line in [
-            "- Fix it. Then",
-            "* Fix it. Then",
-            "1. Fix it. Then",
-            "12. Fix it. Then",
-        ] {
-            assert_eq!(first(line).as_deref(), Some("Fix it."), "{line}");
-        }
-        assert_eq!(first("-5 is low. Ok").as_deref(), Some("-5 is low."));
-        assert_eq!(
-            first("**bold** start. Ok").as_deref(),
-            Some("**bold** start.")
-        );
-    }
-
-    #[test]
-    fn a_dot_after_one_letter_or_a_number_does_not_end_a_sentence() {
-        let first = |t: &str| first_sentence(t, 140);
-        assert_eq!(
-            first("1. Fix the parser. Then x").as_deref(),
-            Some("Fix the parser.")
-        );
-        assert_eq!(
-            first("Use e.g. a map. Done").as_deref(),
-            Some("Use e.g. a map.")
-        );
-        assert_eq!(
-            first("That is, i.e. the map. Done").as_deref(),
-            Some("That is, i.e. the map.")
-        );
-        assert_eq!(
-            first("Fixed in step 2. Done").as_deref(),
-            Some("Fixed in step 2. Done")
-        );
-        assert_eq!(first("It ran. Fine.").as_deref(), Some("It ran."));
-        assert_eq!(
-            first("It ends with e.g.").as_deref(),
-            Some("It ends with e.g.")
-        );
-    }
-
-    #[test]
-    fn ended_sessions_go_on_their_floors_sign_out_sheet_newest_first() {
-        let later = r#"{"type":"assistant","cwd":"/home/me/code/app/web","timestamp":"2026-09-29T11:00:00Z","message":{"id":"m","model":"claude-opus-5-5","content":[{"type":"text","text":"Bye."}]}}"#;
-        let scripted = r#"{"type":"assistant","entrypoint":"sdk-cli","cwd":"/home/me/code/app","timestamp":"2026-09-29T12:00:00Z","message":{"id":"m","content":[{"type":"text","text":"ok"}]}}"#;
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![
-                found("s1", "/home/me/code/app", &[ASK], true),
-                found("s3", "/home/me/code/other", &[DONE], false),
-                found("s4", "/home/me/code/app/web", &[later], false),
-                found("s5", "/home/me/code/app", &[scripted], false),
-            ]),
-            |cwd| {
-                if cwd.starts_with("/home/me/code/app") {
-                    own_floor(Path::new("/home/me/code/app"))
-                } else {
-                    own_floor(cwd)
-                }
-            },
-            &BTreeMap::new(),
-        );
-        let ended: Vec<&str> = d.ended.iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ended, vec!["s4", "s3"], "scripted runs are not listed");
-        let s4 = &d.ended[0];
-        assert_eq!(s4.project_id, project_id(Path::new("/home/me/code/app")));
-        assert_eq!(s4.ended_at, "2026-09-29T11:00:00Z");
-        assert_eq!(s4.model.as_deref(), Some("claude-opus-5-5"));
-        // Resumed in the folder it ran in, not just its floor's root.
-        assert_eq!(
-            d.resume_dirs.get("s4"),
-            Some(&PathBuf::from("/home/me/code/app/web"))
-        );
-        assert!(
-            !d.resume_dirs.contains_key("s1"),
-            "a live session is not ended"
-        );
-    }
-
-    #[test]
-    fn a_question_only_the_registry_knows_about_still_waits() {
-        // Claude Code writes an open AskUserQuestion to the transcript only once it is answered.
-        let mut asking = found("s1", "/home/me/code/app", &[DONE], true);
-        if let Some(live) = asking.live.as_mut() {
-            live.waiting = true;
-        }
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![asking]),
-            own_floor,
-            &BTreeMap::new(),
-        );
-        let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
-        assert_eq!(s1.state, SessionState::WaitingHuman);
-        assert_eq!(s1.pending_question_ids, vec!["s1:waiting".to_string()]);
-        let q = &d.questions[0];
-        assert_eq!(q.prompt, "Waiting for you in its terminal");
-        assert!(q.options.is_empty());
-        assert_eq!(q.answer_via, AnswerVia::Terminal);
-    }
-
-    #[test]
-    fn a_codex_placeholder_is_an_idle_desk_that_is_never_offered_for_resuming() {
-        let placeholder = super::codex::Found {
-            session_id: "codex-new-7".to_string(),
-            transcript: super::codex::parse_transcript(Cursor::new(
-                r#"{"timestamp":"t","type":"session_meta","payload":{"id":"x","session_id":"x","cwd":"/home/me/code/app","source":"cli"}}"#,
-            )),
-            title: Some("New Codex session".to_string()),
-            live_pid: Some(7),
-            resumable: false,
-        };
-        let input = from_codex(placeholder, &[]).expect("a codex session");
-        assert!(!input.resumable);
-        let d = assemble(
-            Path::new("/home/me"),
-            vec![input],
-            own_floor,
-            &BTreeMap::new(),
-        );
-        assert_eq!(d.sessions[0].title, "New Codex session");
-        assert_eq!(d.sessions[0].state, SessionState::Idle);
-    }
-
-    #[test]
-    fn codex_sessions_join_the_same_floor_with_tool_kind_and_prose_questions() {
-        let meta = r#"{"timestamp":"2026-09-29T10:00:00.000Z","type":"session_meta","payload":{"id":"c1","session_id":"root1","cwd":"/home/me/code/app","source":"cli"}}"#;
-        let user = r#"{"timestamp":"2026-09-29T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]}}"#;
-        let reply = r#"{"timestamp":"2026-09-29T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed it. Should I also bump the version?"}]}}"#;
-        let codex_transcript =
-            super::codex::parse_transcript(Cursor::new([meta, user, reply].join("\n")));
-        let codex_found = super::codex::Found {
-            session_id: "c1".to_string(),
-            transcript: codex_transcript,
-            title: Some("Bump check".to_string()),
-            live_pid: Some(7),
-            resumable: true,
-        };
-        let idle: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T09:00:00Z","message":{"id":"m","content":[{"type":"text","text":"All good."}]}}"#;
-        let home = Path::new("/home/me");
-        let mut inputs = claude_inputs(vec![found("s1", "/home/me/code/app", &[idle], true)]);
-        inputs.extend(from_codex(codex_found, &[]));
-        let d = assemble(home, inputs, own_floor, &BTreeMap::new());
-
-        assert_eq!(d.projects.len(), 1);
-        let app = &d.projects[0];
-        assert_eq!(app.session_ids, vec!["s1".to_string(), "c1".to_string()]);
-
-        let c1 = d.sessions.iter().find(|s| s.id == "c1").expect("c1");
-        assert_eq!(c1.tool, ToolKind::Codex);
-        assert_eq!(c1.title, "Bump check");
-        assert_eq!(c1.state, SessionState::WaitingHuman);
-        assert_eq!(c1.control, ControlMode::RaiseWindow);
-
-        let prose = d
-            .questions
-            .iter()
-            .find(|q| q.session_id == "c1")
-            .expect("codex question");
-        assert_eq!(prose.prompt, "Fixed it. Should I also bump the version?");
-        assert!(prose.options.is_empty());
-        assert_eq!(prose.answer_via, AnswerVia::Terminal);
-    }
-
-    #[test]
-    fn a_worktree_session_sits_on_its_main_checkouts_floor() {
-        let main = std::env::temp_dir().join(format!("ob-worktree-{}", std::process::id()));
-        let git_dir = main.join(".git/worktrees/agent-1");
-        let tree = main.join(".claude/worktrees/agent-1");
-        let submodule = main.join("vendor/lib");
-        for dir in [
-            &git_dir,
-            &tree.join("server"),
-            &main.join("web"),
-            &main.join(".git/modules/lib"),
-            &submodule,
-        ] {
-            fs::create_dir_all(dir).expect("mkdir");
-        }
-        fs::write(git_dir.join("commondir"), "../..\n").expect("commondir");
-        fs::write(
-            tree.join(".git"),
-            format!("gitdir: {}\n", git_dir.display()),
-        )
-        .expect("pointer");
-        fs::write(submodule.join(".git"), "gitdir: ../../.git/modules/lib\n").expect("submodule");
-
-        let at = |dir: &Path| {
-            let cwd = dir.to_string_lossy().into_owned();
-            let line = format!(
-                r#"{{"type":"assistant","cwd":"{cwd}","timestamp":"2026-09-29T10:00:00Z","message":{{"id":"m","content":[{{"type":"text","text":"ok"}}]}}}}"#
-            );
-            (cwd, line)
-        };
-        let (in_main, main_line) = at(&main.join("web"));
-        let (in_tree, tree_line) = at(&tree.join("server"));
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![
-                found("s1", &in_main, &[&main_line], true),
-                found("s2", &in_tree, &[&tree_line], true),
-                // Started in the main checkout, then `cd`ed into the worktree.
-                found("s3", &in_main, &[&main_line, &tree_line], true),
-            ]),
-            locate,
-            &BTreeMap::new(),
-        );
-        assert_eq!(
-            d.projects.len(),
-            1,
-            "the worktree is not a floor of its own"
-        );
-        assert_eq!(
-            d.projects[0].session_ids,
-            vec!["s1".to_string(), "s2".to_string(), "s3".to_string()]
-        );
-        let worktree = |id: &str| {
-            d.sessions
-                .iter()
-                .find(|s| s.id == id)
-                .expect("session")
-                .worktree
-        };
-        assert!(!worktree("s1"));
-        assert!(worktree("s2"));
-        assert!(worktree("s3"));
-
-        // A submodule's `.git` file points at a git dir with no commondir: its own floor.
-        assert_eq!(
-            locate(&submodule),
-            Location {
-                root: submodule.clone(),
-                worktree: false,
-                checkout: submodule.clone(),
-            }
-        );
-        fs::remove_dir_all(&main).expect("cleanup");
-    }
-
-    #[test]
-    fn paths_and_ids() {
-        assert_eq!(
-            display_path(Path::new("/home/me"), Path::new("/home/me")),
-            "~"
-        );
-        assert_eq!(
-            display_path(Path::new("/opt/x"), Path::new("/home/me")),
-            "/opt/x"
-        );
-        assert_eq!(fnv1a(""), 0x811c_9dc5);
-        assert_eq!(fnv1a("a"), 0xe40c_292c);
-        assert_eq!(project_id(Path::new("/a")), project_id(Path::new("/a")));
-        let here = std::env::current_dir().expect("cwd");
-        assert!(project_root(&here).join(".git").exists());
-    }
-}
+mod tests;

@@ -163,12 +163,13 @@ fn reads_a_project_and_writes_back() {
     let todos = files.agent_todos.expect("TODO.md found case-insensitively");
     assert_eq!(todos.len(), 2);
 
-    tick(&root, "todo.md", 0).expect("tick");
+    assert!(tick(&root, "todo.md", 0, "two").is_err());
+    tick(&root, "todo.md", 0, "one").expect("tick");
     assert_eq!(
         fs::read_to_string(root.join("todo.md")).expect("read"),
         "- [x] one\n- [x] two\n"
     );
-    assert!(tick(&root, "todo.md", 0).is_err());
+    assert!(tick(&root, "todo.md", 0, "one").is_err());
 
     decide(
         &root,
@@ -288,12 +289,45 @@ fn my_actions_is_the_human_todo_list_and_a_tick_changes_only_its_own_line() {
         .human_todos
         .expect("MY-ACTIONS.md is read as the human TODO file");
     assert_eq!(todos.len(), 3);
-    assert!(todos[0].text.starts_with("🚨 Look at the islands | office-building"));
+    assert!(
+        todos[0]
+            .text
+            .starts_with("🚨 Look at the islands | office-building")
+    );
     assert!(todos[1].done && !todos[0].done);
 
-    tick(&root, "MY-ACTIONS.md", 5).expect("tick");
+    tick(&root, "MY-ACTIONS.md", 5, &todos[0].text).expect("tick");
     let after = fs::read_to_string(root.join("MY-ACTIONS.md")).expect("read");
     assert_eq!(after, text.replacen("- [ ] 🚨 Look", "- [x] 🚨 Look", 1));
+    fs::remove_dir_all(&root).expect("cleanup");
+}
+
+#[test]
+fn a_tick_is_refused_when_another_item_has_taken_its_line() {
+    let root = std::env::temp_dir().join(format!("ob-tick-moved-{}", std::process::id()));
+    fs::create_dir_all(&root).expect("mkdir");
+    let path = root.join("BOARD.md");
+    fs::write(&path, "- [ ] first\n- [ ] second\n").expect("write");
+    let second = parse_checklist(
+        &fs::read_to_string(&path).expect("read"),
+        "",
+        "BOARD.md",
+        Party::Human,
+    )[1]
+    .text
+    .clone();
+    fs::write(&path, "- [ ] first\n- [ ] inserted\n- [ ] second\n").expect("write");
+    assert!(tick(&root, "BOARD.md", 1, &second).is_err());
+    tick(&root, "BOARD.md", 2, &second).expect("tick");
+    assert_eq!(
+        fs::read_to_string(&path).expect("read"),
+        "- [ ] first\n- [ ] inserted\n- [x] second\n"
+    );
+    assert_eq!(
+        fs::read_dir(&root).expect("list").count(),
+        1,
+        "no temp file is left"
+    );
     fs::remove_dir_all(&root).expect("cleanup");
 }
 

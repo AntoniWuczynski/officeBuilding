@@ -344,7 +344,7 @@ impl CodexSource {
     pub fn new(home: PathBuf) -> Self {
         Self {
             home,
-            keep_finished: Duration::from_hours(12),
+            keep_finished: super::KEEP_FINISHED,
             cache: HashMap::new(),
             live_pids: HashMap::new(),
             busy_subagents: HashMap::new(),

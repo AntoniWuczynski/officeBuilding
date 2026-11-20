@@ -177,7 +177,8 @@ pub fn background_job_id(session_file: &str) -> Option<String> {
         return None;
     }
     let id = v.get("jobId")?.as_str()?;
-    (!id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')).then(|| id.to_string())
+    (!id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+        .then(|| id.to_string())
 }
 
 /// The background job of the process `pid`, from its session file under `home`.
@@ -285,10 +286,16 @@ mod tests {
         let file = r#"{"pid":96159,"kind":"bg","jobId":"9c4967e5","name":"bugfixer-7"}"#;
         assert_eq!(background_job_id(file), Some("9c4967e5".to_string()));
         // An ordinary terminal session has a window to raise instead.
-        assert_eq!(background_job_id(r#"{"pid":1,"kind":"interactive","jobId":"abc"}"#), None);
+        assert_eq!(
+            background_job_id(r#"{"pid":1,"kind":"interactive","jobId":"abc"}"#),
+            None
+        );
         assert_eq!(background_job_id(r#"{"pid":1}"#), None);
         // The id goes into a shell line, so anything but a plain id is refused.
-        assert_eq!(background_job_id(r#"{"kind":"bg","jobId":"x; rm -rf ~"}"#), None);
+        assert_eq!(
+            background_job_id(r#"{"kind":"bg","jobId":"x; rm -rf ~"}"#),
+            None
+        );
     }
 
     #[test]
@@ -313,8 +320,15 @@ mod job_tests {
     fn the_job_id_comes_from_the_pids_session_file() {
         let home = std::env::temp_dir().join(format!("ob-focus-job-{}", std::process::id()));
         std::fs::create_dir_all(home.join(".claude/sessions")).expect("mkdir");
-        std::fs::write(home.join(".claude/sessions/7.json"), r#"{"kind":"bg","jobId":"abc-1"}"#).expect("write");
-        assert_eq!(super::background_job_of(&home, 7), Some("abc-1".to_string()));
+        std::fs::write(
+            home.join(".claude/sessions/7.json"),
+            r#"{"kind":"bg","jobId":"abc-1"}"#,
+        )
+        .expect("write");
+        assert_eq!(
+            super::background_job_of(&home, 7),
+            Some("abc-1".to_string())
+        );
         assert_eq!(super::background_job_of(&home, 8), None);
         std::fs::remove_dir_all(&home).expect("cleanup");
     }

@@ -50,19 +50,23 @@ impl Office {
         }
         let on_board = {
             let inner = self.lock();
-            let is_item = inner
+            inner
                 .boards
                 .iter()
                 .flat_map(|b| &b.items)
-                .any(|t| t.id == todo_id);
-            is_item.then(|| {
-                project_files::parse_item_id(todo_id).map(|(file, line)| (file.to_string(), line))
-            })
+                .find(|t| t.id == todo_id)
+                .map(|t| {
+                    (
+                        t.text.clone(),
+                        project_files::parse_item_id(todo_id)
+                            .map(|(file, line)| (file.to_string(), line)),
+                    )
+                })
         };
-        if let Some(location) = on_board {
+        if let Some((text, location)) = on_board {
             // A board's file is absolute: joined to nothing it stays as it is.
             let (file, line) = location.ok_or("malformed todo id")?;
-            project_files::tick(Path::new(""), &file, line)?;
+            project_files::tick(Path::new(""), &file, line, &text)?;
             self.refresh();
             return Ok(());
         }
@@ -76,12 +80,13 @@ impl Office {
                 .map(|t| {
                     (
                         t.project_id.clone(),
+                        t.text.clone(),
                         project_files::parse_item_id(todo_id)
                             .map(|(file, line)| (file.to_string(), line)),
                     )
                 })
         };
-        if let Some((project_id, location)) = from_file {
+        if let Some((project_id, text, location)) = from_file {
             let (file, line) = location.ok_or("malformed todo id")?;
             let root = self
                 .lock()
@@ -90,7 +95,7 @@ impl Office {
                 .get(&project_id)
                 .cloned()
                 .ok_or("that floor is no longer in the building")?;
-            project_files::tick(&root, &file, line)?;
+            project_files::tick(&root, &file, line, &text)?;
             self.refresh();
             return Ok(());
         }

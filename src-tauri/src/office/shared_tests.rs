@@ -303,7 +303,7 @@ fn a_new_prompt_keeps_the_last_reply_on_a_desk_and_on_its_sign_out_line() {
 
 #[test]
 fn a_board_whose_file_goes_missing_stays_with_no_items() {
-    let (office, dir, board, store) = with_board("board-missing");
+    let (office, dir, board, store) = with_board("board-goes-missing");
     store.update(boards_patch(&[&board])).expect("allowed");
     office.refresh();
     assert_eq!(office.snapshot().shared_boards[0].items.len(), 3);

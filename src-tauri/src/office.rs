@@ -15,7 +15,7 @@ use crate::pty::{self, Terminals};
 use crate::qa;
 use crate::settings::SettingsStore;
 use crate::setup::{Launch, Library};
-use crate::store::{Records, Store};
+use crate::store::Store;
 use crate::structured::{self, desks::Desks};
 use launch::{
     CLAUDE_SUBCOMMANDS, DESK_ACTIVE, Desk, Launched, chosen_model, desk_session, desk_session_id,
@@ -139,97 +139,6 @@ fn owning_terminal(
         }
     }
     None
-}
-
-/// How long a move outlasts its session's absence: the sign-out sheet's window
-/// (`keep_finished` in the discovery sources, which do not share a constant).
-const MOVE_KEPT_UNSEEN: Duration = Duration::from_hours(12);
-
-/// Forget the moves whose session has been off the books too long, and note which are off it now.
-/// A move never confirmed (no `move_seen` entry) goes at its first miss. True when anything changed.
-fn prune_moves(
-    records: &mut Records,
-    on_books: impl Fn(&str) -> bool,
-    now: chrono::DateTime<chrono::Utc>,
-) -> bool {
-    let before = (records.moved_sessions.len(), records.move_seen.clone());
-    let stamp = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let Records {
-        moved_sessions,
-        move_seen,
-        ..
-    } = records;
-    moved_sessions.retain(|id, _| {
-        if on_books(id) {
-            move_seen.insert(id.clone(), None);
-            return true;
-        }
-        match move_seen.get(id).cloned() {
-            None => false,
-            Some(None) => {
-                move_seen.insert(id.clone(), Some(stamp.clone()));
-                true
-            }
-            Some(Some(since)) => chrono::DateTime::parse_from_rfc3339(&since).map_or_else(
-                |_| {
-                    move_seen.insert(id.clone(), Some(stamp.clone()));
-                    true
-                },
-                |t| {
-                    (now - t.to_utc())
-                        .to_std()
-                        .is_ok_and(|gone| gone <= MOVE_KEPT_UNSEEN)
-                },
-            ),
-        }
-    });
-    move_seen.retain(|id, _| moved_sessions.contains_key(id));
-    before != (moved_sessions.len(), move_seen.clone())
-}
-
-/// Put each session the human moved on the floor they chose, wherever it signs out too, and
-/// say where each one was found. A move to a floor that is not here is ignored.
-fn apply_moves(
-    found: &mut Discovered,
-    moves: &BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
-    let mut from = BTreeMap::new();
-    for (id, to) in moves {
-        if !found.projects.iter().any(|p| p.id == *to) {
-            continue;
-        }
-        let live = found
-            .sessions
-            .iter_mut()
-            .find(|s| s.id == *id)
-            .map(|s| std::mem::replace(&mut s.project_id, to.clone()));
-        let signed_out = found
-            .ended
-            .iter_mut()
-            .find(|e| e.id == *id)
-            .map(|e| std::mem::replace(&mut e.project_id, to.clone()));
-        let Some(was) = live.clone().or(signed_out) else {
-            continue;
-        };
-        if was == *to {
-            continue;
-        }
-        from.insert(id.clone(), was.clone());
-        if live.is_none() {
-            continue;
-        }
-        for p in &mut found.projects {
-            if p.id == was {
-                p.session_ids.retain(|s| s != id);
-            } else if p.id == *to {
-                p.session_ids.push(id.clone());
-            }
-        }
-        for q in found.questions.iter_mut().filter(|q| q.session_id == *id) {
-            q.project_id.clone_from(to);
-        }
-    }
-    from
 }
 
 /// Bind live sessions to the terminals we started them in, then give every
@@ -360,10 +269,6 @@ fn start_agent(terminals: &Terminals, root: &Path, command: &str) -> Result<Stri
     start_agent_with(terminals, root, command, &[])
 }
 
-fn attach_command(job: &str, shell: &str) -> String {
-    format!("claude attach {}", pty::quote(shell, job))
-}
-
 /// The tool's own resume command for an ended session, on the model and effort it ran with.
 /// `setup`'s environment goes before the binary, its options after it.
 fn resume_command(ended: &EndedSession, shell: &str, setup: &Launch) -> Result<String, String> {
@@ -429,6 +334,7 @@ impl Office {
         structured: Arc<Desks>,
     ) -> Self {
         let discovery = Discovery::new(home.clone());
+        let rules_file = store.path().with_file_name(crate::project_rules::FILE);
         Self {
             setup_project_id: discovery::project_id(&discovery::project_root(setup.dir())),
             setup,
@@ -465,7 +371,7 @@ impl Office {
             routing: None,
             handover_host: None,
             limits: Mutex::default(),
-            project_rules: Mutex::default(),
+            project_rules: Mutex::new(crate::project_rules::ProjectRules::at(rules_file)),
         }
     }
 
@@ -483,7 +389,7 @@ impl Office {
             .project_rules
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .changed(&self.home);
+            .changed();
         scanned || rules
     }
 
@@ -547,14 +453,7 @@ impl Office {
         inner
             .moved_from
             .extend(apply_moves(&mut found, &inner.store.records.moved_sessions));
-        let discovery = &inner.discovery;
-        let elsewhere = claim_owned(
-            &mut found.sessions,
-            &mut inner.owned,
-            &running,
-            |id| discovery.pid_of(id),
-            focus::parent_pid,
-        );
+        let elsewhere = claim_terminals(inner, &running, &mut found);
         for (terminal, session) in &inner.owned {
             inner.ran_in.insert(session.clone(), terminal.clone());
         }
@@ -610,9 +509,10 @@ impl Office {
         let (projects, mut sessions, ended) = with_structured(&inner.found, &self.structured);
         let rules = self.rules_view();
         for s in &mut sessions {
-            s.self_reviewed = inner.found.skills.get(&s.id).is_some_and(|called| {
-                called.iter().any(|name| rules.review_skills.contains(name))
-            });
+            s.self_reviewed =
+                inner.found.skills.get(&s.id).is_some_and(|called| {
+                    called.iter().any(|name| rules.review_skills.contains(name))
+                });
         }
         OfficeSnapshot {
             projects,
@@ -631,7 +531,7 @@ impl Office {
             queued: self.queued_messages(&inner),
             handover: inner.handover.view.clone(),
             shared_boards: inner.boards.clone(),
-            project_rules: rules.rules,
+            project_rules: rules.rules.iter().map(Into::into).collect(),
             harness_id: rules.harness_id,
             project_rules_error: rules.error,
         }
@@ -642,10 +542,10 @@ impl Office {
             .project_rules
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        rules.view(&self.home).clone()
+        rules.view().clone()
     }
 
-    /// Put a repo or a session's name under a project in `~/.claude/office-building/projects.json`.
+    /// Put a repo or a session's name under a project in the app's own `projects.json`.
     pub fn assign_project(
         &self,
         target: &crate::project_rules::Target,
@@ -654,7 +554,7 @@ impl Office {
         self.project_rules
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .assign(&self.home, target, project)
+            .assign(target, project)
     }
 
     /// `spawn_session`, with the terminal it started (None for a structured desk).
@@ -776,83 +676,6 @@ impl Office {
         .map(|terminal| self.note_view(tool, &terminal))
     }
 
-    /// Open a background session in a docked terminal running `claude attach <job>`.
-    /// Ok(false) when it is not a background session, so its own window is raised instead.
-    pub fn attach_session(&self, session_id: &str) -> Result<bool, String> {
-        let (dir, pid) = {
-            let inner = self.lock();
-            let session = inner
-                .found
-                .sessions
-                .iter()
-                .find(|s| s.id == session_id)
-                .ok_or_else(|| format!("unknown session: {session_id}"))?;
-            let dir = inner.found.roots.get(&session.project_id).unwrap_or(&self.home);
-            (dir.clone(), inner.discovery.pid_of(session_id))
-        };
-        let Some(job) = pid.and_then(|p| focus::background_job_of(&self.home, p)) else {
-            return Ok(false);
-        };
-        let command = attach_command(&job, &pty::login_shell());
-        self.attach_in_terminal(session_id, &dir, &command)?;
-        Ok(true)
-    }
-
-    /// Run `command` in a docked terminal for `session_id`, unless one is still running.
-    /// Not a hire: its exit is not a failure to report, and it is no desk of its own.
-    fn attach_in_terminal(&self, session_id: &str, dir: &Path, command: &str) -> Result<(), String> {
-        let live = |t: &String| self.terminals.wait_exit(t, Duration::ZERO) == Ok(None);
-        if self.lock().attached.get(session_id).is_some_and(live) {
-            return Ok(());
-        }
-        let terminal = start_agent_with(&self.terminals, dir, command, &[])?;
-        let mut inner = self.lock();
-        // A second click may have attached while this one was starting: keep the first.
-        if inner.attached.get(session_id).is_some_and(live) {
-            drop(inner);
-            self.hang_up(&terminal);
-            self.terminals.release(&terminal);
-            return Ok(());
-        }
-        if let Some(old) = inner.attached.insert(session_id.to_string(), terminal) {
-            self.terminals.release(&old);
-        }
-        Ok(())
-    }
-
-    /// Let go of the app's `claude attach` for one session, so a terminal of the
-    /// user's own keeps the session at its full size. A no-op when none is attached.
-    pub fn detach_session(&self, session_id: &str) {
-        self.hang_up_attached(&[session_id.to_string()]);
-    }
-
-    /// Hang up and forget the attach terminals of the sessions `ids`, as they go.
-    fn hang_up_attached(&self, ids: &[String]) {
-        let gone: Vec<String> = {
-            let mut inner = self.lock();
-            ids.iter()
-                .filter_map(|id| inner.attached.remove(id))
-                .collect()
-        };
-        for terminal in gone {
-            self.hang_up(&terminal);
-            self.terminals.release(&terminal);
-        }
-    }
-
-    /// The process behind a session: discovery's, or the terminal we ran it in.
-    fn agent_of(&self, inner: &Inner, s: &Session) -> Result<(String, i32), String> {
-        let pid = inner.discovery.pid_of(&s.id).or_else(|| {
-            inner
-                .ran_in
-                .get(&s.id)
-                .and_then(|t| self.terminals.pid(t).ok())
-        });
-        let pid = pid
-            .ok_or_else(|| format!("{} cannot be stopped: its process is unknown", s.title))?;
-        Ok((s.title.clone(), pid))
-    }
-
     /// Run `command` in a new in-app terminal in `dir`. An agent that stops at
     /// once is an error; one that stops later, before reaching a desk, is
     /// reported by `hire_failed`.
@@ -886,151 +709,6 @@ impl Office {
             }
         }
         Ok(terminal)
-    }
-
-    /// Pull a floor down: stop its running agents cleanly, then hide it until a
-    /// new session starts there. An agent that does not stop keeps it standing.
-    pub fn demolish_floor(&self, project_id: &str) -> Result<(), String> {
-        let (root, agents) = {
-            let inner = self.lock();
-            let root = inner
-                .found
-                .roots
-                .get(project_id)
-                .cloned()
-                .ok_or_else(|| format!("{project_id} is not a floor of this building"))?;
-            let mut agents = Vec::new();
-            for s in inner
-                .found
-                .sessions
-                .iter()
-                .filter(|s| s.project_id == project_id)
-            {
-                agents.push(self.agent_of(&inner, s)?);
-            }
-            (root, agents)
-        };
-        stop_agents(&agents, STOP_WAIT).map_err(|e| format!("{e}, so the floor is still standing"))?;
-        self.hang_up_shells(project_id);
-        let on_floor: Vec<String> = {
-            let inner = self.lock();
-            inner
-                .found
-                .sessions
-                .iter()
-                .filter(|s| s.project_id == project_id)
-                .map(|s| s.id.clone())
-                .collect()
-        };
-        self.hang_up_attached(&on_floor);
-        {
-            let mut guard = self.lock();
-            let inner = &mut *guard;
-            let key = root.to_string_lossy().into_owned();
-            let found = &inner.found;
-            inner.desks.retain(|terminal, d| {
-                let floor = found
-                    .sessions
-                    .iter()
-                    .find(|s| s.id == desk_session_id(terminal))
-                    .map_or(&d.project_id, |s| &s.project_id);
-                floor != project_id
-            });
-            inner.store.records.pinned_floors.retain(|k| *k != key);
-            let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-            inner.store.records.demolished_floors.insert(key, at);
-            inner.store.save()?;
-        }
-        self.refresh();
-        Ok(())
-    }
-
-    /// Stop one session, as a floor's agents stop when it goes: its process, then its attach terminal.
-    pub fn exile_session(&self, session_id: &str) -> Result<(), String> {
-        // An in-app desk is the app's own driver, not a process discovery found.
-        if self.structured.sessions().iter().any(|s| s.id == session_id) {
-            self.structured.stop(session_id)?;
-            self.refresh();
-            return Ok(());
-        }
-        let agent = {
-            let inner = self.lock();
-            let s = inner
-                .found
-                .sessions
-                .iter()
-                .find(|s| s.id == session_id)
-                .ok_or_else(|| format!("unknown session: {session_id}"))?;
-            self.agent_of(&inner, s)?
-        };
-        stop_agents(&[agent], STOP_WAIT)?;
-        self.hang_up_attached(&[session_id.to_string()]);
-        self.lock()
-            .desks
-            .retain(|terminal, _| desk_session_id(terminal) != session_id);
-        self.refresh();
-        Ok(())
-    }
-
-    /// Put a session on another floor, or back on the one it was found on (`None`, or that floor).
-    /// The move outlives the session only as long as the session stays on the building's books.
-    pub fn move_session(&self, session_id: &str, project_id: Option<&str>) -> Result<(), String> {
-        {
-            let mut inner = self.lock();
-            let sits = |p: &str| inner.found.projects.iter().any(|x| x.id == p);
-            let now = inner
-                .found
-                .sessions
-                .iter()
-                .find(|s| s.id == session_id)
-                .map(|s| &s.project_id)
-                .or_else(|| {
-                    inner
-                        .found
-                        .ended
-                        .iter()
-                        .find(|e| e.id == session_id)
-                        .map(|e| &e.project_id)
-                })
-                .ok_or_else(|| format!("{session_id} is not a session of this building"))?;
-            let home = inner.moved_from.get(session_id).unwrap_or(now);
-            let target = match project_id {
-                Some(to) if to != home => {
-                    if to == self.setup_project_id {
-                        return Err("the Setup floor holds the library, not agents".to_string());
-                    }
-                    if !sits(to) {
-                        return Err(format!("{to} is not a floor of this building"));
-                    }
-                    Some(to.to_string())
-                }
-                _ => None,
-            };
-            let home_sunk = !sits(home);
-            let moves = &mut inner.store.records.moved_sessions;
-            if target.is_none() && home_sunk && moves.contains_key(session_id) {
-                return Err(
-                    "the island it came from was sunk, so the agent has nowhere to go back to"
-                        .to_string(),
-                );
-            }
-            match target {
-                Some(to) => {
-                    moves.insert(session_id.to_string(), to);
-                    inner
-                        .store
-                        .records
-                        .move_seen
-                        .insert(session_id.to_string(), None);
-                }
-                None => {
-                    moves.remove(session_id);
-                }
-            }
-            inner.store.save()?;
-        }
-        self.refresh();
-        Ok(())
     }
 
     /// Add a floor for a repo folder the human picked. Idempotent: a folder that
@@ -1218,35 +896,12 @@ impl Office {
     }
 }
 
-/// Ask each agent to exit (SIGTERM) and wait up to `within` for all of them.
-fn stop_agents(agents: &[(String, i32)], within: Duration) -> Result<(), String> {
-    for (_, pid) in agents {
-        discovery::claude_code::terminate(*pid);
-    }
-    let deadline = Instant::now() + within;
-    loop {
-        let left: Vec<&str> = agents
-            .iter()
-            .filter(|(_, pid)| discovery::claude_code::pid_alive(*pid))
-            .map(|(title, _)| title.as_str())
-            .collect();
-        if left.is_empty() {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            return Err(format!(
-                "{} did not stop",
-                left.join(", ")
-            ));
-        }
-        std::thread::sleep(LAUNCH_POLL);
-    }
-}
-
+mod attach;
 mod chat;
 mod connectors;
 mod deliver;
 mod desk_states;
+mod exile;
 mod floor_list;
 mod folders;
 #[cfg(test)]
@@ -1260,6 +915,7 @@ mod manager_hire;
 mod manager_send;
 mod manager_tools;
 pub use manager::ManagerHost;
+mod moves;
 mod qa_desk;
 mod reviewers;
 mod routed;
@@ -1271,197 +927,15 @@ mod staff;
 mod structured_desks;
 mod todos;
 use floor_list::{add_pinned_floors, drop_demolished};
+use moves::{apply_moves, claim_terminals, prune_moves};
 use structured_desks::with_structured;
 #[cfg(test)]
+mod attach_tests;
+#[cfg(test)]
+mod exile_tests;
+#[cfg(test)]
+mod move_tests;
+#[cfg(test)]
+mod project_rules_tests;
+#[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod attach_tests {
-    use super::tests::office;
-    use super::*;
-
-    #[test]
-    fn a_background_job_is_attached_to_in_the_docked_terminal_and_reused() {
-        let (office, dir) = office("attach");
-        assert_eq!(attach_command("9c4967e5", "/bin/zsh"), "claude attach '9c4967e5'");
-        assert!(office.terminal_of("s-bg").is_err());
-        office.attach_in_terminal("s-bg", &dir, "sleep 20").expect("attach");
-        let first = office.terminal_of("s-bg").expect("the session reaches the attach terminal");
-        office.attach_in_terminal("s-bg", &dir, "sleep 20").expect("attach again");
-        assert_eq!(office.terminal_of("s-bg"), Ok(first));
-        assert!(office.lock().hired.is_empty(), "an attach is not a hire that can fail");
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn detaching_hangs_up_the_attach_and_an_unknown_session_is_a_no_op() {
-        let (office, dir) = office("attach-detach");
-        office.attach_in_terminal("s-bg", &dir, "sleep 20").expect("attach");
-        let terminal = office.terminal_of("s-bg").expect("attached");
-        let pid = office.terminals.pid(&terminal).expect("pid");
-        office.detach_session("s-bg");
-        let end = std::time::Instant::now() + Duration::from_secs(10);
-        while crate::discovery::claude_code::pid_alive(pid) && std::time::Instant::now() < end {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(!crate::discovery::claude_code::pid_alive(pid), "the attach process ended");
-        assert!(!office.lock().attached.contains_key("s-bg"));
-        office.detach_session("ghost");
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn a_session_without_a_background_job_is_left_to_its_window() {
-        let (office, dir) = office("attach-none");
-        assert_eq!(office.attach_session("ghost"), Err("unknown session: ghost".to_string()));
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-}
-
-#[cfg(test)]
-mod exile_tests {
-    use super::tests::floor_office;
-    use super::*;
-
-    fn desk_on(office: &Office, dir: &Path, floor: &Project, title: &str) -> String {
-        let desk = Desk {
-            tool: ToolKind::Antigravity,
-            project_id: floor.id.clone(),
-            root: dir.join("home/code/app"),
-            title: title.to_string(),
-            model: "m".to_string(),
-            effort: "high".to_string(),
-        };
-        office
-            .launch(&desk.root.clone(), "/bin/cat", Launched::Desk(desk))
-            .expect("launch")
-    }
-
-    #[test]
-    fn exiling_an_unknown_session_is_an_error() {
-        let (office, dir, _) = floor_office("exile-unknown");
-        assert_eq!(
-            office.exile_session("ghost"),
-            Err("unknown session: ghost".to_string())
-        );
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn exiling_a_session_stops_only_it_and_hangs_up_only_its_attach_terminal() {
-        let (office, dir, floor) = floor_office("exile-one");
-        let out = desk_on(&office, &dir, &floor, "leaves");
-        let stays = desk_on(&office, &dir, &floor, "stays");
-        let (out_id, stays_id) = (desk_session_id(&out), desk_session_id(&stays));
-        office.refresh();
-        office.attach_in_terminal(&out_id, &dir, "sleep 30").expect("attach");
-        office.attach_in_terminal(&stays_id, &dir, "sleep 30").expect("attach");
-        let kept = office.lock().attached.get(&stays_id).cloned().expect("attached");
-        let kept_pid = office.terminals.pid(&kept).expect("pid");
-        office.exile_session(&out_id).expect("exile");
-        assert!(office.terminals.wait_exit(&out, Duration::from_secs(10)).expect("wait").is_some());
-        assert_eq!(office.terminals.wait_exit(&stays, Duration::ZERO), Ok(None));
-        assert!(!office.lock().attached.contains_key(&out_id));
-        assert!(office.lock().attached.contains_key(&stays_id));
-        assert!(crate::discovery::claude_code::pid_alive(kept_pid));
-        let left: Vec<String> = office.snapshot().sessions.into_iter().map(|s| s.id).collect();
-        assert_eq!(left, vec![stays_id]);
-        office.demolish_floor(&floor.id).expect("cleanup floor");
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn exiling_an_in_app_desk_stops_its_driver() {
-        struct Spy(Arc<std::sync::atomic::AtomicBool>);
-        impl structured::Driver for Spy {
-            fn prompt(&self, _: &str) -> Result<(), String> { Ok(()) }
-            fn answer(&self, _: &str, _: &str, _: &structured::Values) -> Result<(), String> { Ok(()) }
-            fn cancel(&self) -> Result<(), String> { Ok(()) }
-            fn stop(&self) { self.0.store(true, std::sync::atomic::Ordering::SeqCst); }
-        }
-        let (office, dir, floor) = floor_office("exile-structured");
-        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let info = structured::desks::DeskInfo {
-            tool: ToolKind::Codex,
-            project_id: floor.id.clone(),
-            root: dir.join("home/code/app"),
-            title: "in app".to_string(),
-            model: "default".to_string(),
-            effort: "default".to_string(),
-        };
-        office.structured.seat("structured-1", info, SessionState::Thinking, Box::new(Spy(stopped.clone())));
-        office.refresh();
-        office.exile_session("structured-1").expect("exile");
-        assert!(stopped.load(std::sync::atomic::Ordering::SeqCst));
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn a_session_that_will_not_stop_is_named_without_talk_of_a_floor() {
-        let mut child = std::process::Command::new("sh")
-            .args(["-c", "trap '' TERM; while :; do sleep 1; done"])
-            .spawn()
-            .expect("spawn");
-        std::thread::sleep(Duration::from_millis(200));
-        let pid = i32::try_from(child.id()).expect("pid");
-        let err = stop_agents(&[("stubborn".to_string(), pid)], Duration::from_millis(300));
-        child.kill().expect("kill");
-        child.wait().expect("reap");
-        assert_eq!(err, Err("stubborn did not stop".to_string()));
-    }
-}
-
-#[cfg(test)]
-mod project_rules_tests {
-    use super::tests::office;
-
-    #[test]
-    fn a_review_list_set_after_the_parse_flags_the_session_without_a_new_parse() {
-        let (office, dir) = office("review");
-        let home = dir.join("home");
-        let me = std::process::id();
-        std::fs::create_dir_all(home.join(".claude/sessions")).expect("sessions");
-        std::fs::write(
-            home.join(format!(".claude/sessions/{me}.json")),
-            format!(r#"{{"pid":{me},"sessionId":"s1","cwd":"/code/app","status":"idle","name":"beta-web"}}"#),
-        )
-        .expect("registry");
-        std::fs::create_dir_all(home.join(".claude/projects/-code-app")).expect("project");
-        std::fs::write(
-            home.join(".claude/projects/-code-app/s1.jsonl"),
-            concat!(
-                r#"{"type":"assistant","cwd":"/code/app","message":{"id":"m","content":[{"type":"tool_use","id":"t","name":"Skill","input":{"skill":"review"}}]}}"#,
-                "\n"
-            ),
-        )
-        .expect("transcript");
-        office.refresh();
-        let parsed = office.lock().discovery.parses();
-        let before = office.snapshot();
-        assert_eq!(before.sessions[0].session_name.as_deref(), Some("beta-web"));
-        assert!(!before.sessions[0].self_reviewed);
-        let rules = home.join(".claude/office-building");
-        std::fs::create_dir_all(&rules).expect("rules dir");
-        std::fs::write(
-            rules.join("projects.json"),
-            r#"{"rules":[],"reviewSkills":["review"]}"#,
-        )
-        .expect("rules");
-        assert!(office.snapshot().sessions[0].self_reviewed);
-        office.refresh();
-        assert_eq!(office.lock().discovery.parses(), parsed);
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn a_changed_rules_file_makes_a_refresh_report_a_change() {
-        let (office, dir) = office("rules-refresh");
-        office.refresh();
-        assert!(!office.refresh());
-        let rules = dir.join("home/.claude/office-building");
-        std::fs::create_dir_all(&rules).expect("rules dir");
-        std::fs::write(rules.join("projects.json"), r#"{"rules":[{"name":"Alpha"}]}"#).expect("rules");
-        assert!(office.refresh());
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-}

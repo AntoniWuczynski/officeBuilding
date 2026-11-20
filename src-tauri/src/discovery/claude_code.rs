@@ -16,7 +16,7 @@ use super::collect_jsonl;
 use super::pets::MonitorCall;
 use super::pricing;
 use super::rules::{LastBlock, Signals};
-use crate::model::{AgentMessage, Helper, SessionState, Spend};
+use crate::model::{AgentMessage, Helper, NameSource, SessionState, Spend};
 use crate::store::MESSAGE_HISTORY;
 use serde::Deserialize;
 use serde_json::Value;
@@ -39,8 +39,8 @@ pub struct LiveEntry {
     /// answered, so this is the only sign of one.
     pub waiting: bool,
     pub name: Option<String>,
-    /// Who named it: `user`, `auto` or `peer`. Spare processes have none.
-    pub name_source: Option<String>,
+    /// Who named it. Spare processes have none, and an unknown source reads as none.
+    pub name_source: Option<NameSource>,
 }
 
 /// An `AskUserQuestion` call that has no answer yet.
@@ -136,8 +136,7 @@ pub fn parse_registry_entry(text: &str) -> Option<LiveEntry> {
         name: v.get("name").and_then(Value::as_str).map(str::to_string),
         name_source: v
             .get("nameSource")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+            .and_then(|s| NameSource::deserialize(s).ok()),
     })
 }
 
@@ -541,7 +540,9 @@ impl ParserState {
             let origin_kind = origin.and_then(|o| o.get("kind")).and_then(Value::as_str);
             // Every real peer prompt is `isMeta` too, so the meta guard must let them through.
             let peer = origin_kind == Some("peer");
-            if is_prompt && (peer || !is_meta) {
+            // A sub-agent's hand-back reports into the turn that started it, so it is no prompt.
+            let hand_back = origin.and_then(|o| o.get("senderTaskId")).is_some();
+            if is_prompt && ((peer && !hand_back) || !is_meta) {
                 // A prompt starts a new turn. Only the human's turns carry questions for them.
                 self.in_human_turn = matches!(origin_kind, None | Some("human"));
                 self.t.finished = false;
@@ -714,7 +715,7 @@ impl ClaudeSource {
     pub fn new(home: PathBuf) -> Self {
         Self {
             home,
-            keep_finished: Duration::from_hours(12),
+            keep_finished: super::KEEP_FINISHED,
             cache: HashMap::new(),
             pids: HashMap::new(),
             #[cfg(test)]

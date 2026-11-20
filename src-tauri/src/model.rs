@@ -6,6 +6,15 @@ use crate::manager::wire::ManagerFloor;
 use crate::qa::record::{Review, Verdict};
 use serde::{Deserialize, Serialize};
 
+/// Who named a session in Claude Code's registry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NameSource {
+    User,
+    Auto,
+    Peer,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub enum ToolKind {
@@ -92,8 +101,8 @@ pub struct Session {
     pub last_reply: Option<String>,
     /// The name Claude Code's registry gives the session, apart from its `title`.
     pub session_name: Option<String>,
-    /// Who named it: `user`, `auto` or `peer`.
-    pub session_name_source: Option<String>,
+    /// Who named it.
+    pub session_name_source: Option<NameSource>,
     /// It ran a review skill since the human last spoke to it.
     pub self_reviewed: bool,
 }
@@ -423,7 +432,7 @@ pub struct OfficeSnapshot {
     /// The building-wide checklist files, in Settings order.
     pub shared_boards: Vec<SharedBoard>,
     /// How sessions group into projects, from the rules file.
-    pub project_rules: Vec<crate::project_rules::ProjectRule>,
+    pub project_rules: Vec<crate::project_rules::RuleView>,
     /// The rule of the project whose sessions are the harness, if one is named and kept.
     pub harness_id: Option<String>,
     /// Why the rules file could not be read, if it could not.

@@ -123,6 +123,9 @@ fn each_session_opens_the_checkout_it_works_in() {
     fs::create_dir_all(&outside).expect("mkdir");
     let main_web = repo.main.join("web");
     let tree_server = repo.tree.join("server");
+    let nested = repo.main.join("vendor").join("lib");
+    fs::create_dir_all(&nested).expect("mkdir");
+    git(&nested, &["init", "-q", "-b", "main"]);
     let d = run(
         vec![
             input("a", &main_web, &main_web, true),
@@ -217,6 +220,9 @@ fn a_session_started_above_a_repo_sits_on_the_repo_it_works_in() {
     fs::create_dir_all(&plain).expect("mkdir");
     let main_web = repo.main.join("web");
     let tree_server = repo.tree.join("server");
+    let nested = repo.main.join("vendor").join("lib");
+    fs::create_dir_all(&nested).expect("mkdir");
+    git(&nested, &["init", "-q", "-b", "main"]);
     let d = run(
         vec![
             // Launched from the folder that holds the repos, now working inside one (or its worktree).
@@ -228,16 +234,51 @@ fn a_session_started_above_a_repo_sits_on_the_repo_it_works_in() {
             input("away", &main_web, &repo.base, true),
             // Into a plain subfolder that is no repo: stays where it started, no floor of its own.
             input("plain", &repo.base, &plain, true),
+            // Started in a repo, now in a clone nested inside it: stays on the outer repo.
+            input("nested", &repo.main, &nested, true),
         ],
         &BTreeMap::new(),
     );
-    let floor = |id: &str| d.sessions.iter().find(|s| s.id == id).map(|s| s.project_id.clone());
+    let floor = |id: &str| {
+        d.sessions
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.project_id.clone())
+    };
     assert_eq!(floor("in-repo"), Some(project_id(&repo.main)));
     assert_eq!(floor("in-tree"), Some(project_id(&repo.main)));
     assert_eq!(floor("above"), Some(project_id(&repo.base)));
     assert_eq!(floor("away"), Some(project_id(&repo.main)));
     assert_eq!(floor("plain"), Some(project_id(&repo.base)));
+    assert_eq!(floor("nested"), Some(project_id(&repo.main)));
     let worktree = |id: &str| d.sessions.iter().find(|s| s.id == id).map(|s| s.worktree);
     assert_eq!(worktree("in-tree"), Some(true));
     assert_eq!(worktree("in-repo"), Some(false));
+}
+
+#[test]
+fn a_session_started_above_repos_stays_on_the_first_one_it_enters() {
+    let repo = Repo::new("pinned");
+    let other = repo.base.join("other repo");
+    fs::create_dir_all(&other).expect("mkdir");
+    git(&other, &["init", "-q", "-b", "main"]);
+    let first = run(
+        vec![input("s", &repo.base, &repo.main.join("web"), true)],
+        &BTreeMap::new(),
+    );
+    assert_eq!(first.sessions[0].project_id, project_id(&repo.main));
+    // It moves on to another repo under the same folder, then back above them: the desk stays.
+    for now in [&other, &repo.base] {
+        let later = run(vec![input("s", &repo.base, now, true)], &first.checkouts);
+        assert_eq!(later.sessions[0].project_id, project_id(&repo.main));
+        assert_eq!(later.checkouts.get("s"), Some(&repo.main));
+        assert!(!later.sessions[0].worktree);
+    }
+    // Into the first repo's worktree it is at home again, with the badge.
+    let tree = run(
+        vec![input("s", &repo.base, &repo.tree.join("server"), true)],
+        &first.checkouts,
+    );
+    assert_eq!(tree.sessions[0].project_id, project_id(&repo.main));
+    assert!(tree.sessions[0].worktree);
 }

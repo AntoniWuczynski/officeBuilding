@@ -1,12 +1,12 @@
-//! How sessions group into projects: the rules the human keeps in
-//! `~/.claude/office-building/projects.json`, read again only when the file changes.
+//! How sessions group into projects: the rules the human keeps in `projects.json` in the app's
+//! own data folder (beside `store.json`), read again only when the file changes.
 
 use crate::store::write_json_atomic;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +20,29 @@ pub struct ProjectRule {
     /// Keys the human added to a rule; kept so a save never drops them.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// A rule as the snapshot carries it: the human's own extra keys stay in the file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleView {
+    pub id: String,
+    pub name: String,
+    pub prefixes: Vec<String>,
+    pub contains: Vec<String>,
+    pub repos: Vec<String>,
+}
+
+impl From<&ProjectRule> for RuleView {
+    fn from(rule: &ProjectRule) -> Self {
+        Self {
+            id: rule.id.clone(),
+            name: rule.name.clone(),
+            prefixes: rule.prefixes.clone(),
+            contains: rule.contains.clone(),
+            repos: rule.repos.clone(),
+        }
+    }
 }
 
 /// What the file says, after dropping the entries that cannot be used.
@@ -53,19 +76,20 @@ pub struct Choice {
     pub name: String,
 }
 
-#[derive(Debug, Default)]
+/// The rules file's name in the app's data folder.
+pub const FILE: &str = "projects.json";
+
+#[derive(Debug)]
 pub struct ProjectRules {
+    path: PathBuf,
     seen: Option<(Option<SystemTime>, RulesView)>,
     /// The last file that parsed, kept while a later edit leaves it unreadable.
     last_good: Option<RulesView>,
     /// What `changed` last reported, to tell the next refresh whether the rules moved.
     announced: Option<RulesView>,
     /// How many times the file was read and parsed: a test seam for the mtime check.
+    #[cfg(test)]
     pub reads: u32,
-}
-
-fn path_of(home: &Path) -> PathBuf {
-    home.join(".claude/office-building/projects.json")
 }
 
 fn slug(text: &str) -> String {
@@ -134,13 +158,25 @@ fn parse(text: &str) -> Result<RulesView, String> {
 }
 
 impl ProjectRules {
+    #[must_use]
+    pub fn at(path: PathBuf) -> Self {
+        Self {
+            path,
+            seen: None,
+            last_good: None,
+            announced: None,
+            #[cfg(test)]
+            reads: 0,
+        }
+    }
+
     /// The rules as the file has them now. A missing file is no rules and no error.
-    pub fn view(&mut self, home: &Path) -> &RulesView {
-        let path = path_of(home);
-        let modified = fs::metadata(&path).and_then(|m| m.modified()).ok();
+    pub fn view(&mut self) -> &RulesView {
+        let path = &self.path;
+        let modified = fs::metadata(path).and_then(|m| m.modified()).ok();
         let stale = self.seen.as_ref().is_none_or(|(at, _)| *at != modified);
         if stale {
-            let parsed = match fs::read_to_string(&path) {
+            let parsed = match fs::read_to_string(path) {
                 Ok(text) => parse(&text),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(RulesView::default()),
                 Err(e) => Err(format!("could not read projects.json: {e}")),
@@ -155,15 +191,18 @@ impl ProjectRules {
                     ..self.last_good.clone().unwrap_or_default()
                 },
             };
-            self.reads += 1;
+            #[cfg(test)]
+            {
+                self.reads += 1;
+            }
             self.seen = Some((modified, view));
         }
         &self.seen.get_or_insert_with(Default::default).1
     }
 
     /// Whether the rules differ from what the last call reported.
-    pub fn changed(&mut self, home: &Path) -> bool {
-        let now = self.view(home).clone();
+    pub fn changed(&mut self) -> bool {
+        let now = self.view().clone();
         self.announced
             .replace(now.clone())
             .is_none_or(|was| was != now)
@@ -171,12 +210,12 @@ impl ProjectRules {
 
     /// Put a repo or a session's name under a project, read fresh from the file so that two
     /// choices in a row both stay. The project is made when no rule has its id or name.
-    pub fn assign(&mut self, home: &Path, target: &Target, choice: &Choice) -> Result<(), String> {
+    pub fn assign(&mut self, target: &Target, choice: &Choice) -> Result<(), String> {
         if target.key.trim().is_empty() {
             return Err("nothing to put under a project".to_string());
         }
         self.seen = None;
-        let view = self.view(home);
+        let view = self.view();
         if let Some(error) = &view.error {
             return Err(error.clone());
         }
@@ -219,17 +258,16 @@ impl ProjectRules {
                 list.push(key.clone());
             }
         }
-        self.save(home, &rules)
+        self.save(&rules)
     }
 
     /// Replace the rules, keeping every other key of the file as found. Refused while the file
     /// has a problem: saving then would overwrite what the human wrote.
-    fn save(&mut self, home: &Path, rules: &[ProjectRule]) -> Result<(), String> {
-        if let Some(error) = self.view(home).error.clone() {
+    fn save(&mut self, rules: &[ProjectRule]) -> Result<(), String> {
+        if let Some(error) = self.view().error.clone() {
             return Err(error);
         }
-        let path = path_of(home);
-        let mut file = match fs::read_to_string(&path) {
+        let mut file = match fs::read_to_string(&self.path) {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(Value::Object(file)) => file,
                 _ => return Err("projects.json is not a JSON object".to_string()),
@@ -238,7 +276,7 @@ impl ProjectRules {
         };
         let rules = serde_json::to_value(rules).map_err(|e| e.to_string())?;
         file.insert("rules".to_string(), rules);
-        write_json_atomic(&path, &Value::Object(file))?;
+        write_json_atomic(&self.path, &Value::Object(file))?;
         self.seen = None;
         Ok(())
     }
@@ -247,12 +285,17 @@ impl ProjectRules {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn home(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("ob-rules-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.join(".claude/office-building")).expect("make home");
+        fs::create_dir_all(&dir).expect("make home");
         dir
+    }
+
+    fn path_of(home: &Path) -> PathBuf {
+        home.join(FILE)
     }
 
     fn write(home: &Path, text: &str) {
@@ -272,16 +315,16 @@ mod tests {
     fn a_missing_file_is_no_rules_and_no_error() {
         let home = home("missing");
         fs::remove_file(path_of(&home)).ok();
-        let mut rules = ProjectRules::default();
-        assert_eq!(rules.view(&home), &RulesView::default());
+        let mut rules = ProjectRules::at(path_of(&home));
+        assert_eq!(rules.view(), &RulesView::default());
     }
 
     #[test]
     fn malformed_json_is_no_rules_and_an_error() {
         let home = home("malformed");
         write(&home, "{ not json");
-        let mut rules = ProjectRules::default();
-        let view = rules.view(&home);
+        let mut rules = ProjectRules::at(path_of(&home));
+        let view = rules.view();
         assert!(view.rules.is_empty());
         assert!(view.error.is_some());
     }
@@ -295,8 +338,8 @@ mod tests {
             {"id":"alpha","name":"Beta"},{"name":"Omega Lab","prefixes":["om-"]}],
             "harnessId":"x"}"#,
         );
-        let mut rules = ProjectRules::default();
-        let view = rules.view(&home);
+        let mut rules = ProjectRules::at(path_of(&home));
+        let view = rules.view();
         let ids: Vec<&str> = view.rules.iter().map(|r| r.id.as_str()).collect();
         assert_eq!(ids, ["alpha", "omega-lab"]);
         assert!(view.error.is_some());
@@ -310,8 +353,8 @@ mod tests {
             &home,
             r#"{"rules":[{"id":"omega","name":"Omega"}],"harnessId":"omega"}"#,
         );
-        let mut rules = ProjectRules::default();
-        assert_eq!(rules.view(&home).harness_id.as_deref(), Some("omega"));
+        let mut rules = ProjectRules::at(path_of(&home));
+        assert_eq!(rules.view().harness_id.as_deref(), Some("omega"));
     }
 
     #[test]
@@ -319,8 +362,8 @@ mod tests {
         let home = home("refused");
         let text = r#"{"rules":[{"id":"a","name":""}]}"#;
         write(&home, text);
-        let mut rules = ProjectRules::default();
-        assert!(rules.save(&home, &[rule("beta", "Beta")]).is_err());
+        let mut rules = ProjectRules::at(path_of(&home));
+        assert!(rules.save(&[rule("beta", "Beta")]).is_err());
         assert_eq!(fs::read_to_string(path_of(&home)).expect("read"), text);
     }
 
@@ -331,10 +374,10 @@ mod tests {
             &home,
             r#"{"rules":[],"harnessId":"omega","reviewSkills":["review"]}"#,
         );
-        let mut rules = ProjectRules::default();
+        let mut rules = ProjectRules::at(path_of(&home));
         let saved = [rule("omega", "Omega"), rule("beta", "Beta")];
-        rules.save(&home, &saved).expect("save");
-        let view = rules.view(&home).clone();
+        rules.save(&saved).expect("save");
+        let view = rules.view().clone();
         assert_eq!(view.rules, saved);
         assert_eq!(view.harness_id.as_deref(), Some("omega"));
         assert_eq!(view.review_skills, ["review"]);
@@ -362,12 +405,18 @@ mod tests {
             &home,
             r#"{"rules":[{"id":"alpha","name":"Alpha","colour":"teal"}]}"#,
         );
-        let mut rules = ProjectRules::default();
+        let mut rules = ProjectRules::at(path_of(&home));
         rules
-            .assign(&home, &target(TargetKind::Repo, "repo-one"), &choice(Some("alpha"), "Alpha"))
+            .assign(
+                &target(TargetKind::Repo, "repo-one"),
+                &choice(Some("alpha"), "Alpha"),
+            )
             .expect("assign");
         let text = fs::read_to_string(path_of(&home)).expect("file");
-        assert!(text.contains(r#""colour": "teal""#) || text.contains(r#""colour":"teal""#), "{text}");
+        assert!(
+            text.contains(r#""colour": "teal""#) || text.contains(r#""colour":"teal""#),
+            "{text}"
+        );
     }
 
     #[test]
@@ -375,9 +424,13 @@ mod tests {
         let home = home("empty-key");
         let before = r#"{"rules":[{"id":"alpha","name":"Alpha"}]}"#;
         write(&home, before);
-        let mut rules = ProjectRules::default();
+        let mut rules = ProjectRules::at(path_of(&home));
         for kind in [TargetKind::Session, TargetKind::Repo] {
-            assert!(rules.assign(&home, &target(kind, "  "), &choice(None, "Alpha")).is_err());
+            assert!(
+                rules
+                    .assign(&target(kind, "  "), &choice(None, "Alpha"))
+                    .is_err()
+            );
         }
         assert_eq!(fs::read_to_string(path_of(&home)).expect("file"), before);
     }
@@ -389,19 +442,18 @@ mod tests {
             &home,
             r#"{"rules":[{"id":"alpha","name":"Alpha","prefixes":["alpha-fix-2-x"]}],"harnessId":"alpha","reviewSkills":["review"]}"#,
         );
-        let mut rules = ProjectRules::default();
+        let mut rules = ProjectRules::at(path_of(&home));
         let session = target(TargetKind::Session, "Alpha-Fix-2-X");
         rules
-            .assign(&home, &session, &choice(None, "beta"))
+            .assign(&session, &choice(None, "beta"))
             .expect("first");
         rules
             .assign(
-                &home,
                 &target(TargetKind::Repo, "/code/beta-web"),
                 &choice(None, "Omega"),
             )
             .expect("second");
-        let view = rules.view(&home).clone();
+        let view = rules.view().clone();
         let by_id = |id: &str| {
             view.rules
                 .iter()
@@ -417,12 +469,11 @@ mod tests {
         // A later choice moves the repo off the rule it was on.
         rules
             .assign(
-                &home,
                 &target(TargetKind::Repo, "/code/beta-web"),
                 &choice(Some("alpha"), "Alpha"),
             )
             .expect("move");
-        let view = rules.view(&home);
+        let view = rules.view();
         assert!(
             view.rules
                 .iter()
@@ -437,13 +488,9 @@ mod tests {
     fn an_assignment_is_refused_while_the_file_has_a_problem() {
         let home = home("assign-refused");
         write(&home, "{ not json");
-        let mut rules = ProjectRules::default();
+        let mut rules = ProjectRules::at(path_of(&home));
         let session = target(TargetKind::Session, "beta-web");
-        assert!(
-            rules
-                .assign(&home, &session, &choice(None, "Beta"))
-                .is_err()
-        );
+        assert!(rules.assign(&session, &choice(None, "Beta")).is_err());
         assert_eq!(
             fs::read_to_string(path_of(&home)).expect("read"),
             "{ not json"
@@ -454,8 +501,8 @@ mod tests {
     fn a_file_broken_after_a_good_read_keeps_the_last_good_rules() {
         let home = home("keep-good");
         write(&home, r#"{"rules":[{"id":"alpha","name":"Alpha"}]}"#);
-        let mut rules = ProjectRules::default();
-        assert_eq!(rules.view(&home).rules.len(), 1);
+        let mut rules = ProjectRules::at(path_of(&home));
+        assert_eq!(rules.view().rules.len(), 1);
         write(&home, "{ not json");
         let later = SystemTime::now() + std::time::Duration::from_secs(5);
         fs::File::options()
@@ -463,7 +510,7 @@ mod tests {
             .open(path_of(&home))
             .and_then(|f| f.set_modified(later))
             .expect("touch");
-        let view = rules.view(&home);
+        let view = rules.view();
         assert_eq!(view.rules.len(), 1);
         assert!(view.error.is_some());
     }
@@ -471,20 +518,20 @@ mod tests {
     #[test]
     fn changed_reports_a_new_file_once() {
         let home = home("changed");
-        let mut rules = ProjectRules::default();
-        assert!(rules.changed(&home));
-        assert!(!rules.changed(&home));
+        let mut rules = ProjectRules::at(path_of(&home));
+        assert!(rules.changed());
+        assert!(!rules.changed());
         write(&home, r#"{"rules":[{"id":"alpha","name":"Alpha"}]}"#);
-        assert!(rules.changed(&home));
+        assert!(rules.changed());
     }
 
     #[test]
     fn an_unchanged_file_is_not_read_again() {
         let home = home("mtime");
         write(&home, r#"{"rules":[{"id":"a","name":"Alpha"}]}"#);
-        let mut rules = ProjectRules::default();
-        rules.view(&home);
-        rules.view(&home);
+        let mut rules = ProjectRules::at(path_of(&home));
+        rules.view();
+        rules.view();
         assert_eq!(rules.reads, 1);
         let later = SystemTime::now() + std::time::Duration::from_secs(5);
         fs::File::options()
@@ -492,7 +539,7 @@ mod tests {
             .open(path_of(&home))
             .and_then(|f| f.set_modified(later))
             .expect("touch");
-        rules.view(&home);
+        rules.view();
         assert_eq!(rules.reads, 2);
     }
 }

@@ -313,6 +313,15 @@ fn registry_entries_parse_and_filter_by_liveness() {
     assert!(!waiting.busy);
     assert!(waiting.waiting);
     assert!(parse_registry_entry(r#"{"pid":"x"}"#).is_none());
+    let source = |name_source: &str| {
+        parse_registry_entry(&format!(
+            r#"{{"pid":42,"sessionId":"abc","cwd":"/code/app","nameSource":"{name_source}"}}"#
+        ))
+        .expect("named entry")
+        .name_source
+    };
+    assert_eq!(source("peer"), Some(NameSource::Peer));
+    assert_eq!(source("robot"), None, "an unknown source reads as none");
 
     let dir = std::env::temp_dir().join(format!("ob-registry-{}", std::process::id()));
     fs::create_dir_all(&dir).expect("temp dir");
@@ -671,13 +680,27 @@ fn a_peer_whose_session_is_not_running_is_skipped_but_still_a_non_human_turn() {
     fs::remove_dir_all(&home).expect("cleanup");
 }
 
+/// The real shape of a sub-agent's hand-back: a peer record carrying `senderTaskId`.
+fn handback(task: &str) -> String {
+    format!(
+        r#"{{"type":"user","isMeta":true,"uuid":"u-{task}","timestamp":"2026-11-16T10:02:00Z","message":{{"role":"user","content":"Another Claude session sent a message:\n<agent-message from=\"{task}\">report</agent-message>"}},"origin":{{"kind":"peer","from":"{task}","senderTaskId":"{task}","name":"general-purpose","body":"[Subagent hand-back] frame","handback":true,"handbackReportText":"The report."}},"userType":"external"}}"#
+    )
+}
+
+#[test]
+fn a_hand_back_leaves_the_human_turn_open() {
+    let t = parse(&[
+        &human("run three background agents and report"),
+        &reply("a1", "Started 3 agents."),
+        &handback("a1"),
+        &reply("a2", "All done. Should I merge the PRs?"),
+    ]);
+    assert_eq!(t.reply_to_human, "All done. Should I merge the PRs?");
+    assert_eq!(t.last_reply.as_deref(), Some("All done."));
+}
+
 #[test]
 fn a_hand_back_is_drawn_from_its_helper_only_when_that_helper_is_known() {
-    let handback = |task: &str| {
-        format!(
-            r#"{{"type":"user","isMeta":true,"uuid":"u-{task}","timestamp":"2026-11-16T10:02:00Z","message":{{"role":"user","content":"Another Claude session sent a message:\n<agent-message from=\"{task}\">report</agent-message>"}},"origin":{{"kind":"peer","from":"{task}","senderTaskId":"{task}","name":"general-purpose","body":"[Subagent hand-back] frame","handback":true,"handbackReportText":"The report."}},"userType":"external"}}"#
-        )
-    };
     let (home, path) = peer_home("handback", &[human("go"), handback("a1"), handback("zz")]);
     let helpers = path.with_extension("").join("subagents");
     fs::create_dir_all(&helpers).expect("subagents");
