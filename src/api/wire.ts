@@ -31,10 +31,9 @@ export const sessionSchema = z.object({
   effort: z.string().nullable(),
   lastActivityAt: z.string(),
   pendingQuestionIds: z.array(z.string()),
-  sessionName: z.string().nullable().default(null),
-  // An unknown source reads as null instead of failing the snapshot.
-  sessionNameSource: z.enum(["user", "auto", "peer"]).nullable().default(null).catch(null),
-  selfReviewed: z.boolean().default(false),
+  sessionName: z.string().nullable(),
+  sessionNameSource: z.enum(["user", "auto", "peer"]).nullable(),
+  selfReviewed: z.boolean(),
   spend: z.object({ usd: z.number(), tokens: z.number(), unpricedTokens: z.number() }),
   helpers: z.array(z.object({ id: z.string(), state: sessionState, worktree: z.boolean(), branch: z.string().nullable() })),
   pets: z.array(z.object({ id: z.string(), kind: z.enum(["shell", "monitor", "browser", "process"]), label: z.string() })),
@@ -192,9 +191,9 @@ export const snapshotSchema = z.object({
   queued: z.array(queuedNoteSchema),
   handover: handoverViewSchema,
   sharedBoards: z.array(sharedBoardSchema),
-  projectRules: z.array(projectRuleSchema).default([]),
-  harnessId: z.string().nullable().default(null),
-  projectRulesError: z.string().nullable().default(null),
+  projectRules: z.array(projectRuleSchema),
+  harnessId: z.string().nullable(),
+  projectRulesError: z.string().nullable(),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [

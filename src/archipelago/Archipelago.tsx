@@ -482,7 +482,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
       const boxes: Box[] = [];
       for (const p of live.current.people) {
         const pe = personEls.current.get(p.key);
-        const figure = pe?.firstElementChild;
+        const figure = pe?.querySelector(".person");
         if (pe === undefined || figure === null || figure === undefined || pe.style.display === "none") continue;
         const r = figure.getBoundingClientRect();
         boxes.push({ key: p.key, left: r.left, top: r.top, right: r.right, bottom: r.bottom, z: Number(pe.style.zIndex) || 0 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { MockApi } from "./api/mockApi";
@@ -52,5 +52,19 @@ describe("the app's claude attach", () => {
     await user.click(screen.getByRole("button", { name: /audit checkout/ }));
     await user.click(await screen.findByTestId("terminal-close"));
     expect(detach).not.toHaveBeenCalled();
+  });
+});
+
+describe("a background session opened from the building", () => {
+  it("enters its floor and shows the docked terminal once it attaches", async () => {
+    const api = new MockApi();
+    vi.spyOn(api, "attachSession").mockResolvedValue(true);
+    const user = userEvent.setup();
+    render(<App api={api} />);
+    await user.click(await screen.findByRole("button", { name: /^corner_shop: .* Show floor\.$/ }));
+    const panel = screen.getByTestId("place-panel");
+    await user.click(within(panel).getByRole("button", { name: /map-tiles mirror/ }));
+    await screen.findByTestId("terminal-panel");
+    expect(screen.getByTestId("back-button")).toBeInTheDocument();
   });
 });

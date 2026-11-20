@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { NeedsYou } from "./NeedsYou";
+import { OwnNeedsYou } from "./needsYouHarness";
 import { makeSeedSnapshot } from "../../api/mockData";
 import type { OfficeSnapshot, Question } from "../../types";
 
 function show(snapshot: OfficeSnapshot, onAnswer = vi.fn(() => Promise.resolve()), onOpen = vi.fn()) {
-  render(<NeedsYou snapshot={snapshot} onOpen={onOpen} onAnswer={onAnswer} />);
+  render(<OwnNeedsYou snapshot={snapshot} onOpen={onOpen} onAnswer={onAnswer} />);
   return { onAnswer, onOpen };
 }
 const rows = (): string[] => screen.getAllByTestId("needs-you-row").map((r) => r.getAttribute("data-question") ?? "");
@@ -57,6 +57,20 @@ describe("the Needs-you list", () => {
     await user.type(within(first).getByRole("textbox", { name: "Your own answer" }), "Do it{Enter}");
     expect(onAnswer).toHaveBeenCalledWith("q-1", { kind: "other", text: "Do it" });
     expect(await within(first).findByRole("alert")).toHaveTextContent("Answer not sent: that call is kept by the building");
+  });
+
+  it("drops a half-typed answer on Escape, and only the next Escape puts the list away", async () => {
+    show(makeSeedSnapshot());
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("needs-you"));
+    const first = screen.getAllByTestId("needs-you-row")[0] as HTMLElement;
+    await user.click(within(first).getByRole("button", { name: "Answer" }));
+    const field = within(first).getByRole("textbox", { name: "Your own answer" });
+    await user.type(field, "half{Escape}");
+    expect(field).toHaveValue("");
+    expect(screen.getAllByTestId("needs-you-row")).not.toHaveLength(0);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("needs-you-row")).not.toBeInTheDocument();
   });
 
   it("cannot answer a hand-started agent's question here: its terminal is the place", async () => {

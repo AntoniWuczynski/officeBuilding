@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { PlacePanel } from "./PlacePanel";
+import { PlacePanel, StaffContext } from "./PlacePanel";
 import { makeSeedSnapshot } from "../../api/mockData";
 import { questionsForProject, sessionsForProject } from "../../state/selectors";
 
@@ -90,5 +90,16 @@ describe("the place panel", () => {
     expect(screen.getByRole("button", { name: /orders ingest fix/ })).not.toHaveAttribute("data-testid", "place-exile");
     await userEvent.setup().click(screen.getAllByTestId("place-exile")[1]!);
     expect(onExile).toHaveBeenCalledWith(expect.objectContaining({ id: "s-2" }));
+  });
+
+  it("offers no Throw out button on the place's manager or QA reviewer", () => {
+    render(
+      <StaffContext value={new Set(["s-2"])}>
+        <PlacePanel projectId="p-shop" name="corner_shop" noun="floor" enterLabel="Enter floor" sessions={sessions} counts={{ active: 1, total: 3 }} asks={[]} moveTargets={[]} leaving={false} className="office-panel" onRename={vi.fn()} onMove={vi.fn()} onOpenSession={vi.fn()} onEnter={vi.fn()} onExile={vi.fn()} />
+      </StaffContext>,
+    );
+    expect(screen.getAllByTestId("place-exile")).toHaveLength(2);
+    const staffRow = screen.getByRole("button", { name: /orders ingest fix/ }).closest("li");
+    expect(staffRow?.querySelector("[data-testid=place-exile]")).toBeNull();
   });
 });

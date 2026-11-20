@@ -585,12 +585,12 @@ describe("MockApi project rules", () => {
 });
 
 describe("snapshotSchema name source", () => {
-  it("reads a source it does not know as none instead of failing the snapshot", () => {
+  it("refuses a source it does not know: the backend reads an unknown one as none", () => {
     const seed = JSON.parse(JSON.stringify(makeSeedSnapshot()));
     seed.sessions[0].sessionNameSource = "resume";
-    const parsed = snapshotSchema.safeParse(seed);
-    expect(parsed.success).toBe(true);
-    if (parsed.success) expect(parsed.data.sessions[0]?.sessionNameSource).toBeNull();
+    expect(snapshotSchema.safeParse(seed).success).toBe(false);
+    seed.sessions[0].sessionNameSource = null;
+    expect(snapshotSchema.safeParse(seed).success).toBe(true);
   });
 });
 
@@ -601,16 +601,12 @@ describe("assignProject on the mock", () => {
   });
 });
 
-describe("snapshotSchema defaults", () => {
-  it("parses a payload without the project-cluster fields and fills defaults", () => {
+describe("snapshotSchema project-cluster fields", () => {
+  it("refuses a payload without them, since the backend always sends them", () => {
     const { projectRules: _r, harnessId: _h, projectRulesError: _e, ...older } = JSON.parse(JSON.stringify(makeSeedSnapshot()));
-    older.sessions = older.sessions.map(({ sessionName: _n, selfReviewed: _s, ...rest }: Record<string, unknown>) => rest);
-    const parsed = snapshotSchema.safeParse(older);
-    expect(parsed.success).toBe(true);
-    if (!parsed.success) return;
-    expect(parsed.data.projectRules).toEqual([]);
-    expect(parsed.data.harnessId).toBeNull();
-    expect(parsed.data.projectRulesError).toBeNull();
-    expect(parsed.data.sessions[0]).toMatchObject({ sessionName: null, selfReviewed: false });
+    expect(snapshotSchema.safeParse(older).success).toBe(false);
+    const seed = JSON.parse(JSON.stringify(makeSeedSnapshot()));
+    seed.sessions = seed.sessions.map(({ sessionName: _n, selfReviewed: _s, ...rest }: Record<string, unknown>) => rest);
+    expect(snapshotSchema.safeParse(seed).success).toBe(false);
   });
 });

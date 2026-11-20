@@ -416,6 +416,15 @@ export function splitManager(
   return { rest: sessions.filter((s) => s.id !== id), managerSession: sessions.find((s) => s.id === id) };
 }
 
+/** Every place's manager and running QA reviewer: staff, so the place panel offers no way to throw them out. */
+export function staffOf(snapshot: OfficeSnapshot): ReadonlySet<string> {
+  const staff = snapshot.projects.flatMap((p) => {
+    const sessions = sessionsForProject(snapshot, p.id);
+    return [splitManager(sessions, managerFor(snapshot, p.id)).managerSession, splitReviewer(sessions, qaFor(snapshot, p.id)).reviewer];
+  });
+  return new Set(staff.flatMap((s) => (s === undefined ? [] : [s.id])));
+}
+
 /** Why a note waits, to finish the sentence "Waiting: …". */
 export const HOLD_WORDS: Record<NoteHold, string> = {
   busy: "it is busy",

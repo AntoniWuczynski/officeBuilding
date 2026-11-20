@@ -28,11 +28,17 @@
   min-height: 0;
   overflow-y: auto;
 }
-/* An agent's row: its name and state (and what it waits to be asked) opens it; the small Move menu sits beside it. */
+/* An agent's row: its name and state (and what it waits to be asked) opens it. The small Move menu, the project
+   pick and Throw out stack beside it, so the row keeps its width in a narrow panel. */
 .place-panel li {
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
+  align-items: start;
+}
+.place-panel li .place-row {
+  grid-row: 1 / span 3;
+  align-self: stretch;
 }
 .place-row {
   flex: 1;
@@ -149,11 +155,13 @@
   top: -10px;
   left: -10px;
 }
-.place-exile {
-  flex: none;
-  align-self: flex-start;
+/* Two classes, so the shared .btn does not win back its height and type. */
+.place-panel .place-exile {
+  height: auto;
+  justify-content: center;
   padding: 2px 6px;
-  font-size: 12px;
+  border-width: 1px;
+  font: 12px var(--font-ui);
 }
 /* A thrown-out worker flies out the side of the building, then drops. */
 .worker.is-thrown {

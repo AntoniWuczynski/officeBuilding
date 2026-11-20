@@ -3,7 +3,7 @@
 // so every view sees the same floors. Which floor a session sits on is the backend's (`moveSession`), not kept here.
 
 import { useCallback, useState } from "react";
-import { readPref, writePref } from "../lib/prefs";
+import { entriesOf, readJsonPref, writePref } from "../lib/prefs";
 import type { OfficeSnapshot } from "../types";
 
 export interface Overrides {
@@ -12,8 +12,6 @@ export interface Overrides {
   /** Floor id to the shared-board tags you linked to it, besides its own names. */
   readonly tags: Readonly<Record<string, readonly string[]>>;
 }
-
-export const NO_OVERRIDES: Overrides = { names: {}, tags: {} };
 
 const without = <T>(rec: Readonly<Record<string, T>>, key: string): Record<string, T> => Object.fromEntries(Object.entries(rec).filter(([k]) => k !== key));
 
@@ -38,16 +36,11 @@ export function applyOverrides(s: OfficeSnapshot, o: Overrides): OfficeSnapshot 
 
 const KEY = "office-building:overrides";
 
-const rec = (v: unknown): Record<string, string> =>
-  typeof v === "object" && v !== null ? Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string")) : {};
+const rec = (v: unknown): Record<string, string> => entriesOf(v, (x): x is string => typeof x === "string");
 
 function stored(): { names?: unknown; tags?: unknown; moves?: unknown } {
-  try {
-    const parsed: unknown = JSON.parse(readPref(KEY) ?? "null");
-    return typeof parsed === "object" && parsed !== null ? parsed : {};
-  } catch {
-    return {};
-  }
+  const parsed = readJsonPref(KEY);
+  return typeof parsed === "object" && parsed !== null ? parsed : {};
 }
 
 const tagLists = (v: unknown): Record<string, string[]> => {

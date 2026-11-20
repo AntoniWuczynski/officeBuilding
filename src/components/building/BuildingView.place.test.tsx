@@ -96,16 +96,16 @@ describe("Escape closes one thing at a time", () => {
     expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
   });
 
-  it("closes the Needs-you list before the panel under it", async () => {
+  it("puts the panel away when the Needs-you list opens, and the list away when a panel opens", async () => {
     const { storey } = setup();
     const user = userEvent.setup();
     await user.click(within(storey("p-shop")).getByTestId("floor-nameplate"));
     await user.click(screen.getByTestId("needs-you"));
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("region", { name: "Waiting on you" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
-    await user.keyboard("{Escape}");
+    expect(screen.getByRole("region", { name: "Waiting on you" })).toBeInTheDocument();
     expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+    await user.click(within(storey("p-shop")).getByTestId("floor-nameplate"));
+    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Waiting on you" })).not.toBeInTheDocument();
   });
 });
 
@@ -124,20 +124,42 @@ describe("Escape in a dialog or a popover over the panel", () => {
     expect(screen.getByTestId("place-panel")).toBeInTheDocument();
   });
 
-  it("closes the newest of the Boards sheet and the Needs-you list first, then the other, then the panel", async () => {
+  it("keeps one of the Boards sheet, the Needs-you list and the panel open at a time, and Escape closes it", async () => {
     const { storey } = setup();
     const user = userEvent.setup();
     await user.click(within(storey("p-shop")).getByTestId("floor-nameplate"));
     await user.click(screen.getByTestId("boards"));
+    expect(screen.getByRole("region", { name: "Shared boards" })).toBeInTheDocument();
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("needs-you"));
+    expect(screen.getByRole("region", { name: "Waiting on you" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Shared boards" })).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("region", { name: "Waiting on you" })).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Shared boards" })).toBeInTheDocument();
-    await user.keyboard("{Escape}");
+  });
+
+  it("closes an open sheet when Settings opens", async () => {
+    const view = (settingsOpen: boolean): React.ReactElement => (
+      <BuildingView
+        snapshot={makeSeedSnapshot()}
+        onEnter={() => {}}
+        canPickFolder={false}
+        onPickFolder={() => Promise.resolve(null)}
+        onAddFloor={(path) => Promise.resolve({ id: "p-new", name: path, path, sessionIds: [] })}
+        onDemolishFloor={() => Promise.resolve()}
+        loadUsage={() => Promise.resolve([])}
+        onOpenPlate={() => {}}
+        onOpenSession={() => {}}
+        overrideActions={{ renameFloor: () => {}, moveSession: () => {} }}
+        onAnswer={() => Promise.resolve()}
+        onTick={() => {}}
+        settingsOpen={settingsOpen}
+      />
+    );
+    const { rerender } = render(view(false));
+    await userEvent.setup().click(screen.getByTestId("boards"));
+    rerender(view(true));
     expect(screen.queryByRole("region", { name: "Shared boards" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("place-panel")).toBeInTheDocument();
-    await user.keyboard("{Escape}");
-    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
   });
 });
 

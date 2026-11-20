@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import type { SharedBoard } from "../../types";
 import { openCount } from "../../state/selectors";
 import { useNow } from "../../state/useNow";
@@ -11,14 +11,16 @@ interface Props {
   readonly onTick: (todoId: string) => void;
   /** Where the files are chosen; the empty sheet points there. */
   readonly onOpenSettings?: () => void;
+  /** The view keeps it, so only one top-bar sheet is open at a time. */
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
 }
 
 /** A top-bar button, in both views, opening each shared checklist file's items, where they can be ticked. */
-export function BoardsSheet({ boards, onTick, onOpenSettings }: Props): React.ReactElement {
-  const [open, setOpen] = useState(false);
+export function BoardsSheet({ boards, onTick, onOpenSettings, open, onOpenChange: setOpen }: Props): React.ReactElement {
   const now = useNow();
   const waiting = boards.reduce((n, b) => n + openCount(b.items), 0);
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => setOpen(false), [setOpen]);
   useEscapeClose(open, close);
   return (
     <span className="boards-menu">

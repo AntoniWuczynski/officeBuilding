@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -58,5 +58,43 @@ describe("useEscapeClose", () => {
     await user.click(screen.getByRole("button"));
     await user.keyboard("{Escape}");
     expect(close.mock.calls).toEqual([["over"]]);
+  });
+
+  it("gives the focus back to what opened the layer, whether Escape or a button closes it", async () => {
+    function Sheet({ onClose }: { readonly onClose: () => void }): React.ReactElement {
+      useEscapeClose(true, onClose);
+      // As the place panel's heading takes the focus: in an effect once the layer is up.
+      const inside = useRef<HTMLInputElement>(null);
+      useEffect(() => inside.current?.focus(), []);
+      return (
+        <section>
+          <input aria-label="inside" ref={inside} />
+          <button type="button" onClick={onClose}>
+            Close
+          </button>
+        </section>
+      );
+    }
+    function Opener(): React.ReactElement {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          {open ? <Sheet onClose={() => setOpen(false)} /> : null}
+        </>
+      );
+    }
+    render(<Opener />);
+    const user = userEvent.setup();
+    const opener = screen.getByRole("button", { name: "Open" });
+    await user.click(opener);
+    expect(screen.getByLabelText("inside")).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(opener).toHaveFocus();
+    await user.click(opener);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(opener).toHaveFocus();
   });
 });

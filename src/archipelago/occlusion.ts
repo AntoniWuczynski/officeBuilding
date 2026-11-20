@@ -8,8 +8,11 @@ export function isShown(o: THREE.Object3D | null): boolean {
 }
 
 /** The agent a hut belongs to (userData.family), found from any mesh inside it. */
-function familyOf(o: THREE.Object3D | null): unknown {
-  for (let n = o; n !== null; n = n.parent) if (n.userData["family"] !== undefined) return n.userData["family"];
+function familyOf(o: THREE.Object3D | null): string | undefined {
+  for (let n = o; n !== null; n = n.parent) {
+    const family: unknown = n.userData["family"];
+    if (typeof family === "string") return family;
+  }
   return undefined;
 }
 

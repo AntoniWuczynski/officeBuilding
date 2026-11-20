@@ -2,7 +2,7 @@
 // per-viewer choices. Without storage the page still works; the marks then last for this run only.
 
 import { createContext, useCallback, useMemo, useRef, useState } from "react";
-import { readPref, writePref } from "../lib/prefs";
+import { entriesOf, readJsonPref, readPref, writePref } from "../lib/prefs";
 import type { Session, SessionState } from "../types";
 
 const KEY = "office-building:seen";
@@ -30,12 +30,7 @@ function loadSince(): number {
 }
 
 function load(): Seen {
-  try {
-    const parsed: unknown = JSON.parse(readPref(KEY) ?? "null");
-    return typeof parsed === "object" && parsed !== null ? Object.fromEntries(Object.entries(parsed).filter((e): e is [string, number] => typeof e[1] === "number")) : {};
-  } catch {
-    return {};
-  }
+  return entriesOf(readJsonPref(KEY), (x): x is number => typeof x === "number");
 }
 
 export interface SeenState {

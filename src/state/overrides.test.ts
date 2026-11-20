@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { makeDemoSnapshot } from "../api/mockData";
 import { act, renderHook } from "@testing-library/react";
-import { applyOverrides, dropLegacyMoves, legacyMoves, NO_OVERRIDES, useOverrides, withName, withTags } from "./overrides";
+import { applyOverrides, dropLegacyMoves, legacyMoves, type Overrides, useOverrides, withName, withTags } from "./overrides";
+
+const NO_OVERRIDES: Overrides = { names: {}, tags: {} };
 
 const snap = makeDemoSnapshot();
 const [a] = snap.projects;

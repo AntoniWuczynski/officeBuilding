@@ -74,7 +74,7 @@ function specFor(project: Project, x: number, z: number, setupProjectId: string)
  * Fixed slot `i` of a layout whose neighbours sit `step` apart: slot 0 in the middle, then rings of as many slots as
  * fit at that spacing (7, 15, 23 ...), each ring 1.3 steps beyond the last. The slot never depends on what else is there.
  */
-export function ringSlot(i: number, step: number): { x: number; z: number } {
+function ringSlot(i: number, step: number): { x: number; z: number } {
   if (i === 0) return { x: 0, z: 0 };
   let left = i - 1;
   for (let ring = 1; ; ring++) {
@@ -174,7 +174,7 @@ export function agentSlots(spec: IslandSpec, count: number = MAX_SLOTS): Slot[] 
 }
 
 /** Seats in the order they are given out: opposite seats first, so a few agents still spread round the ring (bit-reversed 0..7). */
-export const SEAT_ORDER: readonly number[] = [0, 4, 2, 6, 1, 5, 3, 7];
+const SEAT_ORDER: readonly number[] = [0, 4, 2, 6, 1, 5, 3, 7];
 
 /**
  * A seat on the ring for each agent that has one. An agent already seated keeps its seat; a newcomer takes the first

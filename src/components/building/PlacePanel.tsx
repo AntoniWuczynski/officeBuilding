@@ -1,4 +1,4 @@
-import { createContext, useContext, useId } from "react";
+import { createContext, useContext, useEffect, useId, useRef } from "react";
 import type { Question, Session } from "../../types";
 import { STATE_LABEL, TOOL_LABEL, helpersLine, lastReplyLine, sessionsByUrgency } from "../../state/selectors";
 import { SeenContext } from "../../state/useSeen";
@@ -18,6 +18,12 @@ export const PLACE_PANEL_ID = "place-panel";
 
 /** The sessions being thrown out or kicked into the sea: both views play their leaving, and the panel stops offering them again. */
 export const ExilingContext = createContext<ReadonlySet<string>>(new Set());
+
+/** The managers' and QA reviewers' sessions: the building never ends them from here, so their rows offer no exile. */
+export const StaffContext = createContext<ReadonlySet<string>>(new Set());
+
+/** No panel overlaps a panel: an opening place panel hands over how to close it, and gets back how to forget that. */
+export const PanelOpenedContext = createContext<(close: () => void) => () => void>(() => () => undefined);
 
 /** A place an agent can be moved to. */
 export interface MoveTarget {
@@ -50,7 +56,7 @@ interface Props {
   readonly onMove: (sessionId: string, projectId: string) => void;
   readonly onOpenSession: (session: Session) => void;
   readonly onEnter: (projectId: string) => void;
-  /** Shown as a Throw out / Exile button on each agent's row, when given. */
+  /** Shown as a Throw out / Exile button on each agent's row, when given, except a manager's or QA reviewer's. */
   readonly onExile?: ((session: Session) => void) | undefined;
   /** Shown as a Sink / Demolish button when the place can be removed (not the Setup place). */
   readonly onRemove?: (() => void) | undefined;
@@ -70,7 +76,12 @@ export function PlacePanel({ id, projectId, project, name, noun, enterLabel, ses
   const { clusterOf, tags } = useProjects();
   const home = clusterOf.get(projectId)?.label ?? null;
   const exiling = useContext(ExilingContext);
+  const staff = useContext(StaffContext);
   useEscapeClose(onClose !== undefined, () => onClose?.());
+  const panelOpened = useContext(PanelOpenedContext);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => panelOpened(() => closeRef.current?.()), [panelOpened]);
   return (
     <aside id={id} className={`place-panel ${className}`} data-testid="place-panel" aria-label={`${name} ${noun}`}>
       <h2 ref={headingRef} tabIndex={-1}>
@@ -120,7 +131,7 @@ export function PlacePanel({ id, projectId, project, name, noun, enterLabel, ses
                 </select>
               ) : null}
               {s.sessionName === null ? null : <ProjectPick label={`Project for ${s.title}`} current={tagText(tags.get(s.id)) ?? home} hint={s.sessionName} target={{ kind: "session", key: s.sessionName }} />}
-              {onExile === undefined ? null : (
+              {onExile === undefined || staff.has(s.id) ? null : (
                 <button type="button" className="btn place-exile" data-testid="place-exile" aria-label={exileVerb} aria-describedby={`${uid}-${s.id}`} disabled={exiling.has(s.id)} onClick={() => onExile(s)}>
                   {exileVerb}
                 </button>

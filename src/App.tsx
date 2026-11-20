@@ -127,8 +127,9 @@ export function App({ api }: Props): React.ReactElement {
     setOpenSessionId(id);
   }, []);
 
+  /** `onDocked` runs when a background session attaches in a docked terminal, which only a floor shows. */
   const openSession = useCallback(
-    (session: Session) => {
+    (session: Session, onDocked?: () => void) => {
       markSeen(session.id);
       if (session.control !== "raise-window") {
         showTerminal(session.id);
@@ -139,6 +140,7 @@ export function App({ api }: Props): React.ReactElement {
         .then((docked) => {
           if (docked) {
             attachedIds.current.add(session.id);
+            onDocked?.();
             showTerminal(session.id);
             return undefined;
           }
@@ -468,12 +470,15 @@ export function App({ api }: Props): React.ReactElement {
               onAnswer={answer}
               onTick={tick}
               onOpenSettings={openSettings}
+              settingsOpen={settingsOpen}
               mode={viewMode}
               viewSwitch={<ViewSwitch mode={viewMode} onChange={setViewMode} />}
               onOpenSession={(s) => {
-                // A session in its own terminal window is raised where it is, as clicking its desk does; others open on their floor.
-                if (s.control !== "raise-window") enter(s.projectId, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-                openSession(s);
+                // A session in its own terminal window is raised where it is, as clicking its desk does; others open on their floor,
+                // and so does a background session once it attaches in a docked terminal.
+                const onFloor = (): void => enter(s.projectId, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+                if (s.control !== "raise-window") onFloor();
+                openSession(s, onFloor);
               }}
             />
           </motion.div>

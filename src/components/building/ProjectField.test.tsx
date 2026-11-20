@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PlacePanel } from "./PlacePanel";
-import { NeedsYou } from "./NeedsYou";
+import { OwnNeedsYou } from "./needsYouHarness";
 import { ProjectsContext, type ProjectsValue } from "../../state/ProjectsContext";
 import { similarNames } from "../../state/similarNames";
 import { makeSeedSnapshot } from "../../api/mockData";
@@ -49,6 +49,20 @@ describe("the Project field and pickers", () => {
     expect(v.assignProject).toHaveBeenCalledWith({ kind: "repo", key: "repo-one" }, { id: null, name: "Alphafix" });
   });
 
+  it("drops a half-typed new project on Escape and keeps the field open", async () => {
+    panel(value());
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Project" }), "New project");
+    const field = screen.getByRole("textbox", { name: "New project" });
+    const escape = vi.fn();
+    window.addEventListener("keydown", escape);
+    await user.type(field, "half{Escape}");
+    window.removeEventListener("keydown", escape);
+    expect(field).toHaveValue("");
+    // The panel's own Escape sees it already handled, so it stays up.
+    expect(escape.mock.calls.at(-1)?.[0]).toHaveProperty("defaultPrevented", true);
+  });
+
   it("lists projects with a name like the session's before the others", () => {
     panel(value(), [named("s-1", "alpha-fixing-3")]);
     const options = Array.from(screen.getByRole("combobox", { name: "Project for alpha-fixing-3" }).querySelectorAll("option")).map((o) => o.textContent);
@@ -87,7 +101,7 @@ describe("Needs you, which project", () => {
   const open = async (v: ProjectsValue, snapshot: OfficeSnapshot = { ...base, questions: [] }) => {
     render(
       <ProjectsContext value={v}>
-        <NeedsYou snapshot={snapshot} onOpen={vi.fn()} onAnswer={vi.fn(() => Promise.resolve())} />
+        <OwnNeedsYou snapshot={snapshot} onOpen={vi.fn()} onAnswer={vi.fn(() => Promise.resolve())} />
       </ProjectsContext>,
     );
     await userEvent.setup().click(screen.getByTestId("needs-you"));
@@ -120,7 +134,7 @@ describe("Needs you, which project", () => {
   });
   const view = (v: ProjectsValue) => (
     <ProjectsContext value={v}>
-      <NeedsYou snapshot={{ ...base, questions: [] }} onOpen={vi.fn()} onAnswer={vi.fn(() => Promise.resolve())} />
+      <OwnNeedsYou snapshot={{ ...base, questions: [] }} onOpen={vi.fn()} onAnswer={vi.fn(() => Promise.resolve())} />
     </ProjectsContext>
   );
 

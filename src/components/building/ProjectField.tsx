@@ -3,6 +3,7 @@ import { useProjects } from "../../state/ProjectsContext";
 import type { SessionTag } from "../../state/clusters";
 import { message } from "../../lib/errors";
 import type { ProjectChoice, ProjectTarget } from "../../api/DiscoveryApi";
+import { dropDraftOnEscape } from "./useEscapeClose";
 
 interface Props {
   /** Accessible name of the select, e.g. "Project" or "Project for beta-web". */
@@ -87,7 +88,7 @@ export function ProjectPick({ label, current, target, hint, onAssigned }: Props)
       </select>
       {creating && !disabled ? (
         <span className="place-project-new">
-          <input aria-label="New project" value={text} placeholder="Project name" onChange={(e) => setText(e.target.value)} />
+          <input aria-label="New project" value={text} placeholder="Project name" onChange={(e) => setText(e.target.value)} onKeyDown={dropDraftOnEscape(text, () => setText(""))} />
           {typed === ""
             ? null
             : ranked(typed).filter((c) => similar(typed, names).includes(c.name)).map((c) => (

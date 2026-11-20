@@ -170,15 +170,16 @@ describe.each(MODES)("shared capabilities in the %s view", (mode) => {
   it.each([
     ["needs-you", "Waiting on you"],
     ["boards", "Shared boards"],
-  ])("closes the %s popover on the first Escape and the panel under it on the second", async (button, label) => {
+  ])("puts the panel away when the %s sheet opens, and the sheet away when a panel opens", async (button, label) => {
     setup(mode);
     const user = userEvent.setup();
     await openPanel(mode);
     await user.click(screen.getByTestId(button));
     expect(screen.getByRole("region", { name: label })).toBeInTheDocument();
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("region", { name: label })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
+    await openPanel(mode);
     expect(screen.getByTestId("place-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: label })).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByTestId("place-panel")).not.toBeInTheDocument();
   });
@@ -254,7 +255,8 @@ describe("what the two views offer", () => {
     document.body.innerHTML = "";
     const islands = await inventory("islands");
     expect(office).toEqual(islands);
-    expect(office).toMatchObject({ rename: 1, move: 3, open: 3, enter: 1, needsYou: 1, boards: 1, newCount: 1, newDots: 2, replies: 2, tags: 1, exile: 3, exileNamed: 3 });
+    // The seed's QA reviewer (s-1) sits on the shop and gets no exile button.
+    expect(office).toMatchObject({ rename: 1, move: 3, open: 3, enter: 1, needsYou: 1, boards: 1, newCount: 1, newDots: 2, replies: 2, tags: 1, exile: 2, exileNamed: 2 });
   });
 });
 

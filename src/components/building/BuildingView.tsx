@@ -1,4 +1,4 @@
-import { lazy, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
 import type { OfficeSnapshot, Project, Question, Session, ToolUsage } from "../../types";
@@ -12,6 +12,7 @@ import {
   sessionById,
   sessionCounts,
   sessionsForProject,
+  staffOf,
 } from "../../state/selectors";
 import { BUILDING_CAMERA } from "../../lib/iso";
 import { STOREY, storeyWidth } from "../../lib/layout";
@@ -24,7 +25,7 @@ import { BoardsSheet } from "./BoardsSheet";
 import { DemolishDialog } from "./DemolishDialog";
 import { EditableSign } from "./EditableSign";
 import { NeedsYou } from "./NeedsYou";
-import { ExilingContext, PLACE_PANEL_ID, PlacePanel } from "./PlacePanel";
+import { ExilingContext, PanelOpenedContext, PLACE_PANEL_ID, PlacePanel, StaffContext } from "./PlacePanel";
 import { UsageSigns } from "./UsageSigns";
 import { Building, buildingHeight } from "./Building";
 import type { FloorModel } from "./Storey";
@@ -63,6 +64,8 @@ interface Props {
   readonly onTick: (todoId: string) => void;
   /** Open Settings, where the shared files are chosen. */
   readonly onOpenSettings?: () => void;
+  /** Settings is open: no top-bar sheet stays open under it. */
+  readonly settingsOpen?: boolean;
 }
 
 // The island map pulls in three.js (a 596 kB chunk, 152 kB gzipped): load it only when Islands is chosen.
@@ -78,7 +81,7 @@ const EXILE_MS = 1000;
 const ISLANDS_DEFAULT_NAME = "The Islands";
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, onExileSession, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions, onAnswer, onTick, onOpenSettings }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, onExileSession, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions, onAnswer, onTick, onOpenSettings, settingsOpen = false }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
@@ -90,6 +93,26 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   /** Office: the floor whose place panel is open. Islands keeps its own selection with its camera. */
   const [placeId, setPlaceId] = useState<string | null>(null);
   const panelHeading = useRef<HTMLHeadingElement>(null);
+  /** The open top-bar sheet. No panel overlaps a panel: one sheet at a time, closed by a place panel or Settings opening. */
+  const [sheet, setSheet] = useState<"boards" | "needs-you" | null>(null);
+  if (settingsOpen && sheet !== null) setSheet(null);
+  const closePanel = useRef<(() => void) | undefined>(undefined);
+  const panelOpened = useCallback((close: () => void) => {
+    setSheet(null);
+    closePanel.current = close;
+    return () => {
+      if (closePanel.current === close) closePanel.current = undefined;
+    };
+  }, []);
+  const sheetOpener =
+    (which: "boards" | "needs-you") =>
+    (open: boolean): void => {
+      if (open) {
+        closePanel.current?.();
+        onOpenPlate();
+      }
+      setSheet(open ? which : null);
+    };
   /** How far the left pad must grow so the widest nameplate stands inside the window: a long name or a stamp widens its plate, not the pad. */
   const [plateRoom, setPlateRoom] = useState(0);
 
@@ -208,6 +231,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
 
   return (
     <ExilingContext value={exiling}>
+    <PanelOpenedContext value={panelOpened}>
+    <StaffContext value={staffOf(snapshot)}>
     <div ref={viewRef} className="view building-view">
       <header className="topbar" data-tauri-drag-region>
         <span className="topbar-sign">
@@ -257,8 +282,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
             ))}
           </span>
         ) : null}
-        <BoardsSheet boards={snapshot.sharedBoards} onTick={onTick} {...(onOpenSettings === undefined ? {} : { onOpenSettings })} />
-        <NeedsYou snapshot={snapshot} onOpen={openAsk} onAnswer={onAnswer} />
+        <BoardsSheet boards={snapshot.sharedBoards} onTick={onTick} {...(onOpenSettings === undefined ? {} : { onOpenSettings })} open={sheet === "boards"} onOpenChange={sheetOpener("boards")} />
+        <NeedsYou snapshot={snapshot} onOpen={openAsk} onAnswer={onAnswer} open={sheet === "needs-you"} onOpenChange={sheetOpener("needs-you")} />
       </header>
 
       {floors.length === 0 ? (
@@ -380,6 +405,8 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
         />
       )}
     </div>
+    </StaffContext>
+    </PanelOpenedContext>
     </ExilingContext>
   );
 }

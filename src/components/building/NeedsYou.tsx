@@ -8,7 +8,7 @@ import { message } from "../../lib/errors";
 import { useProjects } from "../../state/ProjectsContext";
 import { WHICH_PROJECT } from "../../state/clusters";
 import { ProjectPick } from "./ProjectField";
-import { useEscapeClose } from "./useEscapeClose";
+import { dropDraftOnEscape, useEscapeClose } from "./useEscapeClose";
 import "./needs-you.css";
 
 interface Props {
@@ -16,6 +16,9 @@ interface Props {
   /** Go to what is asking: its session's terminal, or the floor whose decisions file holds the call. */
   readonly onOpen: (question: Question) => void;
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
+  /** The view keeps it, so only one top-bar sheet is open at a time. */
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
 }
 
 /** "orders ingest fix, asked 2 h ago" or "From FOUNDER_DECISIONS.md, asked 2 h ago". */
@@ -61,7 +64,7 @@ function Row({ snapshot, q, now, onOpen, onAnswer }: { readonly snapshot: Office
                 if (other.trim() !== "") send({ kind: "other", text: other });
               }}
             >
-              <input aria-label="Your own answer" value={other} placeholder="Type your own answer" onChange={(e) => setOther(e.target.value)} />
+              <input aria-label="Your own answer" value={other} placeholder="Type your own answer" onChange={(e) => setOther(e.target.value)} onKeyDown={dropDraftOnEscape(other, () => setOther(""))} />
               <button type="submit" className="btn" disabled={other.trim() === ""}>
                 Send
               </button>
@@ -90,8 +93,7 @@ function WhichProject({ name, onAssigned }: { readonly name: string; readonly on
 }
 
 /** A top-bar button, in both views, opening what is waiting on you across the whole map: agents' asks first, then repo decisions-file calls. */
-export function NeedsYou({ snapshot, onOpen, onAnswer }: Props): React.ReactElement {
-  const [open, setOpen] = useState(false);
+export function NeedsYou({ snapshot, onOpen, onAnswer, open, onOpenChange: setOpen }: Props): React.ReactElement {
   const now = useNow();
   const queue = needsYouQueue(snapshot);
   const { unplaced } = useProjects();
@@ -102,7 +104,7 @@ export function NeedsYou({ snapshot, onOpen, onAnswer }: Props): React.ReactElem
   if ([...answered].some((n) => !listed.includes(n))) setAnswered(new Set([...answered].filter((n) => listed.includes(n))));
   const names = listed.filter((n) => !answered.has(n));
   const total = queue.length + names.length;
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => setOpen(false), [setOpen]);
   useEscapeClose(open, close);
   return (
     <span className="needs-you-menu">
