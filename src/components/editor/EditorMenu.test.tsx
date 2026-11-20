@@ -75,3 +75,22 @@ describe("EditorMenu", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+describe("EditorMenu extra line", () => {
+  it("draws one more menu item after the editors and calls its handler", () => {
+    const onPick = vi.fn();
+    const onExtra = vi.fn();
+    render(<EditorMenu at={{ x: 10, y: 10 }} caption={null} items={items} onPick={onPick} onClose={() => {}} extra={{ label: "Take over with a new session", onPick: onExtra }} />);
+    const lines = screen.getAllByRole("menuitem");
+    expect(lines).toHaveLength(4);
+    expect(lines[3]).toBe(screen.getByTestId("menu-extra"));
+    expect(lines[3]).toHaveTextContent("Take over with a new session");
+    fireEvent.click(lines[3] ?? document.body);
+    expect(onExtra).toHaveBeenCalledOnce();
+    expect(onPick).not.toHaveBeenCalled();
+  });
+  it("has none without one", () => {
+    show();
+    expect(screen.queryByTestId("menu-extra")).not.toBeInTheDocument();
+  });
+});

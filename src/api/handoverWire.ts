@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BackgroundTask, DeskHandover, DeskHandoverState, DeskWork, HandoverSettings, HandoverView, OfferWhy, StartWith, UsedUpView } from "../types";
+import type { BackgroundTask, DeskHandover, DeskHandoverState, DeskWork, HandoverSettings, HandoverView, OfferWhy, StartWith, TakeOver, UsedUpView } from "../types";
 
 // The handover half of the wire schemas, kept apart from wire.ts. Same rule: `satisfies` proves they match types.ts.
 
@@ -55,9 +55,19 @@ const usedUp = z.object({
   seenAt: time,
 }) satisfies z.ZodType<UsedUpView>;
 
+const takeOver = z.object({
+  id: z.string(),
+  fromSession: z.string(),
+  from: handoverTool,
+  to: handoverTool,
+  toSession: z.string().nullable(),
+  at: time,
+}) satisfies z.ZodType<TakeOver>;
+
 export const handoverViewSchema = z.object({
   usedUp: z.array(usedUp),
   desks: z.array(deskHandover),
+  takeOvers: z.array(takeOver),
 }) satisfies z.ZodType<HandoverView>;
 
 const startWith = z.discriminatedUnion("kind", [

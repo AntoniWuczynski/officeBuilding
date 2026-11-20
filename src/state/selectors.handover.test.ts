@@ -11,3 +11,12 @@ describe("handoverFor", () => {
     expect(handoverFor(snapshot, "s-2")).toBeUndefined();
   });
 });
+
+describe("the take-overs of the handover view", () => {
+  it("start empty and ride along with the desks", () => {
+    expect(makeHandoverView().takeOvers).toEqual([]);
+    const snapshot = { ...makeSeedSnapshot(), handover: { ...makeHandoverView(), takeOvers: [{ id: "h-1", fromSession: "s-1", from: "claude-code", to: "codex", toSession: null, at: 1 }] as const } };
+    expect(snapshot.handover.takeOvers).toHaveLength(1);
+    expect(handoverFor(snapshot, "s-1")).toBeUndefined();
+  });
+});

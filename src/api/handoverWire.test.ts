@@ -19,18 +19,19 @@ const STATES: readonly unknown[] = [
 
 describe("handoverViewSchema", () => {
   it("accepts a payload of every state", () => {
-    const view = { usedUp: [{ tool: "claude-code", window: "five-hour", resetAt: null, seenAt: 3 }], desks: STATES.map((state, i) => ({ sessionId: `s${i}`, state })) };
+    const view = { usedUp: [{ tool: "claude-code", window: "five-hour", resetAt: null, seenAt: 3 }], takeOvers: [{ id: "h-1", fromSession: "a", from: "claude-code", to: "codex", toSession: null, at: 4 }, { id: "h-2", fromSession: "a", from: "codex", to: "codex", toSession: "b", at: 5 }], desks: STATES.map((state, i) => ({ sessionId: `s${i}`, state })) };
     expect(parseWire(handoverViewSchema, "handover", view)).toEqual(view);
-    expect(parseWire(handoverViewSchema, "handover", { usedUp: [], desks: [] })).toEqual({ usedUp: [], desks: [] });
+    expect(parseWire(handoverViewSchema, "handover", { usedUp: [], takeOvers: [], desks: [] })).toEqual({ usedUp: [], takeOvers: [], desks: [] });
   });
   it("refuses an unknown task kind", () => {
     const state = { kind: "offered", to: "codex", why: { kind: "work-running" }, work: { kind: "running", tasks: [{ kind: "chore", name: null }] }, window: null, resetAt: null };
-    expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], desks: [{ sessionId: "s", state }] })).toThrow(/kind/);
+    expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], takeOvers: [], desks: [{ sessionId: "s", state }] })).toThrow(/kind/);
   });
   it("refuses an unknown kind and a missing field", () => {
-    expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], desks: [{ sessionId: "s", state: { kind: "gone", to: "codex" } }] })).toThrow(/unexpected handover/);
-    expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], desks: [{ sessionId: "s", state: { kind: "left", to: "codex" } }] })).toThrow(/at/);
+    expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], takeOvers: [], desks: [{ sessionId: "s", state: { kind: "gone", to: "codex" } }] })).toThrow(/unexpected handover/);
+    expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], takeOvers: [], desks: [{ sessionId: "s", state: { kind: "left", to: "codex" } }] })).toThrow(/at/);
     expect(() => parseWire(handoverViewSchema, "handover", { desks: [] })).toThrow(/usedUp/);
+    expect(() => parseWire(handoverViewSchema, "handover", { usedUp: [], desks: [] })).toThrow(/takeOvers/);
   });
 });
 

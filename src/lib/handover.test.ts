@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { BackgroundTask, BlockWhy, DeskHandoverState, DeskWork, LimitWindow, OfferWhy } from "../types";
+import type { BackgroundTask, BlockWhy, DeskHandoverState, DeskWork, LimitWindow, OfferWhy, Session, TakeOver } from "../types";
+import { makeSeedSnapshot } from "../api/mockData";
+import { clock } from "./route";
 import {
   blockSentence,
+  canTakeOver,
   cardLine,
   confirmSentence,
   endsSentence,
@@ -11,6 +14,8 @@ import {
   signOutLine,
   stripLine,
   tagWord,
+  takeOverConfirm,
+  takeOverLines,
   usedUpSentence,
   windowWords,
 } from "./handover";
@@ -175,5 +180,49 @@ describe("stripLine, tagWord, cardLine and signOutLine", () => {
     expect(tagWord(state)).toBe(tag);
     expect(cardLine(state, NOW)).toBe(card);
     expect(signOutLine(state)).toBe(signOut);
+  });
+});
+
+describe("take-over words", () => {
+  const base = makeSeedSnapshot().sessions[0];
+  if (base === undefined) throw new Error("seed has no session");
+  const session = (tool: Session["tool"], control: Session["control"]): Session => ({ ...base, tool, control });
+  it("allows Claude Code and Codex unless the desk is structured", () => {
+    const cases: readonly [Session["tool"], Session["control"], boolean][] = [
+      ["claude-code", "full", true],
+      ["claude-code", "read-only", true],
+      ["claude-code", "raise-window", true],
+      ["codex", "full", true],
+      ["codex", "structured", false],
+      ["claude-code", "structured", false],
+      ["opencode", "full", false],
+      ["cursor", "full", false],
+      ["antigravity", "full", false],
+    ];
+    for (const [tool, control, expected] of cases) expect(canTakeOver(session(tool, control)), `${tool} ${control}`).toBe(expected);
+  });
+
+  const AT = at(13, 9, 5);
+  const t = (id: string, fromSession: string, toSession: string | null, when: number): TakeOver => ({ id, fromSession, from: "claude-code", to: "codex", toSession, at: when });
+  it("says nothing for a desk that is neither side", () => {
+    expect(takeOverLines([t("h-1", "aaaa", "bbbb", AT)], "cccc")).toEqual([]);
+  });
+  it("speaks as the old session", () => {
+    expect(takeOverLines([t("h-1", "aaaa", "bbbb", AT)], "aaaa")).toEqual([`A new Codex session took over from this one at ${clock(AT)}. This session was not ended, so close it yourself when you want it to stop.`]);
+  });
+  it("speaks as the new session, with the first 8 characters of the old id", () => {
+    expect(takeOverLines([t("h-1", "0123456789abcdef", "bbbb", AT)], "bbbb")).toEqual([`Took over from the Claude Code session 01234567 at ${clock(AT)}. That session was not ended.`]);
+  });
+  it("speaks both ways, the old one first, and takes the newest of several", () => {
+    const lines = takeOverLines([t("h-1", "x", "m", AT), t("h-3", "m", "n", AT + 120), t("h-2", "m", "o", AT + 60), t("h-0", "y", "m", AT - 60)], "m");
+    expect(lines).toEqual([
+      `A new Codex session took over from this one at ${clock(AT + 120)}. This session was not ended, so close it yourself when you want it to stop.`,
+      `Took over from the Claude Code session x at ${clock(AT)}. That session was not ended.`,
+    ]);
+  });
+  it("tells where the conversation goes", () => {
+    expect(takeOverConfirm(null)).toContain("so they go to the provider of the tool you choose. The old session keeps running in the same folder until you close it, so two agents may change the same files.");
+    expect(takeOverConfirm("claude-code")).toContain("so they go to Claude Code's provider.");
+    expect(takeOverConfirm("codex")).toContain("so they go to Codex's provider.");
   });
 });

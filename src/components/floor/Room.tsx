@@ -1,9 +1,9 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
-import type { AgentMessage, DeskHandover, EditorList, Helper, ManagerFloor, Place, QaFloor, Session } from "../../types";
+import type { AgentMessage, DeskHandover, EditorList, Helper, ManagerFloor, Place, QaFloor, Session, TakeOver } from "../../types";
 import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, handoverOf, helpersLine, notesFor, plural, sessionMatches, tripTag } from "../../state/selectors";
 import { useNewMessages } from "../../state/useNewMessages";
-import { cardLine, tagWord } from "../../lib/handover";
+import { cardLine, tagWord, takeOverLines } from "../../lib/handover";
 import { poseForState } from "../../lib/animation";
 import { headsLeft } from "../../lib/iso";
 import type { PlanPoint } from "../../lib/iso";
@@ -68,6 +68,11 @@ interface RoomProps {
   readonly messages: readonly AgentMessage[];
   /** What each desk's handover has to say. */
   readonly handovers: readonly DeskHandover[];
+  /** The take-overs on this floor's snapshot. */
+  readonly takeOvers?: readonly TakeOver[];
+  /** Whether a desk may be taken over, and what asking for it does: both, or the menu has no such line. */
+  readonly mayTakeOver?: (session: Session) => boolean;
+  readonly onTakeOver?: (session: Session) => void;
   readonly objects: RoomObjectsModel;
   readonly hiring: boolean;
   readonly onOpenSession: (session: Session) => void;
@@ -83,6 +88,8 @@ interface MenuState {
   readonly caption: string;
   readonly x: number;
   readonly y: number;
+  /** The desk the menu belongs to, for a worker's menu. */
+  readonly desk?: Session;
 }
 
 /** Where a menu raised by `e` goes: the pointer, or the middle of the button when a keyboard raised it (0, 0). */
@@ -137,7 +144,7 @@ const ACTION_WORDS: Record<Session["control"], string> = {
 };
 
 /** The open-plan floor: one desk per session, the hire desk, and the manager's objects. */
-export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, handovers, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire, look = "office" }: RoomProps): React.ReactElement {
+export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, handovers, takeOvers = [], mayTakeOver, onTakeOver, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire, look = "office" }: RoomProps): React.ReactElement {
   const reduced = useReducedMotion() ?? false;
   const placements = useMemo<readonly Placement[]>(
     () => [...sessions.map((session, i) => ({ session, desk: roomDeskSlot(i) })), ...(reviewer === undefined ? [] : [{ session: reviewer, desk: qaDeskSlot(depth) }])],
@@ -158,11 +165,16 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
   const hideCard = (): void => setCard(null);
   const editors = useContext(EditorContext);
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const openMenu = (e: React.MouseEvent<HTMLElement>, place: Place, what: string, at: { readonly worktree: boolean; readonly branch: string | null }): void => {
+  const openMenu = (e: React.MouseEvent<HTMLElement>, place: Place, what: string, at: { readonly worktree: boolean; readonly branch: string | null }, desk?: Session): void => {
     e.preventDefault();
     setCard(null);
-    setMenu({ place, what, caption: `Opens ${checkoutLine(at)}`, ...menuPoint(e) });
+    setMenu({ place, what, caption: `Opens ${checkoutLine(at)}`, ...menuPoint(e), ...(desk === undefined ? {} : { desk }) });
   };
+  const menuDesk = menu?.desk;
+  const menuExtra =
+    menuDesk !== undefined && onTakeOver !== undefined && mayTakeOver?.(menuDesk) === true
+      ? { label: "Take over with a new session", onPick: () => { setMenu(null); onTakeOver(menuDesk); } }
+      : undefined;
   const carded = card === null ? undefined : placements.find(({ session }) => session.id === card.sessionId)?.session;
 
   useEffect(() => {
@@ -278,7 +290,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
                   aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), (handed === undefined ? null : cardLine(handed.state, now)), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null, managed.has(s.id) ? "managed by the floor's manager" : null, waiting.length === 0 ? null : `${plural(waiting.length, "note", "notes")} from the manager waiting`].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
                   aria-keyshortcuts={editors === null ? undefined : "Meta+Shift+O"}
                   onClick={() => onOpenSession(s)}
-                  onContextMenu={editors === null ? undefined : (e) => openMenu(e, { kind: "session", sessionId: s.id }, `\u201c${s.title}\u201d`, s)}
+                  onContextMenu={editors === null ? undefined : (e) => openMenu(e, { kind: "session", sessionId: s.id }, `\u201c${s.title}\u201d`, s, s)}
                   onMouseEnter={(e) => showCard(s.id, e.currentTarget)}
                   onMouseLeave={hideCard}
                   onFocus={(e) => showCard(s.id, e.currentTarget)}
@@ -332,6 +344,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
           editorHint={editors === null ? null : editorHint(editors.list)}
           managed={managed.has(carded.id)}
           handover={handoverOf(handovers, carded.id)?.state}
+          takeOver={takeOverLines(takeOvers, carded.id)[0]}
           waiting={notesFor(manager, carded.id)}
         />
       )}
@@ -346,6 +359,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
             setMenu(null);
           }}
           onClose={() => setMenu(null)}
+          {...(menuExtra === undefined ? {} : { extra: menuExtra })}
         />
       )}
 

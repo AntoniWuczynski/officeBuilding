@@ -11,6 +11,8 @@ interface Props {
   readonly items: readonly EditorMenuItem[];
   readonly onPick: (editor: Editor | null) => void;
   readonly onClose: () => void;
+  /** One more line after the editors, or none. */
+  readonly extra?: { readonly label: string; readonly onPick: () => void };
   /** A press inside this element does not count as outside (the chevron that toggles it). */
   readonly anchor?: HTMLElement | null;
 }
@@ -18,7 +20,7 @@ interface Props {
 const MARGIN = 8;
 
 /** A small paper menu of editors, drawn outside the 3D scene (WebKit would slice it with the walls). */
-export function EditorMenu({ at, caption, items, onPick, onClose, anchor = null }: Props): React.ReactElement {
+export function EditorMenu({ at, caption, items, onPick, onClose, extra, anchor = null }: Props): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState(at);
 
@@ -77,6 +79,11 @@ export function EditorMenu({ at, caption, items, onPick, onClose, anchor = null 
           {item.label}
         </button>
       ))}
+      {extra === undefined ? null : (
+        <button type="button" role="menuitem" data-testid="menu-extra" onClick={extra.onPick}>
+          {extra.label}
+        </button>
+      )}
     </div>,
     document.body,
   );

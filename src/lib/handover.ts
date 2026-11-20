@@ -1,4 +1,4 @@
-import type { BackgroundTask, BackgroundTaskKind, BlockWhy, DeskHandoverState, DeskWork, HandoverTool, LimitWindow, OfferWhy } from "../types";
+import type { BackgroundTask, BackgroundTaskKind, BlockWhy, DeskHandoverState, DeskWork, HandoverTool, LimitWindow, OfferWhy, Session, TakeOver } from "../types";
 import { plural, TOOL_LABEL } from "../state/selectors";
 import { clock } from "./route";
 
@@ -170,4 +170,24 @@ export function signOutLine(state: DeskHandoverState): string | null {
     case "arrived":
       return null;
   }
+}
+
+/** A session the take-over button may start beside: Claude Code or Codex, and not a desk the app drives over a protocol. */
+export function canTakeOver(session: Session): boolean {
+  return (session.tool === "claude-code" || session.tool === "codex") && session.control !== "structured";
+}
+
+/** What the desk's take-overs have to say: as the old session, then as the new one. The newest of each. */
+export function takeOverLines(takeOvers: readonly TakeOver[], sessionId: string): readonly string[] {
+  const asOld = takeOvers.find((t) => t.fromSession === sessionId) ?? null;
+  const asNew = takeOvers.find((t) => t.toSession === sessionId) ?? null;
+  return [
+    ...(asOld === null ? [] : [`A new ${TOOL_LABEL[asOld.to]} session took over from this one at ${clock(asOld.at)}. This session was not ended, so close it yourself when you want it to stop.`]),
+    ...(asNew === null ? [] : [`Took over from the ${TOOL_LABEL[asNew.from]} session ${asNew.fromSession.slice(0, 8)} at ${clock(asNew.at)}. That session was not ended.`]),
+  ];
+}
+
+export function takeOverConfirm(to: HandoverTool | null): string {
+  const who = to === null ? "the provider of the tool you choose" : `${TOOL_LABEL[to]}'s provider`;
+  return `The visible conversation of this session, with tool output cut short, and the state of its folder are written to a brief for the new session, so they go to ${who}. The old session keeps running in the same folder until you close it, so two agents may change the same files.`;
 }

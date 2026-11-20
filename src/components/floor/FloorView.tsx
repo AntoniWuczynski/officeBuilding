@@ -30,6 +30,8 @@ import type { FloorLook } from "../../scene/Desk";
 import { beachSidePad } from "../../scene/Camp";
 import { LiftIcon } from "../icons";
 import { BoardsContext } from "../building/BoardsContext";
+import { HandoverContext } from "../handover/HandoverContext";
+import { canTakeOver } from "../../lib/handover";
 import { HireDialog } from "./HireDialog";
 import { Rail } from "./Rail";
 import { Room } from "./Room";
@@ -78,6 +80,9 @@ export function FloorView(props: Props): React.ReactElement {
   const section = (props.section === "setup" && !setupFloor) || (props.section === "manager" && setupFloor) ? null : props.section;
   const [query, setQuery] = useState("");
   const [hireOpen, setHireOpen] = useState(false);
+  // The desk whose take-over sheet is open. Only one of the two sheets is ever open.
+  const [takingOver, setTakingOver] = useState<Session | null>(null);
+  const handover = useContext(HandoverContext);
 
   const sessions = sessionsForProject(snapshot, project.id);
   const counts = sessionCounts(sessions);
@@ -99,6 +104,12 @@ export function FloorView(props: Props): React.ReactElement {
   const look = props.look ?? "office";
   // On an island the whole beach fits beside the room.
   const side = look === "island" ? Math.max(24, beachSidePad(FLOOR_CAMERA, ROOM.width, depth)) : 24;
+  const mayTakeOver = (s: Session): boolean => handover !== null && canTakeOver(s) && s.id !== managerSession?.id && s.id !== reviewer?.id;
+  const askTakeOver = (s: Session): void => {
+    onOpenPlate();
+    setHireOpen(false);
+    setTakingOver(s);
+  };
   const openSession = sessions.find((s) => s.id === openSessionId);
   const shells = snapshot.shells.filter((s) => s.projectId === project.id);
   const openShell = shells.find((s) => s.id === openSessionId);
@@ -181,6 +192,9 @@ export function FloorView(props: Props): React.ReactElement {
               now={now}
               messages={snapshot.messages}
               handovers={snapshot.handover.desks}
+              takeOvers={snapshot.handover.takeOvers}
+              mayTakeOver={mayTakeOver}
+              onTakeOver={askTakeOver}
               objects={objects}
               hiring={hireOpen}
               onOpenSession={onOpenSession}
@@ -189,6 +203,7 @@ export function FloorView(props: Props): React.ReactElement {
               look={look}
               onHire={() => {
                 onOpenPlate();
+                setTakingOver(null);
                 setHireOpen(true);
               }}
             />
@@ -203,6 +218,15 @@ export function FloorView(props: Props): React.ReactElement {
             />
           ) : null}
 
+          {takingOver !== null && handover !== null ? (
+            <HireDialog
+              takeOver={{ title: takingOver.title }}
+              loadOptions={loadHireOptions}
+              onCancel={() => setTakingOver(null)}
+              onTakeOver={(start) => handover.takeOver(takingOver.id, start).then(() => setTakingOver(null))}
+            />
+          ) : null}
+
           <AnimatePresence>
             {openSession !== undefined ? (
               <TerminalPanel
@@ -212,6 +236,8 @@ export function FloorView(props: Props): React.ReactElement {
                 chat={snapshot.chatDesks.includes(openSession.id)}
                 queued={queuedFor(snapshot, openSession.id)}
                 handover={handoverFor(snapshot, openSession.id)}
+                takeOvers={snapshot.handover.takeOvers}
+                onTakeOver={mayTakeOver(openSession) ? () => askTakeOver(openSession) : undefined}
                 onClose={onCloseTerminal}
               />
             ) : openShell !== undefined ? (

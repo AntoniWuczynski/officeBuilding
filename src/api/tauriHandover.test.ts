@@ -20,6 +20,13 @@ describe("TauriHandover", () => {
     await new TauriHandover().handOverDesk("s-1");
     expect(invoke).toHaveBeenCalledWith("hand_over_desk", { sessionId: "s-1" });
   });
+  it("sends the session id and the start for a take-over, and passes a rejection on", async () => {
+    const start = { tool: "codex", model: "m", effort: "high" } as const;
+    await new TauriHandover().takeOver("s-1", start);
+    expect(invoke).toHaveBeenCalledWith("take_over_desk", { sessionId: "s-1", start });
+    invoke.mockRejectedValueOnce("that session is no longer at a desk");
+    await expect(new TauriHandover().takeOver("s-1", start)).rejects.toThrow(/no longer at a desk/);
+  });
   it("passes a rejection on", async () => {
     invoke.mockRejectedValueOnce("Codex was not found");
     await expect(new TauriHandover().handOverDesk("s-1")).rejects.toThrow(/Codex was not found/);
