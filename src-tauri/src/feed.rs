@@ -28,6 +28,22 @@ const STALE: Duration = Duration::from_mins(30);
 const ASKED_MAX: usize = 300;
 /// The most background-work signals held until they are taken.
 const SIGNALS_MAX: usize = 2000;
+/// A session start counts as idle only once it is this old, and gives way to a real event
+/// dropped up to this long before it: the order of the two files is not promised.
+const START_SETTLE: Duration = Duration::from_secs(10);
+/// The `SessionStart` sources after which the session sits at its prompt (docs `hooks`, the
+/// section on its input). `compact` comes in the middle of a turn and `fork` says nothing.
+const STARTS_AT_PROMPT: [&str; 3] = ["startup", "resume", "clear"];
+/// Claude Code's notification types that do not say the session waits on a person (docs
+/// `hooks`, "Notification", read 2026-11-20).
+const NOT_WAITING: [&str; 6] = [
+    "auth_success",
+    "auth_storage_failure",
+    "elicitation_complete",
+    "elicitation_response",
+    "agent_completed",
+    "plugin_notification",
+];
 
 /// The events each tool's feed hooks report. Codex has no `Notification` hook;
 /// its `PermissionRequest` fires just before an approval prompt (docs, checked 2026-10-09).
@@ -68,12 +84,44 @@ struct Payload {
     /// A notification's text, such as "Claude needs your permission".
     #[serde(default)]
     message: Option<String>,
+    /// Why a `SessionStart` fired: `startup`, `resume`, `clear`, `compact` or `fork`.
+    #[serde(default)]
+    source: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Seen {
     state: SessionState,
     at: SystemTime,
+    /// A start mark: `SessionStart` said the session came up at its prompt.
+    start: bool,
+}
+
+/// Whether `new` takes the place of `old` as a session's newest event.
+fn replaces(old: Seen, new: Seen) -> bool {
+    // `a` minus `b`, zero when `a` is the earlier one.
+    let gap = |a: SystemTime, b: SystemTime| a.duration_since(b).unwrap_or_default();
+    match (old.start, new.start) {
+        // A mark never displaces anything from the last ten seconds.
+        (_, true) => gap(new.at, old.at) >= START_SETTLE,
+        // A real event displaces a mark unless it is more than ten seconds older.
+        (true, false) => gap(old.at, new.at) <= START_SETTLE,
+        (false, false) => old.at <= new.at,
+    }
+}
+
+/// The start mark an event at `at` makes: a `SessionStart` that left the session at its prompt.
+fn start_mark(event: HookEvent, payload: &Payload, at: SystemTime) -> Option<Seen> {
+    (event == HookEvent::SessionStart
+        && payload
+            .source
+            .as_deref()
+            .is_some_and(|s| STARTS_AT_PROMPT.contains(&s)))
+    .then_some(Seen {
+        state: SessionState::Idle,
+        at,
+        start: true,
+    })
 }
 
 pub struct Feed {
@@ -108,6 +156,9 @@ fn state_of(event: HookEvent, payload: &Payload) -> Option<SessionState> {
         }
         HookEvent::Notification if notification == Some("quota_auto_resume_fired") => {
             SessionState::Thinking
+        }
+        HookEvent::Notification if notification.is_some_and(|n| NOT_WAITING.contains(&n)) => {
+            return None;
         }
         HookEvent::Notification | HookEvent::PermissionRequest => SessionState::WaitingHuman,
         HookEvent::Stop => SessionState::Idle,
@@ -163,8 +214,15 @@ impl Feed {
                     {
                         self.signals.push(signal);
                     }
-                    if let Some(state) = state_of(event, &payload) {
-                        self.note_state(event, Seen { state, at }, payload);
+                    let seen = state_of(event, &payload)
+                        .map(|state| Seen {
+                            state,
+                            at,
+                            start: false,
+                        })
+                        .or_else(|| start_mark(event, &payload, at));
+                    if let Some(seen) = seen {
+                        self.note_state(event, seen, payload);
                     }
                 }
                 (Some(_), None) if age < WRITE_GRACE => continue,
@@ -192,13 +250,15 @@ impl Feed {
 
     /// Let an event set its session's state where it is the newest one.
     fn note_state(&mut self, event: HookEvent, seen: Seen, payload: Payload) {
-        let at = seen.at;
         let newest = self
             .last
             .get(&payload.session_id)
-            .is_none_or(|old| old.at <= at);
+            .is_none_or(|old| replaces(*old, seen));
         for map in [&mut self.latest, &mut self.last] {
-            if map.get(&payload.session_id).is_none_or(|old| old.at <= at) {
+            if map
+                .get(&payload.session_id)
+                .is_none_or(|old| replaces(*old, seen))
+            {
                 map.insert(payload.session_id.clone(), seen);
             }
         }
@@ -238,6 +298,15 @@ impl Feed {
         self.last.get(session_id).map(|seen| (seen.state, seen.at))
     }
 
+    /// The session's newest event is a start mark less than `START_SETTLE` old.
+    #[must_use]
+    pub fn settling(&self, session_id: &str, now: SystemTime) -> bool {
+        self.last.get(session_id).is_some_and(|seen| {
+            // A mark in the future is not old.
+            seen.start && !now.duration_since(seen.at).is_ok_and(|d| d >= START_SETTLE)
+        })
+    }
+
     /// Let each session's newest event set its state when it is newer than the
     /// session's own last activity.
     pub fn apply(&self, sessions: &mut [Session]) {
@@ -254,6 +323,9 @@ impl Feed {
         }
     }
 }
+
+#[cfg(test)]
+mod start_tests;
 
 #[cfg(test)]
 mod tests {
@@ -488,6 +560,7 @@ mod tests {
             session_id: "s1".into(),
             notification_type: notification.map(String::from),
             message: None,
+            source: None,
         };
         let rows: [(HookEvent, Option<&str>, Option<SessionState>); 13] = [
             (
@@ -573,7 +646,9 @@ mod tests {
             r#"{"session_id":"s2","source":"startup"}"#,
         );
         feed.collect(SystemTime::now());
-        assert!(!feed.reports("s2") && feed.seen("s2").is_none());
+        // A start alone is a start mark now (stage M1, rule A2): idle, and settling at first.
+        assert_eq!(feed.seen("s2").map(|(s, _)| s), Some(SessionState::Idle));
+        assert!(feed.settling("s2", SystemTime::now()));
         assert_eq!(feed.take_signals().len(), 3);
     }
 

@@ -4,10 +4,11 @@
 use super::deliver::NewNote;
 use super::manager_tools::{floor_desk, json};
 use super::{Inner, Office, now_iso};
-use crate::delivery::gate::Hold;
+use crate::delivery::gate::{Hold, Route};
 use crate::delivery::text::{self, MESSAGE_MAX};
 use crate::manager::tools::SendToDesk;
 use crate::manager::wire::{LOG_KEPT, LOG_TEXT_MAX, LogEntry, LogEvent, NoteState};
+use crate::model::ToolKind;
 use crate::project_files::truncate;
 use serde::Serialize;
 
@@ -19,13 +20,55 @@ pub(super) const NO_SEAT: &str = "your floor has no manager seat";
 
 const TOOL: &str = "send_to_desk";
 
+const ON_ITS_WAY: &str = "The building is handing it over now. list_desks shows what became of it.";
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Sent {
+    /// "typed", "sent", "on-its-way" or "waiting".
     outcome: &'static str,
     note_id: String,
-    /// None: it has been handed over.
-    held: Option<Hold>,
+    /// The desk's session id now.
+    desk: String,
+    /// Set only when `outcome` is "waiting".
+    waiting_for: Option<Hold>,
+    /// One sentence: what happened, or why it waits and what ends the wait.
+    detail: &'static str,
+}
+
+/// Why a note waits for a desk of `tool`, in one sentence for the manager.
+pub(super) fn hold_sentence(hold: Hold, tool: ToolKind) -> &'static str {
+    match hold {
+        Hold::Busy => "It is working. The note is typed when it next goes idle.",
+        Hold::WaitingOnYou => {
+            "It has a permission prompt or a question open that only the human can answer. The note is typed after the human has answered."
+        }
+        Hold::Stuck => {
+            "It stopped on an error. The note waits until the human gets it going again."
+        }
+        Hold::Finished => "Its agent has ended, so the note cannot be typed.",
+        Hold::YouTyped => {
+            "The human typed in its terminal in the last minute or left a line there unsent. The note waits until they press Enter or Ctrl-C there."
+        }
+        Hold::AwaitingTurn => {
+            "Your last note to it was typed and it has not started on it yet. This one follows it."
+        }
+        Hold::HandStarted => {
+            "It was started outside the building, so nothing is typed into it. The human sees the note at the desk."
+        }
+        Hold::NoIdleSignal => match tool {
+            ToolKind::Codex => {
+                "Codex has not run the building's hooks, so the building cannot tell when it is idle. The human has to type /hooks in its terminal and trust them once."
+            }
+            ToolKind::ClaudeCode => {
+                "Claude Code has not run the building's hooks yet, so the building cannot tell when it is idle. If that stays, the human should check that hooks are not switched off."
+            }
+            _ => {
+                "Its tool does not tell the building when it is idle, so nothing is typed into it."
+            }
+        },
+        Hold::Paused => "You are paused, so nothing is typed until the human resumes you.",
+    }
 }
 
 /// `text` cut to what a log entry keeps.
@@ -62,6 +105,17 @@ pub(super) fn log_event(inner: &mut Inner, floor: &str, event: LogEvent) {
         LogEvent::Refused { tool, reason } => LogEvent::Refused {
             tool,
             reason: kept(&reason),
+        },
+        LogEvent::End {
+            session_id,
+            title,
+            reason,
+            how,
+        } => LogEvent::End {
+            session_id,
+            title: kept(&title),
+            reason: kept(&reason),
+            how,
         },
     };
     let id = inner.store.next_id("g");
@@ -123,14 +177,15 @@ fn note_state(inner: &Inner, floor: &str, note_id: &str) -> Option<NoteState> {
             LogEvent::Note { .. }
             | LogEvent::Hire { .. }
             | LogEvent::Escalation { .. }
-            | LogEvent::Refused { .. } => None,
+            | LogEvent::Refused { .. }
+            | LogEvent::End { .. } => None,
         })
 }
 
 impl Office {
     /// Queue a note for a desk on the manager's floor and hand it over if the desk can take it.
     pub(super) fn send_to_desk(&self, floor: &str, args: &SendToDesk) -> Result<String, String> {
-        let note_id = {
+        let (note_id, to, structured) = {
             let mut guard = self.lock();
             let inner = &mut *guard;
             may_act(
@@ -152,6 +207,7 @@ impl Office {
                 let reason = "the spend ceiling for desks you hired is reached, so nothing more is sent to them";
                 return Err(refuse(inner, floor, TOOL, reason.to_string()));
             }
+            let structured = desk.desk.route == Route::Structured;
             let note = NewNote {
                 floor: floor.to_string(),
                 from: Self::manager_session(inner, floor).unwrap_or_default(),
@@ -173,44 +229,64 @@ impl Office {
                 },
             );
             if let Some(seat) = inner.seats.get_mut(floor) {
-                seat.sent_to.insert(desk.session_id);
+                seat.sent_to.insert(desk.session_id.clone());
             }
             // The note is queued either way; the log is caught up at the next save.
             let _ = inner.store.save();
-            note_id
+            (note_id, desk.session_id, structured)
         };
         self.deliver_due();
         let inner = self.lock();
-        let waiting = inner
-            .mail
-            .outbox
-            .items()
-            .iter()
-            .find(|item| item.id == note_id);
-        let sent = match waiting {
-            Some(item) => Sent {
-                outcome: "queued",
-                held: Some(
-                    self.desk_now(&inner, &item.to)
-                        .and_then(|desk| Self::hold_for(&inner, floor, &desk))
-                        .unwrap_or(Hold::Busy),
+        let now = self.desk_now(&inner, &to);
+        let desk = now.as_ref().map_or(to, |d| d.session_id.clone());
+        let (outcome, waiting_for, detail) = if inner.mail.outbox.contains(&note_id) {
+            match now.and_then(|d| Self::hold_for(&inner, floor, &d).map(|h| (h, d.tool))) {
+                Some((hold, tool)) => ("waiting", Some(hold), hold_sentence(hold, tool)),
+                // Nothing holds it, such as one of the human's own messages going first.
+                None => ("on-its-way", None, ON_ITS_WAY),
+            }
+        } else {
+            // The refusals are not logged again: the note's own entry holds its state.
+            match note_state(&inner, floor, &note_id) {
+                Some(NoteState::Delivered) if structured => {
+                    ("sent", None, "Given to the desk as its next turn.")
+                }
+                Some(NoteState::Delivered) => (
+                    "typed",
+                    None,
+                    "Typed into its terminal, and Enter pressed. list_desks shows awaiting-turn until the desk has picked it up.",
                 ),
-                note_id,
-            },
-            None if note_state(&inner, floor, &note_id) == Some(NoteState::Delivered) => Sent {
-                outcome: "delivered",
-                held: None,
-                note_id,
-            },
-            // The watch pass has taken it and is typing it now.
-            None if note_state(&inner, floor, &note_id) == Some(NoteState::Queued) => Sent {
-                outcome: "delivering",
-                held: None,
-                note_id,
-            },
-            None => return Err("the note could not be handed over".to_string()),
+                // The watch pass has taken it and is typing it now.
+                Some(NoteState::Queued) => ("on-its-way", None, ON_ITS_WAY),
+                Some(NoteState::Failed) => {
+                    return Err(
+                        "the note could not be typed, because the desk's terminal has gone"
+                            .to_string(),
+                    );
+                }
+                Some(NoteState::Dropped) => {
+                    return Err(
+                        "the desk left before the note could be typed, so it was dropped"
+                            .to_string(),
+                    );
+                }
+                Some(NoteState::Overridden) => {
+                    return Err(
+                        "the human sent that desk a message first, which replaced your note"
+                            .to_string(),
+                    );
+                }
+                Some(NoteState::Withdrawn) => return Err("the human withdrew the note".to_string()),
+                None => return Err("the note could not be handed over".to_string()),
+            }
         };
-        json(&sent)
+        json(&Sent {
+            outcome,
+            note_id,
+            desk,
+            waiting_for,
+            detail,
+        })
     }
 
     /// Withdraw a note the floor's manager has waiting for a desk.
@@ -238,7 +314,7 @@ mod tests {
     use super::super::manager::tests::{bind, manager_office, seat, session, wait_for};
     use super::*;
     use crate::manager::tools::{Call, Tools};
-    use crate::model::{ControlMode, SessionState, ToolKind};
+    use crate::model::{ControlMode, SessionState};
     use serde::Deserialize;
     use std::fs;
 
@@ -247,7 +323,9 @@ mod tests {
     struct TestSent {
         outcome: String,
         note_id: String,
-        held: Option<Hold>,
+        desk: String,
+        waiting_for: Option<Hold>,
+        detail: String,
     }
 
     fn send(office: &Office, floor: &str, desk: &str, text: &str) -> Result<TestSent, String> {
@@ -304,7 +382,11 @@ mod tests {
         event(&office, &id, "Stop", None);
 
         let sent = send(&office, &floor.id, &id, "/exit\r\nthen \x1b[201~ stop").unwrap();
-        assert_eq!((sent.outcome.as_str(), sent.held), ("delivered", None));
+        assert_eq!(
+            (sent.outcome.as_str(), sent.waiting_for, sent.desk.as_str()),
+            ("typed", None, id.as_str())
+        );
+        assert!(sent.detail.contains("awaiting-turn"), "{}", sent.detail);
         wait_for("the note typed", || {
             screen(&office, &terminal).contains("stop")
         });
@@ -345,9 +427,10 @@ mod tests {
         event(&office, &id, "PreToolUse", None);
         let sent = send(&office, &floor.id, &id, "Take TODO.md.").unwrap();
         assert_eq!(
-            (sent.outcome.as_str(), sent.held),
-            ("queued", Some(Hold::Busy))
+            (sent.outcome.as_str(), sent.waiting_for, sent.desk.as_str()),
+            ("waiting", Some(Hold::Busy), id.as_str())
         );
+        assert_eq!(sent.detail, hold_sentence(Hold::Busy, ToolKind::ClaudeCode));
         assert!(office.lock().mail.outbox.contains(&sent.note_id));
         assert_eq!(screen(&office, &terminal), "");
         assert_eq!(note_states(&office, &floor.id), vec![NoteState::Queued]);
@@ -403,7 +486,7 @@ mod tests {
                 send(&office, &floor.id, &busy, &format!("note {n}"))
                     .unwrap()
                     .outcome,
-                "queued"
+                "waiting"
             );
         }
         let sixth = "that desk already has 5 notes waiting".to_string();
@@ -466,7 +549,7 @@ mod tests {
             Some(ceiling.to_string())
         );
         let other_desk = send(&office, &floor.id, &busy, "a desk it did not hire").unwrap();
-        assert_eq!(other_desk.outcome, "queued");
+        assert_eq!(other_desk.outcome, "waiting");
 
         office.set_manager_paused(&floor.id, true).unwrap();
         let paused = "the manager is paused, so nothing is sent";
@@ -520,6 +603,56 @@ mod tests {
         assert_eq!(left, vec![other_note]);
         assert_eq!(note_states(&office, &floor.id), vec![NoteState::Withdrawn]);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_hand_started_or_unhooked_desk_answers_waiting_with_the_reason() {
+        let (office, dir, floor, registry, _) = manager_office("send-why");
+        seat(&office, &dir, &floor, &registry, "/bin/cat");
+        office
+            .lock()
+            .found
+            .sessions
+            .push(session("s-hand", &floor.id, ControlMode::RaiseWindow));
+        let hand = send(&office, &floor.id, "s-hand", "go").unwrap();
+        assert_eq!(
+            (hand.outcome.as_str(), hand.waiting_for),
+            ("waiting", Some(Hold::HandStarted))
+        );
+        let (_, codex) = desk_at(&office, &dir, &floor, ToolKind::Codex, SessionState::Idle);
+        let quiet = send(&office, &floor.id, &codex, "go").unwrap();
+        assert_eq!(
+            (quiet.outcome.as_str(), quiet.waiting_for),
+            ("waiting", Some(Hold::NoIdleSignal))
+        );
+        assert!(quiet.detail.contains("/hooks"), "{}", quiet.detail);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn every_hold_has_a_sentence_and_no_idle_signal_differs_by_tool() {
+        let holds = [
+            Hold::Busy,
+            Hold::WaitingOnYou,
+            Hold::Stuck,
+            Hold::Finished,
+            Hold::YouTyped,
+            Hold::AwaitingTurn,
+            Hold::HandStarted,
+            Hold::NoIdleSignal,
+            Hold::Paused,
+        ];
+        let tools = [ToolKind::ClaudeCode, ToolKind::Codex, ToolKind::Opencode];
+        for hold in holds {
+            for tool in tools {
+                assert!(!hold_sentence(hold, tool).is_empty(), "{hold:?} {tool:?}");
+            }
+        }
+        let quiet: Vec<&str> = tools
+            .iter()
+            .map(|t| hold_sentence(Hold::NoIdleSignal, *t))
+            .collect();
+        assert!(quiet[0] != quiet[1] && quiet[1] != quiet[2] && quiet[0] != quiet[2]);
     }
 
     #[test]

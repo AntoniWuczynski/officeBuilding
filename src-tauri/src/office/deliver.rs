@@ -6,6 +6,7 @@ use super::{Inner, Office, now_iso};
 use crate::delivery::gate::{self, Hold, Route, Verdict};
 use crate::delivery::outbox::{Item, Outbox};
 use crate::delivery::text;
+use crate::discovery;
 use crate::manager::wire::{LogEvent, NoteState};
 use crate::model::{AgentMessage, ControlMode, Session, SessionState, ToolKind};
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,6 +14,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 /// How long after the text before Enter is sent, so a terminal takes them as two events.
 const SUBMIT_PAUSE: Duration = Duration::from_millis(120);
+/// How long a desk whose own files say idle must have been silent on every channel before
+/// it counts as idle without a Stop event (docs `hooks`, "Stop": none comes after an interrupt).
+const INTERRUPT_QUIET: Duration = Duration::from_secs(30);
 
 /// Notes on their way to desks, and what the building knows about each desk's keyboard.
 #[derive(Default)]
@@ -32,6 +36,8 @@ pub(super) struct Mail {
     /// Something the snapshot shows changed outside a hand-over (an override): the next
     /// `deliver_due` reports it.
     dirty: bool,
+    /// `INTERRUPT_QUIET` in its place: None in the app, a few milliseconds in tests.
+    pub(super) quiet: Option<Duration>,
 }
 
 /// A desk as a note would find it now.
@@ -44,6 +50,7 @@ pub(super) struct DeskNow {
     pub(super) session_id: String,
     pub(super) project_id: String,
     pub(super) title: String,
+    pub(super) tool: ToolKind,
     pub(super) desk: gate::Desk,
     /// When it last did anything the building saw: the feed's newest event, or its last activity.
     pub(super) last_event: Option<SystemTime>,
@@ -120,12 +127,34 @@ impl Office {
             let seen = inner.feed.seen(&s.id);
             let hooked = matches!(s.tool, ToolKind::ClaudeCode | ToolKind::Codex);
             let feed_state = seen.map(|(state, _)| state);
-            let state = match (s.state, feed_state) {
+            // A reply that merely reads like a question has ended the turn at the ordinary
+            // input box; a formal question, a waiting registry or a hook that says so holds.
+            let formal = s
+                .pending_question_ids
+                .iter()
+                .any(|id| !discovery::is_prose_ask(id));
+            let asks_in_prose = s.state == SessionState::WaitingHuman
+                && !formal
+                && feed_state != Some(SessionState::WaitingHuman);
+            let own = if asks_in_prose {
+                SessionState::Idle
+            } else {
+                s.state
+            };
+            let now = SystemTime::now();
+            let silent = self.silent(inner, &t, s, seen.map(|(_, at)| at), now);
+            let state = match (own, feed_state) {
+                _ if inner.feed.settling(&s.id, now) => SessionState::Running,
                 (SessionState::Idle, Some(SessionState::Idle)) => SessionState::Idle,
+                (SessionState::Idle, Some(SessionState::Running | SessionState::Thinking))
+                    if silent =>
+                {
+                    SessionState::Idle
+                }
                 (SessionState::Idle, _) => SessionState::Running,
                 (other, _) => other,
             };
-            let stopped = s.state == SessionState::Idle
+            let stopped = own == SessionState::Idle
                 && inner
                     .mail
                     .stopped
@@ -140,8 +169,8 @@ impl Office {
                         Route::None(Hold::NoIdleSignal)
                     },
                     state,
-                    prompt_open: !s.pending_question_ids.is_empty()
-                        || s.state == SessionState::WaitingHuman
+                    prompt_open: formal
+                        || own == SessionState::WaitingHuman
                         || feed_state == Some(SessionState::WaitingHuman),
                     typed_ago: inner.mail.typed.get(&t).map(Instant::elapsed),
                     draft_open: inner.mail.drafts.contains(&t),
@@ -168,6 +197,26 @@ impl Office {
             last_event: parsed(&s.last_activity_at),
             ..at_desk(s)
         })
+    }
+
+    /// Whether a desk in app terminal `t` has been quiet on every channel for the quiet: no hook
+    /// event, no transcript entry and no output that recent.
+    fn silent(
+        &self,
+        inner: &Inner,
+        t: &str,
+        s: &Session,
+        event: Option<SystemTime>,
+        now: SystemTime,
+    ) -> bool {
+        let quiet = inner.mail.quiet.unwrap_or(INTERRUPT_QUIET);
+        // A time in the future is not old.
+        let old = |at: Option<SystemTime>| {
+            at.is_none_or(|at| now.duration_since(at).is_ok_and(|d| d >= quiet))
+        };
+        old(event)
+            && old(parsed(&s.last_activity_at))
+            && self.terminals.idle_for(t).is_ok_and(|d| d >= quiet)
     }
 
     /// The desk whose `DeskNow::key` is `key`.
@@ -288,10 +337,13 @@ impl Office {
             return;
         };
         inner.mail.typed.insert(terminal.clone(), Instant::now());
-        if text::leaves_draft(data) {
-            inner.mail.drafts.insert(terminal.clone());
-        } else {
-            inner.mail.drafts.remove(&terminal);
+        // Escape alone interrupts or closes a dialog and leaves the input box as it was.
+        if !text::only_escape(data) {
+            if text::leaves_draft(data) {
+                inner.mail.drafts.insert(terminal.clone());
+            } else {
+                inner.mail.drafts.remove(&terminal);
+            }
         }
         // Enter while the desk waits on a prompt answers the prompt and overrides nothing.
         let answering = self
@@ -351,12 +403,16 @@ impl Office {
         {
             *changed = true;
         }
+        // A manager's note does not follow its desk to another floor.
         let left: Vec<String> = inner
             .mail
             .outbox
             .items()
             .iter()
-            .filter(|i| self.desk_now(inner, &i.to).is_none())
+            .filter(|i| {
+                self.desk_now(inner, &i.to)
+                    .is_none_or(|d| d.project_id != i.floor)
+            })
             .map(|i| i.id.clone())
             .collect();
         if Self::clear_notes(inner, |i| left.contains(&i.id), NoteState::Dropped) > 0 {
@@ -457,6 +513,7 @@ fn at_desk(s: &Session) -> DeskNow {
         session_id: s.id.clone(),
         project_id: s.project_id.clone(),
         title: s.title.clone(),
+        tool: s.tool,
         desk: gate::Desk {
             route: Route::None(Hold::HandStarted),
             state: s.state,
@@ -472,3 +529,6 @@ fn at_desk(s: &Session) -> DeskNow {
 
 #[cfg(test)]
 pub(super) mod tests;
+
+#[cfg(test)]
+mod idle_tests;

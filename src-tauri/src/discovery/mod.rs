@@ -450,6 +450,18 @@ fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInpu
 /// What a session with no title of its own is called.
 const UNTITLED: &str = "Untitled session";
 
+/// The id suffix of a question read out of a reply's prose, as against a formal question
+/// or a prompt the tool reports itself.
+const PROSE_ASK: &str = "prose";
+
+/// Whether `question_id` is a plain-prose ask: the agent's turn has ended and its input
+/// box is the ordinary one.
+pub(crate) fn is_prose_ask(question_id: &str) -> bool {
+    question_id
+        .rsplit_once(':')
+        .is_some_and(|(_, suffix)| suffix == PROSE_ASK)
+}
+
 /// What a waiting session asks the human: its formal question, or the asking
 /// line of a plain-prose ask (soft block), which has no options.
 fn question_for(input: &SessionInput, root: &Path) -> Question {
@@ -469,7 +481,7 @@ fn question_for(input: &SessionInput, root: &Path) -> Question {
             q.asked_at.clone(),
         ),
         None => (
-            "prose",
+            PROSE_ASK,
             rules::score_soft_block(&input.signals.reply_to_human).question,
             Vec::new(),
             1,

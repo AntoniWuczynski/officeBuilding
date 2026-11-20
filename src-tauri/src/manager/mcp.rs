@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_holds_the_seven_tools_with_object_schemas() {
+    fn tools_list_holds_the_eight_tools_with_object_schemas() {
         let (protocol, _) = protocol();
         let reply = reply::<TestList>(
             &protocol,
@@ -433,7 +433,7 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         let expected: Vec<&str> = CATALOGUE.iter().map(|t| t.name).collect();
         assert_eq!(names, expected);
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 8);
         for tool in &tools {
             assert!(tool.input_schema.get().starts_with('{'), "{}", tool.name);
             assert!(!tool.description.is_empty());
@@ -600,7 +600,7 @@ mod tests {
         let init: TestReply<TestInit> = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(init.result.unwrap().protocol_version, PROTOCOL_VERSION);
         let list: TestReply<TestList> = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(list.result.unwrap().tools.len(), 7);
+        assert_eq!(list.result.unwrap().tools.len(), 8);
         let called: TestReply<TestCall> = serde_json::from_str(lines[2]).unwrap();
         assert_eq!(called.id, Some(TestId::Number(3)));
         assert!(!called.result.unwrap().is_error);

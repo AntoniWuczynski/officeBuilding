@@ -128,6 +128,13 @@ pub fn leaves_draft(data: &str) -> bool {
     }
 }
 
+/// Whether `data` is nothing but Escape: it interrupts a turn or closes a dialog, and
+/// leaves the input box as it was.
+#[must_use]
+pub fn only_escape(data: &str) -> bool {
+    !data.is_empty() && data.chars().all(|c| c == '\x1b')
+}
+
 /// Whether `data` holds Enter.
 #[must_use]
 pub fn has_enter(data: &str) -> bool {
@@ -260,5 +267,13 @@ mod tests {
         assert!(!leaves_draft("\r") && !leaves_draft("\x03") && !leaves_draft("ab\r"));
         assert!(leaves_draft("a\rb") && !leaves_draft("\x1b[I"));
         assert!(!leaves_draft("\x1b]11;rgb:0/0/0\x1b\\\x1b[?2026;2$y"));
+    }
+
+    #[test]
+    fn only_escape_is_one_or_more_escapes_and_nothing_else() {
+        assert!(only_escape("\x1b") && only_escape("\x1b\x1b"));
+        for data in ["", "a", "\x1b[A", "\x1ba"] {
+            assert!(!only_escape(data), "{data:?}");
+        }
     }
 }
