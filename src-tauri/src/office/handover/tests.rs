@@ -36,6 +36,7 @@ fn only_a_running_desk_the_building_started_is_ours() {
                 last_call_at: None,
                 hires: Vec::new(),
                 sent_to: BTreeSet::new(),
+                ending: BTreeSet::new(),
             },
         );
     }
@@ -747,4 +748,26 @@ fn a_restart_keeps_the_record_and_the_handover() {
     assert!(reloaded.office.lock().handover.book.used_up().is_empty());
     reloaded.done();
     lapsed.done();
+}
+
+#[test]
+fn a_desk_a_manager_is_ending_is_not_started() {
+    let fx = fixture("ending", OFF);
+    let ending = fx.desk("s-ending", ToolKind::ClaudeCode);
+    fx.desk("s-kept", ToolKind::ClaudeCode);
+    let manager = fx.terminal();
+    fx.office.lock().seats.insert(
+        fx.floor.id.clone(),
+        Seat {
+            terminal: manager,
+            started_at: String::new(),
+            last_call_at: None,
+            hires: Vec::new(),
+            sent_to: BTreeSet::new(),
+            ending: BTreeSet::from([ending]),
+        },
+    );
+    let started: Vec<String> = fx.office.started(&fx.office.lock()).into_keys().collect();
+    assert_eq!(started, vec!["s-kept".to_string()]);
+    fx.done();
 }

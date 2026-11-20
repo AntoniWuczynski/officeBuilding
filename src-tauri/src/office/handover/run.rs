@@ -14,6 +14,7 @@ use crate::pty;
 use crate::routing::router::Opened;
 use crate::settings::StartWith;
 use crate::setup::{Launch, Opt};
+use crate::structured::Entry;
 use crate::tools;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -51,11 +52,30 @@ fn did_not_start(from: Tool, why: &str) -> String {
 
 /// What `prepare` made: the command that starts the receiver, the brief it reads, and the
 /// route opened for it on a routed floor.
-struct Prepared {
-    command: String,
-    brief: PathBuf,
-    route: Option<Opened>,
+pub(super) struct Prepared {
+    pub(super) command: String,
+    pub(super) brief: PathBuf,
+    pub(super) route: Option<Opened>,
 }
+
+/// What starting a receiver needs, whoever asked for it and whatever becomes of the old session.
+pub(super) struct Receiver<'a> {
+    pub(super) from: Tool,
+    pub(super) to: Tool,
+    pub(super) from_session: &'a str,
+    /// The floor the old session is on now, for a routed launch.
+    pub(super) project_id: &'a str,
+    pub(super) folder: &'a Path,
+    pub(super) start: &'a StartWith,
+    pub(super) title: &'a str,
+    pub(super) floor: &'a str,
+    pub(super) branch: Option<&'a str>,
+    pub(super) worktree: bool,
+    pub(super) reason: brief::Reason<'a>,
+}
+
+/// The old session's visible conversation, and whether its start is left out.
+pub(super) type Talk = (Vec<Entry>, bool);
 
 impl Office {
     /// Carry `plan` out and record how it went. Err: why it did not work, in words.
@@ -64,14 +84,27 @@ impl Office {
             self.lock().handover.underway.remove(&plan.session_id);
             return Err(NOT_SET_UP.to_string());
         };
-        // No office lock: the briefs folder is read here.
-        let top = brief::highest(&host.briefs);
-        let id = {
-            let mut inner = self.lock();
-            inner.handover.book.at_least(top.saturating_add(1));
-            inner.handover.book.next_id()
+        let id = self.brief_id(host);
+        let receiver = Receiver {
+            from: plan.record.tool,
+            to: plan.record.tool.other(),
+            from_session: &plan.session_id,
+            project_id: &plan.project_id,
+            folder: &plan.folder,
+            start: &plan.start,
+            title: &plan.title,
+            floor: &plan.floor,
+            branch: plan.branch.as_deref(),
+            worktree: plan.worktree,
+            reason: brief::Reason::UsedUp {
+                by_human: plan.by_human,
+                window: plan.record.window,
+                reset_at: plan.record.reset_at,
+                work: &plan.work,
+            },
         };
-        let result = match self.prepare(host, plan, &id) {
+        let talk = desk::conversation(receiver.from, &self.home, &plan.session_id);
+        let result = match self.prepare(host, &receiver, &talk, &id) {
             Err(reason) => Err(Failure {
                 reason,
                 ended: false,
@@ -87,12 +120,27 @@ impl Office {
         self.finish(plan, id, result)
     }
 
+    /// The id of the next brief: above every brief on disk and every id the book gave.
+    pub(super) fn brief_id(&self, host: &HandoverHost) -> String {
+        // No office lock: the briefs folder is read here.
+        let top = brief::highest(&host.briefs);
+        let mut inner = self.lock();
+        inner.handover.book.at_least(top.saturating_add(1));
+        inner.handover.book.next_id()
+    }
+
     /// Everything that can be done before anything is ended. The office lock is held only
     /// to read the feed for the launch options, and by `routed` for a moment. A route is
     /// opened last, so no failure here can leave one open.
-    fn prepare(&self, host: &HandoverHost, plan: &Plan, id: &str) -> Result<Prepared, String> {
-        let (from, to) = (plan.record.tool, plan.record.tool.other());
-        if !plan.folder.is_dir() {
+    pub(super) fn prepare(
+        &self,
+        host: &HandoverHost,
+        r: &Receiver<'_>,
+        talk: &Talk,
+        id: &str,
+    ) -> Result<Prepared, String> {
+        let (from, to) = (r.from, r.to);
+        if !r.folder.is_dir() {
             return Err(super::FOLDER_GONE.to_string());
         }
         let options = hireable(self.hire_options(), to.kind())?;
@@ -107,36 +155,33 @@ impl Office {
         };
         let program = named(binary).ok_or_else(not_installed)?;
         start::signed_in(&*host.runner, to, program)?;
-        let (entries, earlier) = desk::conversation(from, &self.home, &plan.session_id);
-        let git = git::summary(
-            &*host.runner,
-            named("git").map(PathBuf::as_path),
-            &plan.folder,
-        );
+        let (entries, earlier) = talk;
+        let git = git::summary(&*host.runner, named("git").map(PathBuf::as_path), r.folder);
         let text = brief::render(
             &brief::Facts {
                 id,
                 from,
                 to,
-                by_human: plan.by_human,
+                from_session: r.from_session,
+                reason: r.reason,
                 at: now(),
-                window: plan.record.window,
-                reset_at: plan.record.reset_at,
-                title: &plan.title,
-                folder: &plan.folder,
-                floor: &plan.floor,
-                branch: plan.branch.as_deref(),
-                worktree: plan.worktree,
-                work: &plan.work,
+                title: r.title,
+                folder: r.folder,
+                floor: r.floor,
+                branch: r.branch,
+                worktree: r.worktree,
                 git: &git,
-                earlier,
+                earlier: *earlier,
             },
-            &entries,
+            entries,
         );
-        let brief = brief::write(&host.briefs, id, &text, &plan.folder)?;
+        let brief = brief::write(&host.briefs, id, &text, r.folder)?;
         // The path asked for and the file it resolves to are the same (V13).
         let told = std::fs::canonicalize(&brief).unwrap_or_else(|_| brief.clone());
-        let prompt = start::first_prompt(&plan.title, from, &told);
+        let prompt = match r.reason {
+            brief::Reason::UsedUp { .. } => start::first_prompt(r.title, from, &told),
+            brief::Reason::Asked => start::take_over_prompt(r.from_session, &told),
+        };
         // Two statements: `routed` takes the office lock, which the feed's guard holds.
         let setup = self
             .setup
@@ -144,9 +189,9 @@ impl Office {
         setup
             .and_then(|setup| {
                 let setup = with_leave(to, setup, &told);
-                receiver_command(to, &plan.start, &options, &prompt, &shell, &setup)
+                receiver_command(to, r.start, &options, &prompt, &shell, &setup)
             })
-            .and_then(|command| self.routed(&plan.project_id, to.kind(), false, command, &shell))
+            .and_then(|command| self.routed(r.project_id, to.kind(), false, command, &shell))
             .map(|(command, route)| Prepared {
                 command,
                 brief: brief.clone(),
@@ -231,7 +276,7 @@ impl Office {
 
 /// `why` without the receiver terminal's last lines, which can hold anything the shell echoed.
 /// They are kept out of what is saved and sent in every snapshot.
-fn without_tail(why: &str) -> &str {
+pub(super) fn without_tail(why: &str) -> &str {
     if why.starts_with("the agent stopped as soon as it started") {
         why.split_once(": ").map_or(why, |(head, _)| head)
     } else {

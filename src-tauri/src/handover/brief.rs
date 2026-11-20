@@ -25,23 +25,36 @@ pub const KEEP: usize = 10;
 const GAP: &str = "\n\n";
 const EARLIER: &str = "(Earlier parts of the conversation are left out.)";
 
+/// Why a brief was written, which decides its heading and what it says of the old session.
+#[derive(Clone, Copy)]
+pub enum Reason<'a> {
+    /// The old tool's allowance is used up, and its session was ended.
+    UsedUp {
+        by_human: bool,
+        window: Option<Window>,
+        reset_at: Option<i64>,
+        /// What was running when the old session was ended.
+        work: &'a Work,
+    },
+    /// A Human asked for a new session to take over. The old one was not ended.
+    Asked,
+}
+
 /// What the brief says about the handover itself.
 pub struct Facts<'a> {
     /// "h-12".
     pub id: &'a str,
     pub from: Tool,
     pub to: Tool,
-    pub by_human: bool,
+    /// The old session's id.
+    pub from_session: &'a str,
+    pub reason: Reason<'a>,
     pub at: i64,
-    pub window: Option<Window>,
-    pub reset_at: Option<i64>,
     pub title: &'a str,
     pub folder: &'a Path,
     pub floor: &'a str,
     pub branch: Option<&'a str>,
     pub worktree: bool,
-    /// What was running when the old session was ended.
-    pub work: &'a Work,
     /// `git::summary`'s text.
     pub git: &'a str,
     /// The reader did not keep the start of the conversation.
@@ -96,50 +109,80 @@ fn ended(work: &Work) -> String {
 
 fn header(facts: &Facts<'_>) -> String {
     let from = facts.from.label();
-    let limit = match facts.window {
-        Some(Window::FiveHour) => "the five-hour limit",
-        Some(Window::SevenDay) => "the weekly limit",
-        None => "which limit is not known",
-    };
-    let reset = facts.reset_at.map_or_else(
-        || "The reset time is not known.".to_owned(),
-        |at| format!("It resets at {}.", time(at)),
-    );
-    let asked = if facts.by_human {
-        "A Human"
-    } else {
-        "the building itself"
-    };
+    let to = facts.to.label();
+    let when = time(facts.at);
     let branch = facts.branch.map_or_else(|| "not known".to_owned(), known);
     let worktree = if facts.worktree {
         ", in a git worktree"
     } else {
         ""
     };
-    format!(
-        "# Handover brief {id}\n\n\
-         This desk was handed over from {from} to {to} by Office Building.\n\n\
-         - When: {when}\n\
-         - Asked by: {asked}\n\
-         - Why: {from}'s {ran_out} ({limit}). {reset}\n\
-         - The desk: {title}\n\
+    let desk = format!(
+        "- The desk: {title}\n\
          - Folder: {folder}\n\
          - Floor: {floor}\n\
-         - Branch: {branch}{worktree}\n\
-         - Ended with the old session: {ended}\n\n\
+         - Branch: {branch}{worktree}\n",
+        title = known(facts.title),
+        folder = known(&facts.folder.display().to_string()),
+        floor = known(facts.floor),
+    );
+    let top = match facts.reason {
+        Reason::UsedUp {
+            by_human,
+            window,
+            reset_at,
+            work,
+        } => {
+            let limit = match window {
+                Some(Window::FiveHour) => "the five-hour limit",
+                Some(Window::SevenDay) => "the weekly limit",
+                None => "which limit is not known",
+            };
+            let reset = reset_at.map_or_else(
+                || "The reset time is not known.".to_owned(),
+                |at| format!("It resets at {}.", time(at)),
+            );
+            let asked = if by_human {
+                "A Human"
+            } else {
+                "the building itself"
+            };
+            format!(
+                "# Handover brief {id}\n\n\
+                 This desk was handed over from {from} to {to} by Office Building.\n\n\
+                 - When: {when}\n\
+                 - Asked by: {asked}\n\
+                 - Why: {from}'s {ran_out} ({limit}). {reset}\n\
+                 {desk}\
+                 - Ended with the old session: {ended}\n",
+                id = facts.id,
+                ran_out = facts.from.ran_out(),
+                ended = ended(work),
+            )
+        }
+        Reason::Asked => {
+            let old = known(facts.from_session);
+            format!(
+                "# Take-over brief {id}\n\n\
+                 A Human asked Office Building to start a new {to} session that takes over from \
+                 the {from} session {old}.\n\n\
+                 - When: {when}\n\
+                 - Asked by: A Human\n\
+                 - Why: A Human asked for it. No usage limit was reached.\n\
+                 - The old session: {old} ({from}). It was not ended. It may still be running in \
+                 this folder and changing files.\n\
+                 {desk}",
+                id = facts.id,
+            )
+        }
+    };
+    format!(
+        "{top}\n\
          ## State of the folder\n\n\
          {git}\n\n\
          ## Conversation so far\n\n\
          Oldest first. Hidden reasoning is left out, tool output is cut short and file changes \
          are not repeated here: the files in the folder are the truth.\n",
-        id = facts.id,
-        ran_out = facts.from.ran_out(),
-        to = facts.to.label(),
-        when = time(facts.at),
-        title = known(facts.title),
-        folder = known(&facts.folder.display().to_string()),
-        floor = known(facts.floor),
-        ended = ended(facts.work),
         git = facts.git.trim(),
     )
 }
@@ -332,18 +375,30 @@ mod tests {
             id: "h-12",
             from: Tool::ClaudeCode,
             to: Tool::Codex,
-            by_human: false,
+            from_session: "s-old",
+            reason: used_up(false, Some(Window::FiveHour), Some(1_794_574_385), work),
             at: 1_794_567_190,
-            window: Some(Window::FiveHour),
-            reset_at: Some(1_794_574_385),
             title: "Fix the login form",
             folder: Path::new("/work/widgets"),
             floor: "widgets",
             branch: Some("main"),
             worktree: false,
-            work,
             git: "$ git status --porcelain=v1 --branch\n## main",
             earlier: false,
+        }
+    }
+
+    fn used_up(
+        by_human: bool,
+        window: Option<Window>,
+        reset_at: Option<i64>,
+        work: &Work,
+    ) -> Reason<'_> {
+        Reason::UsedUp {
+            by_human,
+            window,
+            reset_at,
+            work,
         }
     }
 
@@ -572,7 +627,7 @@ mod tests {
                 .to_owned()
         };
         let mut by_human = facts(&CLEAR);
-        by_human.by_human = true;
+        by_human.reason = used_up(true, Some(Window::FiveHour), Some(1_794_574_385), &CLEAR);
         assert_eq!(
             row(&facts(&CLEAR), "- Asked by"),
             "- Asked by: the building itself"
@@ -580,15 +635,14 @@ mod tests {
         assert_eq!(row(&by_human, "- Asked by"), "- Asked by: A Human");
 
         let mut weekly = facts(&CLEAR);
-        weekly.window = Some(Window::SevenDay);
-        weekly.reset_at = None;
+        weekly.reason = used_up(false, Some(Window::SevenDay), None, &CLEAR);
         assert_eq!(
             row(&weekly, "- Why"),
             "- Why: Claude Code's subscription allowance is used up (the weekly limit). \
              The reset time is not known."
         );
         let mut neither = facts(&CLEAR);
-        neither.window = None;
+        neither.reason = used_up(false, None, Some(1_794_574_385), &CLEAR);
         assert_eq!(
             row(&neither, "- Why"),
             "- Why: Claude Code's subscription allowance is used up (which limit is not known). \
@@ -597,7 +651,7 @@ mod tests {
 
         let mut codex = facts(&CLEAR);
         (codex.from, codex.to) = (Tool::Codex, Tool::ClaudeCode);
-        (codex.window, codex.reset_at) = (None, None);
+        codex.reason = used_up(false, None, None, &CLEAR);
         assert_eq!(
             row(&codex, "- Why"),
             "- Why: Codex's usage limit is reached (which limit is not known). \
@@ -733,5 +787,77 @@ mod tests {
         assert_eq!(highest(&briefs), 50);
         let path = write(&briefs, "h-1", "new", &desk).expect("written");
         assert!(path.exists());
+    }
+
+    fn asked() -> Facts<'static> {
+        Facts {
+            id: "h-14",
+            from: Tool::ClaudeCode,
+            to: Tool::ClaudeCode,
+            from_session: "0f5c2a9e-7d1b-4c3a-9e2f-1a2b3c4d5e6f",
+            reason: Reason::Asked,
+            at: 1_794_567_190,
+            title: "Fix the login form",
+            folder: Path::new("/work/widgets"),
+            floor: "widgets",
+            branch: Some("main"),
+            worktree: true,
+            git: "$ git status --porcelain=v1 --branch\n## main",
+            earlier: false,
+        }
+    }
+
+    #[test]
+    fn the_take_over_brief_reads_as_written() {
+        let entries = [
+            user("u", "Please fix it"),
+            Entry::Agent {
+                id: "a".into(),
+                text: "Looking now".into(),
+            },
+        ];
+        assert_eq!(
+            render(&asked(), &entries),
+            "# Take-over brief h-14\n\n\
+             A Human asked Office Building to start a new Claude Code session that takes over \
+             from the Claude Code session 0f5c2a9e-7d1b-4c3a-9e2f-1a2b3c4d5e6f.\n\n\
+             - When: 2026-11-13T10:53:10Z\n\
+             - Asked by: A Human\n\
+             - Why: A Human asked for it. No usage limit was reached.\n\
+             - The old session: 0f5c2a9e-7d1b-4c3a-9e2f-1a2b3c4d5e6f (Claude Code). It was not \
+             ended. It may still be running in this folder and changing files.\n\
+             - The desk: Fix the login form\n\
+             - Folder: /work/widgets\n\
+             - Floor: widgets\n\
+             - Branch: main, in a git worktree\n\n\
+             ## State of the folder\n\n\
+             $ git status --porcelain=v1 --branch\n## main\n\n\
+             ## Conversation so far\n\n\
+             Oldest first. Hidden reasoning is left out, tool output is cut short and file \
+             changes are not repeated here: the files in the folder are the truth.\n\n\
+             A Human:\nPlease fix it\n\n\
+             Claude Code:\nLooking now\n"
+        );
+    }
+
+    #[test]
+    fn a_session_id_and_a_title_with_control_characters_come_out_cleaned_in_the_take_over() {
+        let mut with = asked();
+        with.from_session = "s-\x1b[31mold\x1b[0m\n\u{202e}x";
+        with.title = "Fix\r\n\x1b]0;t\x07 it";
+        let got = render(&with, &[]);
+        assert!(!got.contains('\x1b'), "{got:?}");
+        assert!(!got.chars().any(|c| c.is_control() && c != '\n'), "{got:?}");
+        assert!(!got.contains('\u{202e}'));
+        let line = |start: &str| {
+            got.lines()
+                .find(|l| l.starts_with(start))
+                .expect(start)
+                .to_owned()
+        };
+        assert!(line("A Human asked").ends_with("session s-old x."), "{got}");
+        assert!(line("- The old session: s-old x (Claude Code).").contains("not ended"));
+        assert!(line("- The desk: Fix").ends_with(" it"), "{got}");
+        assert_eq!(got.lines().filter(|l| l.starts_with("- ")).count(), 8);
     }
 }

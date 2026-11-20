@@ -144,6 +144,7 @@ pub fn survey(book: &Book, works: &WorkLog, desks: &[DeskFacts<'_>], at: &Now<'_
     let mut view = HandoverView {
         used_up,
         desks: Vec::new(),
+        take_overs: Vec::new(),
     };
     let mut hand_over = Vec::new();
     for desk in desks.iter().filter(|d| !at.pending.contains(d.session_id)) {

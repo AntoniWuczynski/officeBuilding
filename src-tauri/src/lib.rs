@@ -301,6 +301,7 @@ pub fn run() -> tauri::Result<()> {
             routing::commands::retry_route,
             routing::commands::switch_route,
             handover::commands::hand_over_desk,
+            handover::commands::take_over_desk,
         ])
         .run(tauri::generate_context!())
 }

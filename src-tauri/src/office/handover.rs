@@ -1,14 +1,15 @@
 //! Handing a desk over between the Claude and Codex subscriptions: which desks are the
 //! building's own, one pass of the watch loop over them, and A Human's manual handover.
-//! Carrying one out is in `handover/run.rs`. Nothing here ends or starts an agent.
+//! Carrying one out is in `handover/run.rs`, and a take-over beside a session that keeps
+//! running in `handover/take_over.rs`. Nothing here ends or starts an agent.
 
 use super::{Inner, Office, STOP_WAIT};
 use crate::handover::record::{Book, Done, HandoverFile, Outcome, RESET_HORIZON, UsedUp};
 use crate::handover::survey::{DeskFacts, Now, Survey, survey};
-use crate::handover::view::{BlockWhy, DeskState, HandoverView};
+use crate::handover::view::{BlockWhy, DeskState, HandoverView, TakeOver};
 use crate::handover::work::{self, WorkLog};
 use crate::handover::{Allowance, Tool, Work};
-use crate::model::ControlMode;
+use crate::model::{ControlMode, Session};
 use crate::process::{Runner, SystemRunner};
 use crate::settings::{HandoverSettings, StartWith};
 use crate::sync::lock;
@@ -23,6 +24,9 @@ mod desk;
 #[cfg(test)]
 mod fixture;
 mod run;
+mod take_over;
+#[cfg(test)]
+mod take_over_tests;
 #[cfg(test)]
 mod tests;
 
@@ -60,6 +64,8 @@ pub(super) struct State {
     pub(super) works: WorkLog,
     /// Desks being handed over now, by session id.
     pub(super) underway: BTreeSet<String>,
+    /// Desks a take-over is preparing or starting beside now, by old session id.
+    pub(super) taking_over: BTreeSet<String>,
     /// Desks whose own proof was just read, with when: their automatic decision is still to take.
     undecided: BTreeMap<String, i64>,
     /// The terminal each handover of this run started the receiver in: terminal id to `Done::id`.
@@ -69,10 +75,14 @@ pub(super) struct State {
     pub(super) view: HandoverView,
     /// The Codex desks whose rollout counts: a top-level thread on the built-in provider (K5).
     codex_counts: BTreeSet<String>,
+    /// The take-overs of this run, newest first, each with the terminal the new session was
+    /// started in. Never saved.
+    pub(super) take_overs: Vec<(TakeOver, String)>,
 }
 
 impl State {
-    /// The session each receiver this run started took over from, by the receiver's terminal.
+    /// The session each receiver this run started took over from, by the receiver's terminal:
+    /// a handover's, and a take-over's.
     pub(super) fn handed_from(&self) -> BTreeMap<String, String> {
         self.started_in
             .iter()
@@ -80,6 +90,11 @@ impl State {
                 let d = self.book.done().iter().find(|d| d.id == *done)?;
                 Some((terminal.clone(), d.from_session.clone()))
             })
+            .chain(
+                self.take_overs
+                    .iter()
+                    .map(|(t, terminal)| (terminal.clone(), t.from_session.clone())),
+            )
             .collect()
     }
 
@@ -212,6 +227,27 @@ impl Office {
             || inner.seats.values().any(|s| s.terminal == terminal)
     }
 
+    /// The folder of the session discovery found: its checkout, else its floor's root.
+    fn session_folder(inner: &Inner, session: &Session) -> Option<PathBuf> {
+        inner
+            .found
+            .checkouts
+            .get(&session.id)
+            .or_else(|| inner.found.roots.get(&session.project_id))
+            .cloned()
+    }
+
+    /// The name of the floor `project_id`, empty when it is not known.
+    fn floor_name(inner: &Inner, project_id: &str) -> String {
+        inner
+            .found
+            .projects
+            .iter()
+            .find(|p| p.id == project_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_default()
+    }
+
     /// The handover tool of the session `id` discovery found.
     fn tool_of(inner: &Inner, id: &str) -> Option<Tool> {
         inner
@@ -235,7 +271,7 @@ impl Office {
 
     /// Every desk the building started in a terminal of its own that still runs, session id
     /// to terminal id: neither a reviewer's nor a manager's, under full control, of a tool the
-    /// handover knows.
+    /// handover knows, and not one a manager is ending.
     fn started(&self, inner: &Inner) -> BTreeMap<String, String> {
         inner
             .owned
@@ -248,6 +284,7 @@ impl Office {
                             && Tool::of(s.tool).is_some()
                     })
                     && matches!(self.terminals.wait_exit(terminal, Duration::ZERO), Ok(None))
+                    && !Self::being_ended(inner, terminal)
             })
             .map(|(terminal, session)| (session.clone(), terminal.clone()))
             .collect()
@@ -281,7 +318,7 @@ impl Office {
             None => inner.found.ended.iter().map(|e| e.id.as_str()).collect(),
         };
         let state = &inner.handover;
-        survey(
+        let mut found = survey(
             &state.book,
             &state.works,
             &desks,
@@ -293,7 +330,9 @@ impl Office {
                 underway: &state.underway,
                 ended: &ended,
             },
-        )
+        );
+        found.view.take_overs = state.take_overs.iter().map(|(t, _)| t.clone()).collect();
+        found
     }
 
     /// Show what each desk has to say now, deciding nothing automatically.
@@ -366,6 +405,12 @@ impl Office {
                 state.book.bound(done, session);
             }
         }
+        // Kept up to date, so it follows a `/clear` in the new session's terminal.
+        for (take_over, terminal) in &mut state.take_overs {
+            if let Some(session) = inner.owned.get(terminal) {
+                take_over.to_session = Some(session.clone());
+            }
+        }
         let ours = self.ours(inner);
         self.note_ended_late(inner);
         let state = &mut inner.handover;
@@ -417,20 +462,8 @@ impl Office {
             .start_with(tool)
             .cloned()
             .ok_or_else(|| choose(tool.other()))?;
-        let folder = inner
-            .found
-            .checkouts
-            .get(session_id)
-            .or_else(|| inner.found.roots.get(&session.project_id))
-            .cloned()
-            .ok_or(FOLDER_GONE)?;
-        let floor = inner
-            .found
-            .projects
-            .iter()
-            .find(|p| p.id == session.project_id)
-            .map(|p| p.name.clone())
-            .unwrap_or_default();
+        let folder = Self::session_folder(inner, session).ok_or(FOLDER_GONE)?;
+        let floor = Self::floor_name(inner, &session.project_id);
         Ok(Plan {
             session_id: session_id.to_string(),
             project_id: session.project_id.clone(),

@@ -275,7 +275,7 @@ impl Talker {
 mod tests {
     use super::super::tests::{ID, LIMIT, META, day, home, rollout_name};
     use super::*;
-    use crate::handover::brief::{CONVERSATION_MAX, Facts, render};
+    use crate::handover::brief::{CONVERSATION_MAX, Facts, Reason, render};
     use crate::handover::{Tool, Work};
     use std::fs;
 
@@ -428,16 +428,19 @@ mod tests {
                 id: "h-13",
                 from: Tool::Codex,
                 to: Tool::ClaudeCode,
-                by_human: false,
+                from_session: ID,
+                reason: Reason::UsedUp {
+                    by_human: false,
+                    window: None,
+                    reset_at: None,
+                    work: &work,
+                },
                 at: 1_794_573_800,
-                window: None,
-                reset_at: None,
                 title: "Fix the importer",
                 folder: Path::new("/work/app"),
                 floor: "app",
                 branch: Some("main"),
                 worktree: false,
-                work: &work,
                 git: "$ git status --porcelain=v1 --branch\n## main",
                 earlier: talk.earlier,
             },
@@ -493,16 +496,19 @@ mod tests {
                 id: "h-1",
                 from: Tool::Codex,
                 to: Tool::ClaudeCode,
-                by_human: false,
+                from_session: ID,
+                reason: Reason::UsedUp {
+                    by_human: false,
+                    window: None,
+                    reset_at: None,
+                    work: &work,
+                },
                 at: 0,
-                window: None,
-                reset_at: None,
                 title: "",
                 folder: Path::new("/work/app"),
                 floor: "app",
                 branch: None,
                 worktree: false,
-                work: &work,
                 git: "",
                 earlier: talk.earlier,
             },
