@@ -811,6 +811,105 @@ here.
           allowed-tools rule. `claude auth status` passes for any sign-in
           method. Nothing is handed back by itself. Say which you veto.
 
+- [ ] OB-337 — Check the manager speaking to desks and ending them (TODO
+      OB-333) and the take-over button (TODO OB-334) in the installed app
+      (`pnpm app:install`). The rulings are HUMAN_DECISIONS OB-333 and OB-334.
+      None of this has run anywhere. No manager was hired, no note was typed
+      into a real agent, no agent was ended and no session was taken over. The
+      delivery rules rest on Anthropic's Claude Code pages as read on
+      2026-11-20 and on tests with fakes. No agent may start a session or
+      drive the Tauri window. Steps 1 to 8 are the manager and need one floor
+      with two Claude Code desks. Steps 9 to 12 are the take-over and need no
+      manager and no Handover setting.
+      1. Hire two Claude Code desks and a manager on one floor. The Manager
+         panel should say that the manager's tools answer. If it says they
+         have never answered, read the manager's terminal and say which of
+         three things it shows: a tool call its permission mode denied, a
+         helper that got no token, or a hook of your own that refused the
+         call. The code could not settle which of these, if any, is what you
+         saw before.
+      2. A plain question, and a desk with no task (TODO OB-355). Let one desk
+         end a turn on a question in prose, such as "Want me to…?". Ask the
+         manager to send that desk a note. The note should be typed at the
+         desk, starting "Note from this floor's manager", and the manager's
+         answer should say `typed`. Say whether you are content that the
+         manager may now answer such a question in your place. Then hire a
+         desk with no task and ask the manager to give it work. The note
+         should be typed about ten seconds after the desk comes up. If you
+         have start hooks of your own that run for longer, note whether the
+         note arrived before the desk was ready.
+      3. A desk you interrupted (TODO OB-348). Stop a working desk with Escape
+         in its terminal and ask the manager to redirect it. The note should
+         be typed after about a minute, once your keyboard has been quiet
+         there. If it is still waiting after a few minutes, the interrupt
+         wrote nothing to the transcript, so say so. Also press Escape alone
+         at an idle desk and check that a note still goes through.
+      4. Codex and its hooks (TODO OB-344). Hire a Codex desk and have the
+         manager send it a note. If the note waits, the desk's panel should
+         say to type `/hooks` there and trust the building's hooks. Do that
+         once, and the note should go through.
+      5. The waiting note. Have the manager send a note to a desk that is
+         working. The desk's docked panel should show a strip with the note's
+         text, the reason it waits and a Withdraw button. Press Withdraw, and
+         the strip and the sticky note should go. Then check three desks that
+         must be left alone. A desk with a permission prompt open, a desk
+         where you have typed half a line and a desk that is busy with a long
+         command should each hold the note and say why. If a note is ever
+         typed into one of them, say which.
+      6. An ending that goes quietly. Ask the manager to end an idle desk. The
+         manager's answer should say `stopped`. The desk should be on the
+         sign-out sheet with "Ended by the floor's manager" and the reason,
+         and the Manager panel's log should have the entry. Press Resume and
+         check that the conversation comes back. Sign that desk out again
+         yourself later, and the manager's line should be gone.
+      7. What the manager may not end. Ask it to end a session you started
+         outside the app, a plain shell, a desk in the chat view, the QA
+         reviewer and itself. Each should be refused, and the log should say
+         why. Pause the manager and ask it to end an ordinary desk. That
+         should be refused too.
+      8. An ending that is forced (TODO OB-341, OB-356). Ask the manager to
+         end a desk that does not go within 5 seconds. A desk in the middle of
+         a long shell command is one to try, and you may only meet this by
+         chance. The answer should say `forced`, and so should the sign-out
+         sheet. Then look for anything the ended agent started that is still
+         running, with `pgrep -fl 'claude|codex'` and a look for its shells
+         and servers. With Codex installed through npm, check that no `codex`
+         process outlived its launcher. Check too that no other desk was
+         touched.
+      9. The take-over button on a desk the app started. Open the desk's panel
+         and press "Take over with a new session". Nothing should be chosen in
+         the sheet, and Start should stay off until you have chosen the tool,
+         the model and the effort. Do it three times: Codex from a Claude Code
+         desk, Claude Code from a Codex desk and the same tool from itself.
+         Each new desk should start in the old desk's folder, its first prompt
+         should begin `Take over from <session id>.`, and it should read the
+         brief without asking you (TODO OB-319). The old session should keep
+         running with nothing typed into it.
+      10. A session started outside the app. Right-click its worker on the
+          floor and choose "Take over with a new session" from the menu. The
+          same should hold, and the outside session should be untouched.
+      11. The notes and the handover. Both desks should show their note, in
+          the panel and on the hover card. Neither desk should show anything
+          about a used-up limit, and the Handover group in Settings should
+          read as it did before. Restart the app, and the notes should be
+          gone, which is as built (TODO OB-349).
+      12. The brief. Open the newest file under `handover/briefs` in the app's
+          data folder. Its heading should read "Take-over brief". It should
+          say that the old session was not ended, and hold your prompts and
+          the agent's replies with tool output cut short and no reasoning. Run
+          `ls -l` on it, and it should be readable by you only. Nothing should
+          have been written into your repo.
+      13. A question for you, not a check. HUMAN_DECISIONS OB-333 and OB-334
+          now list the calls the build made while you were away. The ones most
+          worth your eye are these. A question a desk asks in plain prose no
+          longer holds a manager's note back. Thirty seconds of silence counts
+          as idle. The forced kill reaches only the terminal's own process,
+          and what that agent started itself is left to the system. Ending is
+          refused for chat desks. "A note first" is only an instruction to the
+          manager. The take-over sheet preselects nothing, and a take-over to
+          a used-up tool is not refused. Take-over notes do not survive a
+          restart. Say which you veto.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`

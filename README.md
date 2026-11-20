@@ -151,33 +151,53 @@ sessions as an **office building**:
 - **A manager on each floor hands work to its desks.** A floor has no manager
   until you hire one. The "Hire a manager" sign on the desk in the manager's
   office, and the Manager section on the rail, open the Manager panel, which
-  has the button. Hiring pins the floor. The manager is an ordinary Claude Code session on your plan, in one
-  of the app's terminals. It can read and search the floor's folder and use
-  seven tools the building gives it: list the desks, read a desk, read the
-  TODO lists, send a desk a note, wait for a desk, hire a desk and escalate a
-  question to you. It cannot run a command, edit a file, stop an agent or
-  answer an agent's permission prompt, and it cannot see or touch another
-  floor. A note reaches a desk only when that desk is idle. Until then it
-  waits, the desk carries a sticky note, and the Manager panel says why. A
-  desk without a terminal gets the note as its next turn. A Claude Code or
+  has the button. Hiring pins the floor. The manager is an ordinary Claude
+  Code session on your plan, in one of the app's terminals. It can read and
+  search the floor's folder and use eight tools the building gives it: list
+  the desks, read a desk, read the TODO lists, send a desk a note, wait for a
+  desk, hire a desk, escalate a question to you and end a desk. It cannot run
+  a command, edit a file, stop a turn or answer an agent's permission prompt,
+  and it cannot see or touch another floor. A note reaches a desk only when
+  that desk can take it. Until then it waits. The desk carries a sticky note,
+  a strip in the desk's own panel shows the note with the reason it waits and
+  a Withdraw button, and the Manager panel says the same. The manager is told
+  what became of each note: typed, sent, on its way, or waiting and for what.
+  A desk without a terminal gets the note as its next turn. A Claude Code or
   Codex desk in one of the app's terminals gets it typed in, starting "Note
-  from this floor's manager", but never while it waits on a prompt, never
-  within a minute of your last keystroke there and never on top of a line
-  you have left unsent. Notes to a desk you started by hand, and to opencode,
+  from this floor's manager", but never while it is working, never while a
+  permission prompt or a formal question is open, never within a minute of
+  your last keystroke there and never on top of a line you have left unsent. A
+  desk that ended its turn on a question in plain prose does take a note, so
+  the manager may answer it before you do. A desk that has just started counts
+  as idle after ten seconds, and a desk you interrupted counts as idle after
+  30 seconds of silence. Notes to a desk you started by hand, and to opencode,
   Cursor and Antigravity desks in a terminal, wait and are shown but are not
-  typed. A message you send a desk replaces the notes waiting for it. Every
-  delivered note is walked across the floor and listed in the panel's log,
-  and a desk the manager drives carries a "managed" mark. The manager may
-  hire desks only on a floor where you have switched "May hire desks" on, up
-  to 3 at once and until the desks it hired have spent 20 US dollars. Paused,
-  it can still read the floor, but nothing is sent, hired or escalated. A
-  question it escalates lands on the memo pile, and in the repo's
-  `HUMAN_DECISIONS.md` when there is one. Its desk light is green while it
-  works, yellow while a question of its own is open and off while it is
-  paused. To send it home, type `/exit` in its terminal. Its tools reach the
-  app through a helper that talks to an owner-only Unix socket in the app's
-  data folder, with a random token for each launch held in memory, and
+  typed. A Codex desk takes notes once you have trusted the building's hooks
+  there with `/hooks`. A message you send a desk replaces the notes waiting
+  for it. Every delivered note is walked across the floor and listed in the
+  panel's log, and a desk the manager drives carries a "managed" mark. The
+  manager may hire desks only on a floor where you have switched "May hire
+  desks" on, up to 3 at once and until the desks it hired have spent 20 US
+  dollars. Paused, it can still read the floor, but nothing is sent, hired,
+  escalated or ended. A question it escalates lands on the memo pile, and in
+  the repo's `HUMAN_DECISIONS.md` when there is one. Its desk light is green
+  while it works, yellow while a question of its own is open and off while it
+  is paused. To send it home, type `/exit` in its terminal. Its tools reach
+  the app through a helper that talks to an owner-only Unix socket in the
+  app's data folder, with a random token for each launch held in memory, and
   that socket opens no network port.
+- **The manager can end a desk on its floor.** It may end a desk that the app
+  started in one of its own terminals, and it must give a reason. The building
+  asks the agent to stop, waits up to 5 seconds, and then kills the one
+  process it started in that terminal. Nothing wider is signalled, so anything
+  the agent started itself is left to the system. Work the agent had not saved
+  is lost. The manager cannot end itself, the QA reviewer, a desk in the chat
+  view, a desk on another floor, a desk that is being handed over or a session
+  you started outside the app. Its instructions tell it to send a note first
+  and to end a desk only as a last resort, and nothing enforces that. The
+  ended desk goes on the sign-out sheet with "Ended by the floor's manager"
+  and the reason, and can be resumed there. No setting switches this off, and
+  pausing the manager stops it. None of it has run with a real agent yet.
 - **Hire an agent** from the empty desk: pick the tool (Claude Code, Codex,
   Antigravity, opencode or Cursor; tools not installed are greyed out), the
   model and an effort level the model supports, ultracode for Claude Code, and
@@ -387,6 +407,22 @@ sessions as an **office building**:
   handover has run in the installed app or met a real used-up allowance yet.
   What is known about Codex comes from replaying a refusal to Codex 0.161.0 on
   a throwaway home with no login, and nothing was sent to OpenAI.
+- **Take over a desk with a new session.** A desk's panel has a "Take over
+  with a new session" button, and a worker's right-click menu has the same
+  line, which also reaches a Claude Code or Codex session you started outside
+  the app. It opens the Hire sheet with nothing chosen. You pick the tool
+  (Claude Code or Codex, the same one included), the model and the effort. The
+  building writes a brief of the old session's visible conversation and the
+  state of its folder, as it does for a handover, and starts an ordinary desk
+  in the same folder whose first prompt is "Take over from", the old session's
+  id and where the brief is. So what was said at the desk goes to the provider
+  you chose, including any secret a tool printed. The old session is not
+  stopped, signalled or typed into. It keeps running until you close it, so
+  two agents may change the same files for a while. Both desks carry a note
+  saying who took over from whom, until the app restarts. It needs no Handover
+  setting, records no used-up allowance and does not check whether the tool
+  you chose is itself used up. A desk in the chat view, the manager and the QA
+  reviewer cannot be taken over. None of it has run in the installed app yet.
 - **Claude Code and Codex sessions are auto-discovered** from each tool's
   on-disk store, so terminals you started by hand still appear in the building.
   Antigravity, opencode and Cursor agents appear when you hire them from the app.
@@ -550,10 +586,10 @@ src/
     editor/               # the "Open in" button and its menu
     connectors/           # the Info panel's Linear row and its connect form
     qa/                   # the Info panel's Quality assurance row and the QA stamp
-    manager/              # the Manager panel: hire, pause, the plan, waiting notes and the log
+    manager/              # the Manager panel: hire, pause, the plan, waiting notes and the log, and the strip for a waiting note on a desk's panel
     chat/                 # the chat view's parts: Markdown, tool cards, diffs, the approval card and the message box
     routing/              # the Routing group's context and connection cards, the Info panel's Account context row and the Route strip on a routed desk's panel
-    handover/             # the Handover strip on a used-up desk's panel, with its button and confirmation row
+    handover/             # the Handover strip on a used-up desk's panel, with its button and confirmation row, and the take-over strip with its button
   styles/                 # tokens (from DESIGN.md) and signage chrome
   App.tsx                 # view-state machine (building ↔ floor) + toasts
 
@@ -562,7 +598,7 @@ src-tauri/
     model.rs              # serde mirror of types.ts (camelCase / kebab-case)
     discovery/            # Claude Code and Codex sources, state rules, pets, pricing, floor assembly, a Claude Code transcript read as a conversation, a Codex rollout read for its usage limit, its goal and its conversation, the follower both readers share
     office.rs             # discovery + the app's own records behind one lock
-    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, the routed launch, the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation), and handing a used-up desk over (reading the proof from either tool's own record, ending the old session, starting the receiver)
+    office/               # launching agents in terminals, the Setup floor, structured desks, a desk's folder, TODO lists, a floor's links, fixed-role agents, the QA reviewer's seat, the manager's seat and tools, handing notes to desks, the routed launch, the chat (a desk's view, A Human's own messages, Stop, following a Claude Code conversation), and handing a used-up desk over (reading the proof from either tool's own record, ending the old session, starting the receiver), a take-over that starts a new session beside an old one, and a manager ending a desk on its floor
     project_files.rs      # decisions and TODOs read from (and written back to) each repo's files
     store.rs              # decisions, TODOs, agent notes (JSON in the app data dir)
     settings.rs, settings/ # the app's settings (settings.json in the app data dir)
@@ -574,7 +610,7 @@ src-tauri/
     manager/              # a floor's manager: its socket, tokens, the MCP server it talks to, the helper mode and the tool list
     delivery/             # notes and messages for desks: cleaning the text, deciding whether a desk can take one, the queue
     routing/              # provider routing, with its preferences, the selection policy, exhaustion records and their file, the failover state machine, connection keys, the router on the loopback address, the relays to Anthropic and OpenRouter, the experimental translation to OpenAI's Responses format, a reply read as evidence, the router's own answers and what a routed launch adds
-    handover/             # handing a used-up desk to the other tool: the used-up record and its file, the decision, the work log, the brief and its git summary, the receiver's sign-in check, first prompt and leave to read the brief, and the view
+    handover/             # handing a used-up desk to the other tool: the used-up record and its file, the decision, the work log, the brief and its git summary, the receiver's sign-in check, first prompt and leave to read the brief, the take-over's brief and first prompt, and the view
     secrets.rs            # secrets that cannot be printed, kept in the macOS Keychain, with a fake for tests
     http.rs               # one HTTPS JSON POST on the system's TLS, with a fake for tests
     poll.rs               # a background job on a timer that backs off, waits when told to and can be woken

@@ -350,6 +350,8 @@ This amends one earlier ruling, and the amendment is A Human's own. OB-011 defer
 
 Noted on 2026-11-13 by the build of GitHub issue #8 (OB-210). The words "nothing listens on a network port" above were true of the whole app when they were written. They still hold for the manager's socket, which opens no port. The app now also has a listener of another kind, on the loopback address `127.0.0.1` only, from the first launch of a routed desk until the app exits. That a desk's login may cross a loopback router in the app is A Human's ruling of 2026-11-12. How the listener works is a call of the build, listed in OB-210, which A Human has not yet seen.
 
+Amended on 2026-11-20 by A Human (OB-333). "It only orchestrates" and "the manager gets no exception" above no longer hold in full. A floor's manager may now end a desk the app started on its own floor, with a polite stop and then a forced one. It still has no shell and no file editing, and it still cannot answer a permission prompt, stop a turn, end the QA reviewer or itself, or hand a desk over. The source test named above now lets the manager's files reach that one call and nothing else that stops an agent. The rule that a note is typed only when the hook feed says the desk is idle was also widened by the build, not by A Human, and OB-333 lists how.
+
 ## OB-181 — How should a desk get a chat view, and how does Claude Code get one? — DECIDED 2026-11-12: a Claude Code chat desk is an ordinary Claude Code session in the app's own terminal, drawn from its transcript and typed into when idle, with no `claude -p`, and the rest left to the build
 
 GitHub issue #6 asks for a setting that switches a desk from the terminal to a chat of the building's own, the same for every tool. A Human asked for it on 2026-11-11. It is a follow-up to OB-040.
@@ -746,7 +748,46 @@ A Human on 2026-11-20: "I've tried using a manager to manage desks and it couldn
 - Ending desks: "App-started, polite then forced". Any desk on the manager's own floor that the app started. It asks the agent to stop and force-kills it if it has not gone after a few seconds. Sessions started outside the app are never touched.
 - Speaking to desks: the desks it failed to reach were "Desks hired in the app", so that is a defect to find and fix, not a limit to explain.
 
-This amends OB-152 ("it only orchestrates") and adds a fifth exception to TODO OB-027, the first one that an agent and not A Human sets off. Not built yet (TODO OB-333).
+This amends OB-152 ("it only orchestrates") and adds a fifth exception to TODO OB-027, the first one that an agent and not A Human sets off.
+
+Built on 2026-11-20 as TODO OB-333 and tested with fakes only. No manager was hired, no note was typed into a real agent and no agent was ended.
+
+Calls the build made while A Human was away. Only the quote and the two choices above are A Human's. Everything below is a call of the build brief's dispatcher, of the design or of the review. Each stands until A Human says otherwise, and A Human can veto any of them.
+
+From the design. The calls most worth A Human's eye come first, and none of them is A Human's:
+
+- A question a desk asks in plain prose no longer holds a manager's note back. A desk whose last reply ends on "Want me to…?" has finished its turn, and the building used to treat that as a prompt only A Human could answer. That was the likeliest reason the manager could not speak to desks. It also means the manager can now answer a question the agent put to A Human in prose. A formal question and a permission prompt still hold the desk, and the manager still cannot answer either.
+- Thirty seconds of silence counts as idle. Claude Code runs no `Stop` hook after an interrupt, so a desk A Human stopped with Escape never read as idle. A desk whose own files say idle, with no hook event, no transcript entry and no terminal output for 30 seconds, now takes a note. Whether a real agent can be at work in silence while its files say idle was not tried. If one is, the note is typed into it. Anthropic's page says Claude Code queues what is typed during a turn, which was read and not run.
+- A session start counts as idle after ten seconds. A desk hired with no task, resumed or cleared had no idle signal at all. A start whose first prompt is held back for longer than that by A Human's own start hooks could get a note early (TODO OB-355).
+- Escape alone is not an unsent line. It used to hold the desk until A Human pressed Enter there.
+- The forced kill reaches only the terminal's own child, the one process the app started there. What that agent started itself, its shells, its helper servers and a Codex binary behind the npm launcher, is left to the system's hang-up, which was not probed (TODO OB-341).
+- Ending is refused for a desk in the app's chat view, because it has no terminal and its driver's stop has no polite step (TODO OB-339).
+- "A note first" is an instruction to the manager and is not enforced, because a stuck desk cannot take a note. Nothing caps how many desks a manager may end (TODO OB-340).
+- No switch turns the ending off. Pausing the manager refuses its endings with its sends and hires (TODO OB-338).
+- "A few seconds" is 5 seconds after the polite stop and 3 more after the forced one. A desk that outlives both is reported to the manager as not ended.
+
+From the design, the rest:
+
+- `send_to_desk` answers `typed`, `sent`, `on-its-way` or `waiting`, with the reason. It no longer says `delivered` for a note that was only typed.
+- A note that is waiting shows in the desk's own panel with the reason and a Withdraw button.
+- Six kinds of notification that are not questions, such as a finished sign-in, no longer read as "waiting on you".
+- A waiting note does not follow its desk to another floor. It is dropped and the manager is told.
+- `end_desk` takes a reason of one line, which the Manager panel's log and the sign-out sheet show.
+- The polite stop and the forced kill each go to one process id, and only while the kernel reports that process as the app's own running child that has not been reaped. No process group is signalled.
+- The ending lives outside the manager's files. The guard lets those files name one call, once, and keeps every other name that stops, signals, types, exiles, demolishes, hangs up, hands over or takes over forbidden.
+- A desk stuck on an error still takes no note (TODO OB-342).
+- No setting was added and no dependency.
+
+From the review, after the design:
+
+- A plain shell and a `claude attach` terminal are refused as started outside the building, although they run in the app's terminals.
+- A desk still on its placeholder id is refused, and so is a desk that is being taken over. A desk a manager is ending cannot be taken over.
+- The answer says `stopped` when the process had gone before anything was forced.
+- The guard's lists gained the chat drivers' stop, cancel and answer, and the ending file may not name a process group kill or start a program.
+- The sign-out sheet says a manager ended a session only while that session has done nothing since, so a desk A Human resumed does not carry the line later.
+- Three findings stay open. A session start may read as idle while the first turn is still on its way (TODO OB-355). The check before the forced kill and the kill are two steps (TODO OB-356). Two test helpers are copied (TODO OB-357).
+
+The checks for A Human are HUMAN_TODO OB-337, and the deferrals and open findings are TODO OB-338 to OB-348 and OB-354 to OB-358.
 
 ## OB-334 — A handover you ask for, to a provider you choose — DECIDED 2026-11-20: a button starts a new session on the chosen provider, the old session keeps running, and the first prompt is the line plus the brief
 
@@ -755,7 +796,37 @@ A Human on 2026-11-20: "I want a handover button that will start a new session (
 - The old session: "Keep it running". It is left alone and the new one starts beside it in the same folder. A Human closes the old one. The risk A Human accepted is two agents in one folder while the old one is still working.
 - The first prompt: "The line plus the brief". "Take over from <session id>" followed by a pointer to the brief the building already writes (TODO OB-284).
 
-This is separate from the handover of a used-up desk (OB-283), which still ends the old session. Not built yet (TODO OB-334).
+This is separate from the handover of a used-up desk (OB-283), which still ends the old session.
+
+Built on 2026-11-20 as TODO OB-334 and tested with fakes only. No session was started by it.
+
+Calls the build made while A Human was away. Only the quote and the two choices above are A Human's. Everything below is a call of the build brief's dispatcher, of the design or of the review. Each stands until A Human says otherwise, and A Human can veto any of them.
+
+From the design. The calls most worth A Human's eye come first, and none of them is A Human's:
+
+- "Your chosen provider" is read as the tool, the model and the effort, picked at the moment of asking in the Hire sheet's take-over mode. Nothing is preselected, and the Handover settings are not read, so the button works with the handover switched off (TODO OB-351).
+- A take-over to a tool recorded as used up is not refused. The new session starts and says so itself (TODO OB-353).
+- The take-over notes on the two desks are kept in memory and are gone after a restart (TODO OB-349).
+- The line is `Take over from <session id>.`, with a full stop the build added, followed by one sentence that points at the brief and calls it a record and not instructions. The whole prompt is one line.
+- The brief goes to the provider chosen, with the visible conversation and tool output cut short, so a secret a tool printed goes with it, as in OB-283. The sheet says so before A Human starts.
+- Only Claude Code and Codex can receive a take-over or be taken over (TODO OB-350).
+
+From the design, the rest:
+
+- Any Claude Code or Codex session at a desk can be taken over, whether or not the app started it, because nothing is ended. A desk in a chat view, the manager, the QA reviewer and a desk that is being handed over cannot.
+- There are two doors, a button on the desk's panel and a line in the worker's right-click menu, both on the floor view (TODO OB-352).
+- The new session is an ordinary terminal desk hired through the existing hire path in the old desk's checkout folder, routed like any hire.
+- A session id is written into the prompt only if it is at most 100 letters, digits, hyphens and underscores.
+- The brief shares the handover's numbering and its rule of keeping ten, and says that the old session was not ended and may still be changing files.
+- The receiving tool's sign-in is checked by its status command's exit code, as in the handover.
+- No used-up subscription is recorded, and the bounds of OB-283 are untouched. The manager cannot reach the take-over.
+
+From the review, after the design:
+
+- A desk is marked while its take-over starts. A second take-over of it and a manager's ending are refused until the first has started or failed.
+- The newest take-over is the one each desk shows.
+
+The checks for A Human are HUMAN_TODO OB-337, steps 9 to 12, and the deferrals are TODO OB-349 to OB-354.
 
 ## OB-335 — The look of provider, model and effort (GitHub issue #14) — DECIDED 2026-11-20: the six woods as listed with generated grain, and all 24 sheets generated unattended
 
