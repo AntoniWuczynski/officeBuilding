@@ -1,0 +1,45 @@
+/* An island's inside: the floor view as a beach camp. The room's materials and the deep sea behind it change here; the
+   huts, palms and sand are drawn by FloorView's island look. Every panel and control is the office's own. Scoped to
+   .arch-floor, which App puts on the floor in the island view. */
+.arch-floor {
+  --room-floor: #f1deaa;
+  --room-slab: #d8bd82;
+  --room-slab-shade: #b99a60;
+}
+/* Desks, counters and posts read as driftwood and bamboo. */
+.arch-floor {
+  --timber: #c9a468;
+  --timber-front: #a97f43;
+  --timber-side: #8a6532;
+  --leaf: #3f9b4a;
+  --leaf-shade: #2d7a38;
+}
+/* Deep water all round; the sand and lagoon lie on the room's floor plane, so they zoom and pan with it. */
+.arch-floor .floor-main {
+  background: radial-gradient(ellipse 100% 100% at 50% 56%, #4fbde6 0 40%, #2a95d6 78%, #1478bd 100%);
+}
+
+/* Open air: no walls and no glass office. Their boards (Human TODO, TODO, Spend, Info) are all on the rail at the
+   right, and wall text sat on a skewed plane at a size nobody could read. */
+.arch-floor .iso-wall {
+  display: none;
+}
+
+/* No office chair: they stand behind a crate, as on the islands map. */
+.arch-floor .pp-chair {
+  display: none;
+}
+
+/* A front hut's roof may stand over a back-row person; a click goes through it to them. */
+.arch-floor .hut * {
+  pointer-events: none;
+}
+
+/* The next hut along a row stands 50px nearer the camera than this worker, and its roof's corner cut the end of a long
+   name tag. The tag stands 60px nearer, in front of it; the view has no perspective, so it keeps its size. */
+.arch-floor .worker {
+  transform-style: preserve-3d;
+}
+.arch-floor .worker .name-tag {
+  transform: translateX(-50%) translateZ(60px);
+}

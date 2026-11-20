@@ -113,6 +113,10 @@
 .storey-hit > i {
   background: transparent;
 }
+/* Its front face stands in front of the people at their desks and would take their clicks. */
+.storey-hit > .iso-front {
+  pointer-events: none;
+}
 /* Only the room slides out like a drawer; the nameplate stays put so it is a stable target. */
 .storey-slide {
   position: absolute;
@@ -862,6 +866,21 @@ button.roof-sign:hover {
 .nameplate-kind {
   font-size: 10px;
   letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* A project block's label rides the top floor's front wall, right of the nameplates (which stand left of the anchor). */
+.block-label {
+  position: absolute;
+  left: 10px;
+  bottom: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  font: 700 12px/1 var(--font-sign);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-soft);
 }

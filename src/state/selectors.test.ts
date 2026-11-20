@@ -21,7 +21,9 @@ import {
   matchesQuery,
   openCount,
   projectCounts,
+  needsYouQueue,
   questionQueue,
+  tripTag,
   questionsForProject,
   qaFor,
   qaLine,
@@ -36,6 +38,9 @@ import {
   sessionsForProject,
   todosForProject,
   totalSpend,
+  boardItemsForProject,
+  lastReplyLine,
+  sessionsByUrgency,
 } from "./selectors";
 import { makeSeedSnapshot } from "../api/mockData";
 import type { EditorList, QaFloor, Question, Review, Session, SessionState } from "../types";
@@ -52,11 +57,15 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
     effort: over.effort ?? null,
     lastActivityAt: over.lastActivityAt ?? "2026-09-28T00:00:00Z",
     pendingQuestionIds: over.pendingQuestionIds ?? [],
+    sessionName: null,
+    sessionNameSource: null,
+    selfReviewed: false,
     spend: over.spend ?? { usd: 0, tokens: 0, unpricedTokens: 0 },
     helpers: over.helpers ?? [],
     pets: over.pets ?? [],
     worktree: over.worktree ?? false,
     branch: over.branch ?? null,
+    lastReply: over.lastReply ?? null,
   };
 }
 
@@ -239,7 +248,7 @@ describe("editor lines", () => {
 const LINK: FloorLink = { kind: "linear", teamId: "t", teamKey: "ENG", teamName: "Engineering", project: null, label: null };
 const NOW = new Date("2026-11-12T10:20:00Z");
 const connection = (patch: Partial<Connection>): Connection => ({ projectId: "p-1", link: LINK, fetchedAt: null, error: null, needsKey: false, truncated: false, ...patch });
-const todo = (source: TodoItem["source"]): TodoItem => ({ id: "x", projectId: "p-1", text: "x", done: false, assignee: "ai", source });
+const todo = (source: TodoItem["source"]): TodoItem => ({ id: "x", projectId: "p-1", text: "x", done: false, assignee: "ai", source, projectTag: null });
 
 describe("connector selectors", () => {
   it("finds a floor's connection", () => {
@@ -338,5 +347,77 @@ describe("QA selectors", () => {
       expect(splitReviewer(sessions, floor())).toEqual({ seated: sessions, reviewer: undefined });
       expect(splitReviewer(sessions, undefined)).toEqual({ seated: sessions, reviewer: undefined });
     });
+  });
+});
+
+describe("the Needs-you queue", () => {
+  const file = (id: string, askedAt: string) => ({ ...question(id, 0, askedAt), sessionId: "", answerVia: "file" as const });
+  it("puts live session asks before decisions-file calls, whatever their priority, newest first within each", () => {
+    const snap = {
+      ...makeSeedSnapshot(),
+      questions: [file("f-new", "2026-09-30T10:00:00Z"), question("live-old", 5, "2026-09-28T09:00:00Z"), file("f-old", "2026-09-01T10:00:00Z"), question("live-new", 9, "2026-09-29T09:00:00Z")],
+    };
+    expect(needsYouQueue(snap).map((q) => q.id)).toEqual(["live-new", "live-old", "f-new", "f-old"]);
+  });
+  it("leaves the floor's own order and the building's urgency order alone", () => {
+    const snap = makeSeedSnapshot();
+    expect(needsYouQueue(snap).map((q) => q.id)).toEqual(["q-1", "q-2", "q-3"]);
+    expect(questionQueue(snap).map((q) => q.id)).toEqual(["q-2", "q-3", "q-1"]);
+    expect(questionsForProject(snap, "p-shop").map((q) => q.id)).toEqual(["q-2", "q-1"]);
+  });
+});
+
+describe("tripTag", () => {
+  it("names sender and recipient, cut to fit", () => {
+    const [a, b] = makeSeedSnapshot().sessions;
+    if (a === undefined || b === undefined) throw new Error("seed");
+    expect(tripTag(a, b)).toBe("audit checkout to orders ingest\u2026");
+  });
+});
+
+describe("sessionsByUrgency", () => {
+  it("puts the most urgent first and keeps the place's own order among equals", () => {
+    const sessions = [session("idle", { id: "a" }), session("error", { id: "b" }), session("idle", { id: "c" }), session("waiting-human", { id: "d" })];
+    expect(sessionsByUrgency(sessions).map((s) => s.id)).toEqual(["b", "d", "a", "c"]);
+    expect(sessions.map((s) => s.id)).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+describe("lastReplyLine", () => {
+  it("says the reply, and nothing when there is none", () => {
+    expect(lastReplyLine("Done: 3 findings.")).toBe("Last reply: Done: 3 findings.");
+    expect(lastReplyLine(null)).toBeNull();
+    expect(lastReplyLine("  \n ")).toBeNull();
+  });
+});
+
+describe("boardItemsForProject", () => {
+  const snap = makeSeedSnapshot();
+  const ids = (project: string, linked: readonly string[] = []): string[] => {
+    const p = snap.projects.find((x) => x.id === project);
+    if (p === undefined) throw new Error("seed");
+    return boardItemsForProject(snap, p, linked).map((t) => t.id.slice(-1));
+  };
+
+  it("takes the items tagged with the folder's name, and only those", () => {
+    expect(ids("p-shop")).toEqual(["1"]);
+    expect(ids("p-arcade")).toEqual([]);
+  });
+
+  it("matches the folder name after a rename, and the name you gave it", () => {
+    const renamed = { ...snap, projects: snap.projects.map((p) => (p.id === "p-shop" ? { ...p, name: "Home base" } : p)) };
+    const p = renamed.projects[0];
+    if (p === undefined) throw new Error("seed");
+    expect(boardItemsForProject(renamed, p, []).map((t) => t.id.slice(-1))).toEqual(["1"]);
+    const gave = { ...snap, projects: snap.projects.map((x) => (x.id === "p-notes" ? { ...x, name: "OFFICE building " } : x)) };
+    const n = gave.projects[3];
+    if (n === undefined) throw new Error("seed");
+    expect(boardItemsForProject(gave, n, []).map((t) => t.id.slice(-1))).toEqual(["2"]);
+  });
+
+  it("matches a linked tag whatever its case or spacing, and never an untagged item", () => {
+    expect(ids("p-office")).toEqual([]);
+    expect(ids("p-office", ["  office BUILDING"])).toEqual(["2"]);
+    expect(ids("p-arcade", ["", "  "])).toEqual([]);
   });
 });

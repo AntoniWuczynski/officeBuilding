@@ -7,8 +7,8 @@ use crate::feed::Feed;
 use crate::focus;
 use crate::model::{
     AgentMessage, AnswerVia, ControlMode, DeskView, EndedSession, HireFailed, HireRequest,
-    OfficeSnapshot, Project, Question, QuestionAnswer, Session, SessionState, Shell, Spend,
-    TerminalBacklog, TerminalExit, ToolKind,
+    OfficeSnapshot, Project, Question, QuestionAnswer, Session, SessionState, SharedBoard, Shell,
+    Spend, TerminalBacklog, TerminalExit, ToolKind,
 };
 use crate::project_files::{self, ProjectFiles};
 use crate::pty::{self, Terminals};
@@ -32,8 +32,12 @@ struct Inner {
     /// Events from the hooks of agents the app launched.
     feed: Feed,
     found: Discovered,
+    /// Where each moved session was discovered, by session id: what a move back restores.
+    moved_from: BTreeMap<String, String>,
     /// Decisions and TODOs from each floor's own files, by project id.
     files: BTreeMap<String, ProjectFiles>,
+    /// The checklist files `boards.shared_files` names, in that order.
+    boards: Vec<SharedBoard>,
     store: Store,
     /// The session each app-owned terminal is running, by terminal id. It
     /// outlives the agent so its last output stays readable.
@@ -41,6 +45,8 @@ struct Inner {
     /// Every session a terminal has run, by session id, so a panel opened on an
     /// earlier session (before a `/clear`) keeps reaching the same terminal.
     ran_in: BTreeMap<String, String>,
+    /// The terminal running `claude attach` for each background session, by session id.
+    attached: BTreeMap<String, String>,
     /// Hired terminals no session has been bound to yet, with the task they
     /// were hired for: if one exits first, the hire failed after all.
     hired: BTreeMap<String, String>,
@@ -91,6 +97,8 @@ pub struct Office {
     handover_host: Option<HandoverHost>,
     /// The transcript readers the handover follows. Taken before the office lock, never under it.
     limits: Mutex<handover::Limits>,
+    /// The grouping rules file and when it was last read.
+    project_rules: Mutex<crate::project_rules::ProjectRules>,
 }
 
 /// Pushed when a hired agent exits before it ever reached a desk.
@@ -326,6 +334,7 @@ impl Office {
         structured: Arc<Desks>,
     ) -> Self {
         let discovery = Discovery::new(home.clone());
+        let rules_file = store.path().with_file_name(crate::project_rules::FILE);
         Self {
             setup_project_id: discovery::project_id(&discovery::project_root(setup.dir())),
             setup,
@@ -335,10 +344,13 @@ impl Office {
                 discovery,
                 feed,
                 found: Discovered::default(),
+                moved_from: BTreeMap::new(),
                 files: BTreeMap::new(),
+                boards: Vec::new(),
                 store,
                 owned: BTreeMap::new(),
                 ran_in: BTreeMap::new(),
+                attached: BTreeMap::new(),
                 hired: BTreeMap::new(),
                 desks: BTreeMap::new(),
                 shells: BTreeMap::new(),
@@ -359,6 +371,7 @@ impl Office {
             routing: None,
             handover_host: None,
             limits: Mutex::default(),
+            project_rules: Mutex::new(crate::project_rules::ProjectRules::at(rules_file)),
         }
     }
 
@@ -369,12 +382,35 @@ impl Office {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Re-scan the tools' files. Returns whether anything visible changed.
+    /// Re-scan the tools' files and the grouping rules. Returns whether anything visible changed.
     pub fn refresh(&self) -> bool {
+        let scanned = self.rescan();
+        let rules = self
+            .project_rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .changed();
+        scanned || rules
+    }
+
+    fn rescan(&self) -> bool {
         let mut guard = self.lock();
         let inner = &mut *guard;
         let mut found = inner.discovery.scan(SystemTime::now());
         let pinned = inner.store.records.pinned_floors.clone();
+        // An empty pinned floor can be a move's target, and a sunk floor's drop must see where sessions now sit.
+        add_pinned_floors(&mut found, &pinned, &self.home);
+        inner.moved_from = apply_moves(&mut found, &inner.store.records.moved_sessions);
+        let desk_ids: Vec<String> = inner.desks.keys().map(|t| desk_session_id(t)).collect();
+        let on_books = |id: &str| {
+            desk_ids.iter().any(|d| d == id)
+                || found.sessions.iter().any(|s| s.id == id)
+                || found.ended.iter().any(|e| e.id == id)
+        };
+        // A failed save only leaves the change to be made again by the next scan.
+        if prune_moves(&mut inner.store.records, on_books, chrono::Utc::now()) {
+            let _ = inner.store.save();
+        }
         drop_demolished(&mut found, &inner.store.records.demolished_floors);
         if let Some(data) = inner.store.path().parent() {
             reviewers::hide_ended_reviewers(&mut found, &qa::worktrees_dir(data));
@@ -413,14 +449,11 @@ impl Office {
                 .insert(session.id.clone(), desk.root.clone());
             found.sessions.push(session);
         }
-        let discovery = &inner.discovery;
-        let elsewhere = claim_owned(
-            &mut found.sessions,
-            &mut inner.owned,
-            &running,
-            |id| discovery.pid_of(id),
-            focus::parent_pid,
-        );
+        // Desks exist only now; the moves of discovered sessions are already applied.
+        inner
+            .moved_from
+            .extend(apply_moves(&mut found, &inner.store.records.moved_sessions));
+        let elsewhere = claim_terminals(inner, &running, &mut found);
         for (terminal, session) in &inner.owned {
             inner.ran_in.insert(session.clone(), terminal.clone());
         }
@@ -433,14 +466,29 @@ impl Office {
         reopen_earlier_sessions(&mut found.sessions, &inner.ran_in);
         inner.feed.collect(SystemTime::now());
         inner.feed.apply(&mut found.sessions);
+        let shared = self.settings.as_ref().map(|s| s.get().boards.shared_files);
+        let boards: Vec<SharedBoard> = shared
+            .iter()
+            .flatten()
+            .map(|path| project_files::read_board(path))
+            .collect();
+        let canonical: Vec<PathBuf> = boards
+            .iter()
+            .filter_map(|b| Path::new(&b.path).canonicalize().ok())
+            .collect();
         let files: BTreeMap<String, ProjectFiles> = found
             .roots
             .iter()
-            .map(|(id, root)| (id.clone(), project_files::read(root, id)))
+            .map(|(id, root)| {
+                let mut files = project_files::read(root, id);
+                project_files::leave_to_boards(&mut files, root, &canonical);
+                (id.clone(), files)
+            })
             .collect();
-        let changed = found != inner.found || files != inner.files;
+        let changed = found != inner.found || files != inner.files || boards != inner.boards;
         inner.found = found;
         inner.files = files;
+        inner.boards = boards;
         changed
     }
 
@@ -458,7 +506,14 @@ impl Office {
                 .flat_map(|f| f.decided.iter().flatten().cloned()),
         );
         let todos = self.all_todos(&inner);
-        let (projects, sessions, ended) = with_structured(&inner.found, &self.structured);
+        let (projects, mut sessions, ended) = with_structured(&inner.found, &self.structured);
+        let rules = self.rules_view();
+        for s in &mut sessions {
+            s.self_reviewed =
+                inner.found.skills.get(&s.id).is_some_and(|called| {
+                    called.iter().any(|name| rules.review_skills.contains(name))
+                });
+        }
         OfficeSnapshot {
             projects,
             sessions,
@@ -466,7 +521,7 @@ impl Office {
             questions,
             decisions,
             todos,
-            messages: r.messages.clone(),
+            messages: crate::store::recent_messages(&r.messages, &inner.found.peer_messages),
             setup_project_id: self.setup_project_id.clone(),
             shells: inner.shells.values().cloned().collect(),
             connections: self.connections(&inner),
@@ -475,7 +530,31 @@ impl Office {
             chat_desks: Self::chat_desks(&inner),
             queued: self.queued_messages(&inner),
             handover: inner.handover.view.clone(),
+            shared_boards: inner.boards.clone(),
+            project_rules: rules.rules.iter().map(Into::into).collect(),
+            harness_id: rules.harness_id,
+            project_rules_error: rules.error,
         }
+    }
+
+    fn rules_view(&self) -> crate::project_rules::RulesView {
+        let mut rules = self
+            .project_rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        rules.view().clone()
+    }
+
+    /// Put a repo or a session's name under a project in the app's own `projects.json`.
+    pub fn assign_project(
+        &self,
+        target: &crate::project_rules::Target,
+        project: &crate::project_rules::Choice,
+    ) -> Result<(), String> {
+        self.project_rules
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .assign(target, project)
     }
 
     /// `spawn_session`, with the terminal it started (None for a structured desk).
@@ -536,6 +615,9 @@ impl Office {
         let terminal = self.launch_routed(&root, &command, launched, routed)?;
         // A discovered session's real id arrives with discovery; this is only the receipt.
         let session = Session {
+            session_name: None,
+            session_name_source: None,
+            self_reviewed: false,
             id: if is_discovered(req.tool) {
                 format!("hired-{}", chrono::Utc::now().timestamp_millis())
             } else {
@@ -555,6 +637,7 @@ impl Office {
             pets: Vec::new(),
             worktree: false,
             branch: None,
+            last_reply: None,
         };
         Ok((session, Some(terminal)))
     }
@@ -626,52 +709,6 @@ impl Office {
             }
         }
         Ok(terminal)
-    }
-
-    /// Pull a floor down: stop its running agents cleanly, then hide it until a
-    /// new session starts there. An agent that does not stop keeps it standing.
-    pub fn demolish_floor(&self, project_id: &str) -> Result<(), String> {
-        let (root, agents) = {
-            let inner = self.lock();
-            let root = inner
-                .found
-                .roots
-                .get(project_id)
-                .cloned()
-                .ok_or_else(|| format!("{project_id} is not a floor of this building"))?;
-            let mut agents = Vec::new();
-            for s in inner
-                .found
-                .sessions
-                .iter()
-                .filter(|s| s.project_id == project_id)
-            {
-                let pid = inner.discovery.pid_of(&s.id).or_else(|| {
-                    inner
-                        .ran_in
-                        .get(&s.id)
-                        .and_then(|t| self.terminals.pid(t).ok())
-                });
-                let pid = pid.ok_or_else(|| {
-                    format!("{} cannot be stopped: its process is unknown", s.title)
-                })?;
-                agents.push((s.title.clone(), pid));
-            }
-            (root, agents)
-        };
-        stop_agents(&agents, STOP_WAIT)?;
-        self.hang_up_shells(project_id);
-        {
-            let mut inner = self.lock();
-            let key = root.to_string_lossy().into_owned();
-            inner.desks.retain(|_, d| d.project_id != project_id);
-            inner.store.records.pinned_floors.retain(|k| *k != key);
-            let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-            inner.store.records.demolished_floors.insert(key, at);
-            inner.store.save()?;
-        }
-        self.refresh();
-        Ok(())
     }
 
     /// Add a floor for a repo folder the human picked. Idempotent: a folder that
@@ -814,6 +851,7 @@ impl Office {
             .find(|(_, s)| s.as_str() == session_id)
             .map(|(t, _)| t)
             .or_else(|| inner.ran_in.get(session_id))
+            .or_else(|| inner.attached.get(session_id))
             .cloned()
             .ok_or_else(|| {
                 format!("{session_id} was not started in the app, so it has no terminal here")
@@ -858,35 +896,12 @@ impl Office {
     }
 }
 
-/// Ask each agent to exit (SIGTERM) and wait up to `within` for all of them.
-fn stop_agents(agents: &[(String, i32)], within: Duration) -> Result<(), String> {
-    for (_, pid) in agents {
-        discovery::claude_code::terminate(*pid);
-    }
-    let deadline = Instant::now() + within;
-    loop {
-        let left: Vec<&str> = agents
-            .iter()
-            .filter(|(_, pid)| discovery::claude_code::pid_alive(*pid))
-            .map(|(title, _)| title.as_str())
-            .collect();
-        if left.is_empty() {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            return Err(format!(
-                "{} did not stop, so the floor is still standing",
-                left.join(", ")
-            ));
-        }
-        std::thread::sleep(LAUNCH_POLL);
-    }
-}
-
+mod attach;
 mod chat;
 mod connectors;
 mod deliver;
 mod desk_states;
+mod exile;
 mod floor_list;
 mod folders;
 #[cfg(test)]
@@ -900,15 +915,27 @@ mod manager_hire;
 mod manager_send;
 mod manager_tools;
 pub use manager::ManagerHost;
+mod moves;
 mod qa_desk;
 mod reviewers;
 mod routed;
 mod setup;
+#[cfg(test)]
+mod shared_tests;
 mod shells;
 mod staff;
 mod structured_desks;
 mod todos;
 use floor_list::{add_pinned_floors, drop_demolished};
+use moves::{apply_moves, claim_terminals, prune_moves};
 use structured_desks::with_structured;
+#[cfg(test)]
+mod attach_tests;
+#[cfg(test)]
+mod exile_tests;
+#[cfg(test)]
+mod move_tests;
+#[cfg(test)]
+mod project_rules_tests;
 #[cfg(test)]
 mod tests;

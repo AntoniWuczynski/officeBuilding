@@ -100,6 +100,8 @@ pub struct Transcript {
     pub human_spoke_last: bool,
     pub last_block: LastBlock,
     pub reply_to_human: String,
+    /// First sentence of the latest assistant message; a new user message does not clear it.
+    pub last_reply: Option<String>,
     /// The newest `task_complete` carried an `error`.
     pub api_error: bool,
     pub open_tools: usize,
@@ -124,6 +126,7 @@ impl Transcript {
             human_spoke_last: false,
             last_block: LastBlock::Nothing,
             reply_to_human: String::new(),
+            last_reply: None,
             api_error: false,
             open_tools: 0,
             turn_open: false,
@@ -243,6 +246,9 @@ pub fn parse_transcript(reader: impl BufRead) -> Transcript {
                             t.reply_to_human.push('\n');
                         }
                         t.reply_to_human.push_str(&text);
+                        if let Some(first) = super::first_sentence(&text, super::REPLY_CHARS) {
+                            t.last_reply = Some(first);
+                        }
                     }
                 }
                 Some("reasoning") => t.last_block = LastBlock::Thinking,
@@ -338,7 +344,7 @@ impl CodexSource {
     pub fn new(home: PathBuf) -> Self {
         Self {
             home,
-            keep_finished: Duration::from_hours(12),
+            keep_finished: super::KEEP_FINISHED,
             cache: HashMap::new(),
             live_pids: HashMap::new(),
             busy_subagents: HashMap::new(),
@@ -614,6 +620,15 @@ mod tests {
             super::super::rules::score_soft_block(&t.reply_to_human).question,
             "Should I also bump the version?"
         );
+    }
+
+    #[test]
+    fn the_last_reply_survives_the_human_speaking_again() {
+        let reply = r#"{"timestamp":"2026-09-29T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Parser fixed. Should I proceed?"}]}}"#;
+        let next_human = r#"{"timestamp":"2026-09-29T10:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"yes"}]}}"#;
+        let t = parse(&[META, USER, reply, next_human]);
+        assert_eq!(t.reply_to_human, "");
+        assert_eq!(t.last_reply.as_deref(), Some("Parser fixed."));
     }
 
     #[test]

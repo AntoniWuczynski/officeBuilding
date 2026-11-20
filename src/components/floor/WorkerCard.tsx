@@ -1,8 +1,11 @@
 import { createPortal } from "react-dom";
 import type { DeskHandoverState, QueuedNote, Session } from "../../types";
-import { HOLD_WORDS, STATE_LABEL, TOOL_LABEL, helpersLine, modelLine, plural } from "../../state/selectors";
+import { HOLD_WORDS, STATE_LABEL, TOOL_LABEL, helpersLine, lastReplyLine, modelLine, plural } from "../../state/selectors";
 import { cardLine } from "../../lib/handover";
 import { relativeTime } from "../../lib/time";
+import { tagText } from "../building/ProjectField";
+import { useProjects } from "../../state/ProjectsContext";
+import "../building/boards.css";
 
 interface Props {
   readonly session: Session;
@@ -26,17 +29,25 @@ interface Props {
  * corner desk slice straight through it (WebKit sorts 3D planes strictly).
  */
 export function WorkerCard({ session, x, y, now, editorHint, managed, waiting, handover }: Props): React.ReactElement {
+  const tag = tagText(useProjects().tags.get(session.id));
   const model = modelLine(session);
   const helpers = helpersLine(session);
+  const reply = lastReplyLine(session.lastReply);
   const handedOver = handover === undefined ? null : cardLine(handover, now);
   return createPortal(
     <div className="worker-card" data-testid="worker-card" role="tooltip" style={{ left: x, top: y }}>
       <b>{session.title}</b>
       <span>{TOOL_LABEL[session.tool]}</span>
+      {tag === null ? null : <span data-testid="worker-tag">{tag}</span>}
       {model === null ? null : <span>{model}</span>}
       <span>
         {STATE_LABEL[session.state]}, active {relativeTime(session.lastActivityAt, now)}
       </span>
+      {reply === null ? null : (
+        <span className="reply-line" data-testid="worker-reply">
+          {reply}
+        </span>
+      )}
       {helpers === null ? null : <span>{helpers}</span>}
       {session.worktree ? <span>{session.branch === null ? "Worktree" : `Worktree on ${session.branch}`}</span> : null}
       {managed ? <span>Managed by the floor&apos;s manager</span> : null}

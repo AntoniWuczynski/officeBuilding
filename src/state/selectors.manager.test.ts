@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeSeedSnapshot } from "../api/mockData";
 import type { ManagerFloor, ManagerLogEntry, NoteHold, NoteState, Session } from "../types";
-import { HOLD_WORDS, NOTE_STATE_WORDS, capsLine, logLine, managerFor, managerLamp, managerLine, notesFor, splitManager } from "./selectors";
+import { HOLD_WORDS, NOTE_STATE_WORDS, capsLine, logLine, managerFor, managerLamp, managerLine, notesFor, sessionsForProject, splitManager, staffOf } from "./selectors";
 
 const seed = makeSeedSnapshot();
 const floor = (id: string): ManagerFloor => {
@@ -29,6 +29,19 @@ describe("managerFor and splitManager", () => {
     const split = splitManager(sessions, hired("b"));
     expect(split.managerSession?.id).toBe("b");
     expect(split.rest.map((s) => s.id)).toEqual(["a", "c"]);
+  });
+
+  it("counts a place's manager and running QA reviewer as staff, and no one else", () => {
+    const [manager, reviewer, worker] = sessionsForProject(seed, "p-shop");
+    if (manager === undefined || reviewer === undefined || worker === undefined) throw new Error("the seed's shop needs three sessions");
+    expect(staffOf({ ...seed, qa: [] }).size).toBe(0);
+    const snap = {
+      ...seed,
+      managers: seed.managers.map((m) => (m.projectId === "p-shop" ? hired(manager.id) : m)),
+      qa: [{ projectId: "p-shop", enabled: true, status: { kind: "off" as const }, run: { number: 1, title: "t", startedAt: "2026-11-12T10:00:00Z", sessionId: reviewer.id }, reviews: [], stamp: null }],
+    };
+    expect([...staffOf(snap)].sort()).toEqual([manager.id, reviewer.id].sort());
+    expect(staffOf(snap).has(worker.id)).toBe(false);
   });
 
   it("leaves everything in the rest with no manager, no session yet, or a session not on the floor", () => {

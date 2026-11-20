@@ -18,9 +18,11 @@
 //! indented lines under an item continue it. Answering a decision or ticking an
 //! item in the app writes back into the same file.
 
-use crate::model::{AnswerVia, Decision, Party, Question, QuestionOption, TodoItem, TodoSource};
+use crate::model::{
+    AnswerVia, Decision, Party, Question, QuestionOption, SharedBoard, TodoItem, TodoSource,
+};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const HUMAN_DECISION_FILES: &[&str] = &[
     "FOUNDER_DECISIONS.md",
@@ -34,6 +36,7 @@ pub const HUMAN_TODO_FILES: &[&str] = &[
     "HUMAN_TODO.md",
     "FOUNDER-TODO.md",
     "HUMAN-TODO.md",
+    "MY-ACTIONS.md",
 ];
 pub const AGENT_TODO_FILES: &[&str] = &["TODO.md"];
 
@@ -108,7 +111,20 @@ pub(crate) fn truncate(text: &str, max: usize) -> String {
 }
 
 /// Top-level checklist items. `[x]` is done; `[ ]` and `[~]` are open.
+#[must_use]
 pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party) -> Vec<TodoItem> {
+    parse_items(text, project_id, file, assignee, false)
+}
+
+/// `parse_checklist`, and with `tagged` each item's `project_tag` is its line's second pipe column.
+/// Only a shared board's lines are laid out that way: a pipe in a floor's own item is just text.
+fn parse_items(
+    text: &str,
+    project_id: &str,
+    file: &str,
+    assignee: Party,
+    tagged: bool,
+) -> Vec<TodoItem> {
     let lines: Vec<&str> = text.lines().collect();
     let mut items = Vec::new();
     for (i, line) in lines.iter().enumerate() {
@@ -124,6 +140,12 @@ pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party
         } else {
             continue;
         };
+        let project_tag = tagged
+            .then(|| rest.split('|').nth(1))
+            .flatten()
+            .map(str::trim)
+            .filter(|tag| !tag.is_empty())
+            .map(str::to_string);
         let mut body = rest.trim().to_string();
         for next in lines.iter().skip(i + 1) {
             let continues = next.starts_with(char::is_whitespace)
@@ -144,6 +166,7 @@ pub fn parse_checklist(text: &str, project_id: &str, file: &str, assignee: Party
             source: TodoSource::File {
                 file: file.to_string(),
             },
+            project_tag,
         });
     }
     items
@@ -621,10 +644,71 @@ pub fn read(root: &Path, project_id: &str) -> ProjectFiles {
     files
 }
 
+/// A shared checklist file as a board. Its items carry the board's id as their project and the
+/// file's absolute path as their file, so a tick finds the file by its id. A file that cannot be
+/// read is still a board, with no items (see `settings/boards.rs`).
+#[must_use]
+pub fn read_board(path: &str) -> SharedBoard {
+    let id = format!("board:{path}");
+    let items = fs::read_to_string(path)
+        .map(|text| parse_items(&text, &id, path, Party::Human, true))
+        .unwrap_or_default();
+    SharedBoard {
+        items,
+        name: Path::new(path)
+            .file_name()
+            .map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned()),
+        path: path.to_string(),
+        id,
+    }
+}
+
+/// A floor whose own Human TODO or agent TODO file is one of `boards` (canonical paths) leaves
+/// those lines to the board: the file stays the floor's, with no items of its own, so they show once.
+pub fn leave_to_boards(files: &mut ProjectFiles, root: &Path, boards: &[PathBuf]) {
+    if boards.is_empty() {
+        return;
+    }
+    let on_a_board = |names: &[&str]| {
+        find_file(root, names)
+            .and_then(|name| root.join(name).canonicalize().ok())
+            .is_some_and(|own| boards.contains(&own))
+    };
+    if on_a_board(HUMAN_TODO_FILES) {
+        files.human_todos = Some(Vec::new());
+    }
+    if on_a_board(AGENT_TODO_FILES) {
+        files.agent_todos = Some(Vec::new());
+    }
+}
+
+/// Replace a file's text through a temp file beside it, renamed over the original with its mode,
+/// so an agent reading a shared file never sees it half written.
+fn replace_file(path: &Path, text: &str) -> Result<(), String> {
+    let path = path
+        .canonicalize()
+        .map_err(|e| format!("could not find {}: {e}", path.display()))?;
+    let mode = fs::metadata(&path)
+        .map_err(|e| format!("could not read {}: {e}", path.display()))?
+        .permissions();
+    let mut tmp_name = std::ffi::OsString::from(".");
+    tmp_name.push(path.file_name().unwrap_or_default());
+    tmp_name.push(".ob-tmp");
+    let tmp = path.with_file_name(tmp_name);
+    fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+    fs::set_permissions(&tmp, mode)
+        .and_then(|()| fs::rename(&tmp, &path))
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("could not replace {}: {e}", path.display())
+        })
+}
+
+/// Rewrite one line; `edit` gets the line and the whole file as it is now.
 fn rewrite_line(
     path: &Path,
     line: usize,
-    edit: impl FnOnce(&str) -> Result<String, String>,
+    edit: impl FnOnce(&str, &str) -> Result<String, String>,
 ) -> Result<(), String> {
     let text =
         fs::read_to_string(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
@@ -632,15 +716,21 @@ fn rewrite_line(
     let current = *lines
         .get(line)
         .ok_or("the file changed since it was read; try again")?;
-    let replaced = edit(current)?;
+    let replaced = edit(current, &text)?;
     lines[line] = &replaced;
-    fs::write(path, lines.join("\n"))
-        .map_err(|e| format!("could not write {}: {e}", path.display()))
+    replace_file(path, &lines.join("\n"))
 }
 
-/// Tick a checklist item in its file.
-pub fn tick(root: &Path, file: &str, line: usize) -> Result<(), String> {
-    rewrite_line(&root.join(file), line, |current| {
+/// Tick a checklist item in its file, only while the line still holds the open item `expected`
+/// (its text as read): an item inserted above since then moves it, and the tick is refused.
+pub fn tick(root: &Path, file: &str, line: usize, expected: &str) -> Result<(), String> {
+    rewrite_line(&root.join(file), line, |current, text| {
+        let still_there = parse_checklist(text, "", file, Party::Human)
+            .iter()
+            .any(|t| t.id == item_id("", file, line) && !t.done && t.text == expected);
+        if !still_there {
+            return Err(format!("{file} changed since it was read; try again"));
+        }
         for open in ["- [ ]", "- [~]"] {
             if let Some(rest) = current.strip_prefix(open) {
                 return Ok(format!("- [x]{rest}"));
@@ -670,7 +760,7 @@ pub fn decide(
     {
         return decide_item(&path, &text, file, line, &answer, date);
     }
-    rewrite_line(&path, line, |current| {
+    rewrite_line(&path, line, |current, _| {
         let (level, heading) = current
             .strip_prefix("### ")
             .map(|h| ("###", h))
@@ -723,7 +813,7 @@ fn decide_item(
     out.extend(&lines[line + 1..end]);
     out.push(&ruling);
     out.extend(&lines[end..]);
-    fs::write(path, out.join("\n")).map_err(|e| format!("could not write {}: {e}", path.display()))
+    replace_file(path, &out.join("\n"))
 }
 
 pub mod append;

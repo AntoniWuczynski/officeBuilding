@@ -1,12 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { MockApi } from "./api/mockApi";
+import { placePeople } from "./archipelago/Archipelago";
+import { layoutIslands } from "./archipelago/islands";
 
 function renderApp(): void {
   render(<App api={new MockApi()} />);
 }
+
+describe("moves an earlier version kept in the webview", () => {
+  it("are sent to the backend once and dropped from storage, names staying", async () => {
+    const api = new MockApi();
+    const snap = await api.getSnapshot();
+    const mover = snap.sessions[0];
+    const to = snap.projects.find((p) => p.id !== mover?.projectId);
+    if (mover === undefined || to === undefined) throw new Error("the demo has a session and a second floor");
+    localStorage.setItem("office-building:overrides", JSON.stringify({ names: { [to.id]: "Kept" }, moves: { [mover.id]: to.id } }));
+    render(<App api={api} />);
+    await waitFor(async () => expect((await api.getSnapshot()).sessions.find((s) => s.id === mover.id)?.projectId).toBe(to.id));
+    expect(JSON.parse(localStorage.getItem("office-building:overrides") ?? "null")).toEqual({ names: { [to.id]: "Kept" } });
+    cleanup();
+    localStorage.clear();
+  });
+});
+
+describe("moves an earlier version kept in the webview, when the backend refuses", () => {
+  it("stay in storage for a live session and go for one that is not in the snapshot", async () => {
+    const api = new MockApi();
+    const snap = await api.getSnapshot();
+    const mover = snap.sessions[0];
+    const to = snap.projects.find((p) => p.id !== mover?.projectId);
+    if (mover === undefined || to === undefined) throw new Error("the demo has a session and a second floor");
+    const sent: string[] = [];
+    api.moveSession = (sessionId) => {
+      sent.push(sessionId);
+      return Promise.reject(new Error("no"));
+    };
+    localStorage.setItem("office-building:overrides", JSON.stringify({ names: {}, moves: { [mover.id]: to.id, "no-such-session": to.id } }));
+    render(<App api={api} />);
+    await waitFor(() => expect(sent).toContain(mover.id));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("office-building:overrides") ?? "null")).toEqual({ names: {}, moves: { [mover.id]: to.id } }));
+    cleanup();
+    localStorage.clear();
+  });
+});
+
+describe("seats on an island map", () => {
+  it("are forgotten for an island that is gone", () => {
+    const [spec] = layoutIslands([{ id: "p1", name: "one", path: "/one", sessionIds: [] }], "setup");
+    if (spec === undefined) throw new Error("one island");
+    const seats = new Map<string, ReadonlyMap<string, number>>([["sunk", new Map([["s9", 0]])]]);
+    placePeople([{ spec, floor: { sessions: [], dimmed: false } }], seats);
+    expect([...seats.keys()]).toEqual(["p1"]);
+  });
+});
 
 describe("island view", () => {
   // The island map replaces only the building drawing: every building-view ability must still be there.

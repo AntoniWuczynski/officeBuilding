@@ -22,22 +22,56 @@ sessions as an **office building**:
   remove, and the same floor screen with Hire, the terminal and the rail. In
   Islands each project is a low-poly island on one sea and each agent a person in
   their own hut (subagents in smaller huts in front, a palm beside an agent in a
-  git worktree, a stuck agent lying on the grass). A list on the left zooms to an
-  island; drag to move, Shift-drag to turn and tilt, scroll to zoom, compass to
+  git worktree, a stuck agent lying on the grass). The islands sit in a cluster;
+  a list on the left zooms to an island, and zoomed in each person carries their
+  name. Drag to move, Shift-drag to turn and tilt, scroll to zoom, compass to
   reset. Islands rise when the view opens, lift under the pointer and sink when
-  removed; a message between two agents flies as a note. The last view picked is
+  removed. A message between agents on two islands sails across as a boat, and
+  one within an island flies as a parrot, each tagged with who it is from and to.
+  Click an island's name in its panel (pencil) to rename it, and pick "Move to..."
+  under an agent to put it on another island; the backend keeps the move, so
+  sinking an island stops the agents on it now. Inside, an island is an open-air
+  camp on a beach. The last view picked is
   kept, and the island map loads `three` (a 596 kB chunk) only when first opened.
   ![The island view: a project's island with each agent in their own hut](docs/screenshots/islands.png)
+- **One place panel in both views.** A floor's nameplate in Office, or an
+  island in Islands, opens the same panel. It renames the place, opens an agent
+  (its row shows its last reply and any question it is waiting on), moves an
+  agent with "Move to...", links shared-board tags, goes inside, sinks or
+  demolishes the place, and throws out (Office) or exiles (Islands) one agent,
+  which stops its session. The floor's manager and a running QA reviewer get no
+  such button. A dot beside an agent's name means it has news since you last
+  opened it, and the top bar counts those agents. "Needs you" in the top bar
+  lists what is waiting on you across the whole map, agents' questions first and
+  then decisions-file calls, plus any named session the app cannot put under a
+  project. "Boards" beside it opens the shared checklist files, where an item
+  can be ticked. Only one of the panel, the Needs-you list and the Boards sheet
+  is open at a time, and opening Settings closes the two lists.
+  ![The place panel in Islands](docs/screenshots/place-panel-islands.png)
+  ![The place panel in Office](docs/screenshots/place-panel-office.png)
+- **Project clusters.** Repos group into projects, and floors and islands are
+  ordered by project. A session goes under a project by its Claude Code name: a
+  rule's name prefix or a word the rule lists, or else a guess from its repo's
+  folder or from other live sessions that share its first word. The rules are
+  kept in `projects.json` in the app's own data folder, beside `store.json`:
+  `rules` (each with `id`, `name`, `prefixes`, `contains` and `repos`),
+  `harnessId` (the project whose sessions are your harness) and `reviewSkills`
+  (the skills that count as a self-review). The Project field in the place panel
+  and the "Which project?" rows in Needs you write to that file and keep any
+  other keys in it. A session that has run one of those review skills since you
+  last wrote to it is tagged with the harness project's name.
 - **Desks = agent sessions.** Each desk has a live, animated employee whose pose
   reflects the session state (typing, thinking, hand up for a question, lying on
   the floor when stuck). When a session ends its agent gets up and walks out of
   the door; the floor stays for 12 hours after its last activity. A floor's
   light is green while an agent works, yellow when one needs you, red when one
   is stuck and grey when all are idle. Colleagues walk notes to each other's
-  desks (agent-to-agent messages); new hires walk in. A session's running
+  desks (agent-to-agent messages, also read from the Claude Code transcripts
+  of sessions that sent each other messages); new hires walk in. A session's running
   subagents, plain or in a workflow, sit at tiny desks beside its own, and one
   that finishes walks a manila folder of its work to its agent on its way out
-  of the door. The desks
+  of the door. A session's last reply to you, cut to its first sentence (140
+  characters at most), is kept for its card and the sign-out sheet. The desks
   shrink as the team grows, and past 64 the rest show as a count. An agent or
   subagent working in a git worktree stays on its repo's floor, with a potted
   plant on its desk. What an agent leaves running stands in front of its desk:
@@ -58,12 +92,13 @@ sessions as an **office building**:
   `codex resume` in an in-app terminal, in the folder the session ran in, on
   the same model and effort. The app never stops a running agent itself, so to
   restart a hung one, exit it first (`/exit`) and resume it from the sheet.
-  The three exceptions are the agents on a floor you demolish, a QA
-  reviewer the building started itself and a session that is handed over to
-  the other tool (below).
+  The four exceptions are the agents on a floor you demolish, an agent you
+  throw out from its place panel, a QA reviewer the building started itself
+  and a session that is handed over to the other tool (below).
 - **Decisions and TODOs come from each repo's own files**: open and settled calls
   from `FOUNDER_DECISIONS.md` (or `HUMAN_DECISIONS.md`) plus the agents'
-  `DECISIONS.md` log, your actions from `FOUNDER_TODO.md` (or `HUMAN_TODO.md`),
+  `DECISIONS.md` log, your actions from `FOUNDER_TODO.md` (or `HUMAN_TODO.md`, or
+  `MY-ACTIONS.md`),
   agent work from `TODO.md`. A call is open until its `##` heading carries a
   status (`DECIDED <date>`, `CONFIRMED`, `VETOED`, `DEFAULT APPLIED`...). Under a
   heading that only groups calls, each `- [ ] **Title** …` item is a call and
@@ -71,7 +106,10 @@ sessions as an **office building**:
   group heading says Answered or Decided). Hyphenated names such as
   `FOUNDER-DECISIONS.md` and `FOUNDER-TODO.md` work too. Answering a call or ticking an item in the app writes
   back into the file (a checklist call gets ticked and a `**Ruled <date>:**` line).
-  Repos without these files fall back to the app's own records.
+  Repos without these files fall back to the app's own records. A checklist file named
+  in Settings under Boards is read the same way and shown as a shared board;
+  the second `|` column of a line is its project tag, and a floor's own file
+  that is also a board lists its lines once, on the board.
 - **Connectors: a floor's TODOs can also come from Linear.** Paste one Linear
   key (a personal application programming interface key, or API key) in
   Settings, under Connectors. It is checked with Linear, then kept in the
@@ -199,7 +237,9 @@ sessions as an **office building**:
   limit windows (5-hour session, week), the time the tool last measured them
   and a Re-check button. Re-check has Claude Code fetch its usage again
   (`claude -p /usage`, with no saved session, hooks or MCP servers); the other
-  tools' signs show what they last saved.
+  tools' signs show what they last saved. The signs and a routed desk's route
+  strip stop checking while the window is hidden or minimised, and check once
+  when it comes back.
 - **Click an employee → their terminal.** App-spawned sessions get a full in-app
   terminal docked under the floor (PTY + xterm.js); closing the panel leaves the
   agent running. Drag the panel's top edge (or focus it and use the arrow keys)
@@ -234,7 +274,8 @@ sessions as an **office building**:
 - **Settings open with Cmd+,** from the building or any floor, and from the
   fuse box beside the toolbox on the Setup floor. Each event and each method
   has its own switch, the cooldown runs from 0 to 600 seconds, and "Test in 3
-  seconds" sends a test alert. The Editor group picks the default editor for
+  seconds" sends a test alert. The Boards group lists the shared checklist files
+  by absolute path; a file missing at start stays listed and shows no items. The Editor group picks the default editor for
   "Open in". The Agents group picks the view new desks open in, Terminal or
   Chat. A change saves at once. Settings are kept in `settings.json` in the
   app's data folder. The Connectors group holds the agent label and the Linear
@@ -369,11 +410,14 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
 - **Backend (Rust, `src-tauri/`):** discovers real **Claude Code** sessions from
   Claude's own files (`~/.claude/sessions/<pid>.json` for liveness and a
   session blocked on you, `~/.claude/projects/**.jsonl` for transcripts), groups
-  them into floors by the git root of the folder each session started in (a
-  later `cd` does not move it), derives each desk's state, queues open
+  them into floors by the git root of the folder each session started in. A
+  session launched from a plain folder above several repos sits on the first
+  repo it works in and stays there. No later `cd` moves a session. It derives each desk's state, queues open
   questions, permission prompts and plain-prose asks, and pushes live updates to
   the webview. Clicking a running
-  desk focuses its exact iTerm2 or Terminal.app tab. Hiring starts the agent
+  desk focuses its exact iTerm2 or Terminal.app tab; a background session
+  (`claude --bg`, which has no window) opens in the app's docked terminal with
+  `claude attach <id>`, released when that panel closes. Hiring starts the agent
   with the chosen model and effort in an in-app terminal: a pseudo-terminal
   (through your login shell, in the floor's folder) streamed to xterm.js, with
   the last 256 KiB kept for replay. Once the agent registers its session, its

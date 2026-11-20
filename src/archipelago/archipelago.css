@@ -8,6 +8,9 @@
   overflow: hidden;
   /* Keep the high z-indexes below inside this view, so toasts and dialogs still sit above it. */
   isolation: isolate;
+  /* One width for the list and one for the signs; the compass, hint and panel stand clear of them by these. */
+  --arch-list-w: 264px;
+  --arch-signs-w: 232px;
 }
 .arch {
   position: absolute;
@@ -33,40 +36,69 @@
   position: absolute;
   left: 16px;
   top: 16px;
-  bottom: 16px;
-  width: 224px;
+  max-height: calc(100% - 32px);
+  width: var(--arch-list-w);
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 12px;
   overflow-y: auto;
   scrollbar-width: none;
+  /* A scroll box clips what is drawn outside it, so the selected plate's ring (2px line + 2px offset) needs this much room inside. */
+  padding: 4px;
 }
-.arch-list .roof-sign {
-  position: static;
-  transform: none;
-  align-self: flex-start;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 20px;
+.arch-list-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
+.arch-list-heading {
+  margin: 4px 0 0;
+  font: 700 12px/1 var(--font-sign);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+/* A project's name over its cluster: the island labels' sign, set a size larger. */
+.arch-cluster {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  padding: 4px 12px 2px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font: 700 18px/1 var(--font-sign);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+/* The sink button sits in the row beside the nameplate, so it never covers the badge or leaves the list. */
 .arch-list-row {
-  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .arch-list .nameplate {
   position: static;
   transform: none;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
   background: var(--paper);
   border-color: var(--ink);
 }
+/* A long name wraps rather than being cut off; the count, stamp and badge drop to a second line if they must. */
 .arch-list .nameplate-name {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
   text-align: left;
+}
+.arch-list .qa-stamp {
+  font-size: 11px;
 }
 .arch-list .nameplate:hover,
 .arch-list-row[data-selected] .nameplate {
@@ -77,10 +109,9 @@
   outline-offset: 2px;
 }
 .arch-list .demolish-btn {
-  top: 50%;
-  right: 6px;
-  bottom: auto;
-  transform: translate(50%, -50%);
+  position: static;
+  transform: none;
+  flex: none;
 }
 .arch-list-row:hover .demolish-btn,
 .arch-list .demolish-btn:focus-visible {
@@ -99,19 +130,24 @@
 .arch-add:hover {
   background: var(--paper);
 }
-.arch-pending {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border: 2px solid var(--ink);
-  border-radius: 10px;
-  background: var(--wait);
-  font: 700 12px/17px var(--font-num);
-  text-align: center;
-}
 /* Scoped: the office uses .is-dim on storeys and desks, where opacity would flatten their 3D. */
 .arch-list-row.is-dim {
   opacity: 0.35;
+}
+
+/* The map's name is the top bar's sign; clicking it renames the map (the building's roof sign, set into the bar). */
+.app.is-islands .topbar-sign .roof-sign {
+  position: static;
+  transform: none;
+  padding: 0 4px;
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.app.is-islands .topbar-sign .roof-sign-input {
+  border-color: var(--signage);
 }
 
 /* Toasts sit where the island list is; in this view they show over the sea at the bottom instead. */
@@ -129,6 +165,32 @@
   right: 16px;
   top: 16px;
   bottom: 16px;
+  width: var(--arch-signs-w);
+}
+/* Room for "Resets Thu" beside the label and the percentage on one line. */
+.building-body.is-islands > .usage-signs small {
+  white-space: nowrap;
+}
+.building-body.is-islands > .usage-signs .usage-bar {
+  display: flex;
+  gap: 8px;
+  align-self: flex-start;
+  margin-left: 22px;
+}
+/* Folded: one line carrying the number that matters, so the sea stays open under it. */
+.building-body.is-islands > .usage-signs.is-folded {
+  bottom: auto;
+  width: auto;
+}
+.building-body.is-islands > .usage-signs.is-folded::before,
+.building-body.is-islands > .usage-signs.is-folded::after {
+  display: none;
+}
+.building-body.is-islands > .usage-signs .usage-headline {
+  align-self: flex-end;
+  margin-left: 0;
+  white-space: nowrap;
+  font-size: 12px;
 }
 
 /* Labels over the islands: the office nameplate shape. */
@@ -180,87 +242,40 @@
   display: none;
 }
 
-/* A message in flight between two agents: a folded paper note. */
+/* A message between two agents on one island: a parrot flies it across, wing flapping (boats carry it between islands). */
 .arch-note {
   position: absolute;
   left: 0;
   top: 0;
-  width: 22px;
-  height: 15px;
-  margin: -8px 0 0 -11px;
-  border: 1.5px solid var(--ink);
-  border-radius: 2px;
-  background: linear-gradient(135deg, transparent 49%, var(--ink) 49% 52%, transparent 52%) 0 0 / 50% 55% no-repeat,
-    linear-gradient(225deg, transparent 49%, var(--ink) 49% 52%, transparent 52%) 100% 0 / 50% 55% no-repeat, var(--paper);
+  width: 34px;
+  height: 24px;
+  margin: -12px 0 0 -17px;
   pointer-events: none;
   z-index: 100000;
 }
+.arch-note svg {
+  display: block;
+  overflow: visible;
+}
+.arch-note .wing {
+  transform-box: fill-box;
+  transform-origin: 70% 90%;
+}
 
-/* The selected island's plate: paper and ink, like the floor screen's panels. */
+/* The selected island's plate (the shared place panel's look is in components/building/place.css): it stands beside the signs. */
 .arch-panel {
   position: absolute;
   top: 16px;
-  right: calc(clamp(190px, 17vw, 232px) + 32px);
+  right: calc(var(--arch-signs-w) + 32px);
   width: 260px;
   /* Room for the hint below: 16 top + 16 bottom + the hint (about 30 tall) + 32 clear = 94. */
   max-height: calc(100% - 94px);
-  display: flex;
-  flex-direction: column;
-  padding: 12px 14px;
-  border: 2px solid var(--ink);
-  border-radius: 2px;
-  background: var(--paper);
-  color: var(--ink);
-}
-.arch-panel h2 {
-  margin: 0 0 2px;
-  font: 700 20px/1 var(--font-sign);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.arch-panel p {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 13px;
-}
-.arch-panel ul {
-  list-style: none;
-  margin: 10px 0;
-  padding: 0;
-  display: grid;
-  gap: 4px;
-  min-height: 0;
-  overflow-y: auto;
-}
-.arch-panel li button {
-  width: 100%;
-  display: grid;
-  gap: 2px;
-  padding: 6px 8px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--paper);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.arch-panel li button:hover {
-  background: var(--paper-hover);
-}
-.arch-panel li span {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-.arch-open {
-  width: 100%;
-  flex: none;
 }
 
 /* Compass and hint: small paper plates, clear of the list. */
 .arch-compass {
   position: absolute;
-  left: 256px;
+  left: calc(var(--arch-list-w) + 32px);
   top: 16px;
   width: 40px;
   height: 40px;
@@ -283,7 +298,7 @@
 }
 .arch-hint {
   position: absolute;
-  left: 256px;
+  left: calc(var(--arch-list-w) + 32px);
   bottom: 16px;
   margin: 0;
   padding: 5px 10px;
@@ -294,4 +309,29 @@
   font-size: 12px;
   line-height: 1.3;
   pointer-events: none;
+}
+
+/* A person's name over their head once the island is close; flat and upright, placed by Archipelago.tsx each frame. */
+.arch-tag,
+.arch-trip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 1px 5px 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 700 11px/1.3 var(--font-ui);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* Boat and parrot tags sit above the island labels and the parrot itself. */
+.arch-trip {
+  z-index: 100000;
+}
+/* A kicked-out worker is booted off sideways into the sea and sinks. */
+.arch-kicked {
+  display: block;
+  animation: arch-kicked 1s ease-in forwards;
 }

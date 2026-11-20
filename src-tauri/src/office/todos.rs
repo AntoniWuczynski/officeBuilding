@@ -4,6 +4,7 @@ use super::{Inner, Office};
 use crate::connectors;
 use crate::model::{Party, TodoItem};
 use crate::project_files;
+use std::path::Path;
 
 impl Office {
     /// A floor's TODOs for one assignee: its file when it has one, else the app's store.
@@ -47,6 +48,28 @@ impl Office {
             let (root, link) = self.link_of(project_id, kind)?;
             return self.connectors.tick(&root, &link, external_id);
         }
+        let on_board = {
+            let inner = self.lock();
+            inner
+                .boards
+                .iter()
+                .flat_map(|b| &b.items)
+                .find(|t| t.id == todo_id)
+                .map(|t| {
+                    (
+                        t.text.clone(),
+                        project_files::parse_item_id(todo_id)
+                            .map(|(file, line)| (file.to_string(), line)),
+                    )
+                })
+        };
+        if let Some((text, location)) = on_board {
+            // A board's file is absolute: joined to nothing it stays as it is.
+            let (file, line) = location.ok_or("malformed todo id")?;
+            project_files::tick(Path::new(""), &file, line, &text)?;
+            self.refresh();
+            return Ok(());
+        }
         let from_file = {
             let inner = self.lock();
             inner
@@ -57,12 +80,13 @@ impl Office {
                 .map(|t| {
                     (
                         t.project_id.clone(),
+                        t.text.clone(),
                         project_files::parse_item_id(todo_id)
                             .map(|(file, line)| (file.to_string(), line)),
                     )
                 })
         };
-        if let Some((project_id, location)) = from_file {
+        if let Some((project_id, text, location)) = from_file {
             let (file, line) = location.ok_or("malformed todo id")?;
             let root = self
                 .lock()
@@ -71,7 +95,7 @@ impl Office {
                 .get(&project_id)
                 .cloned()
                 .ok_or("that floor is no longer in the building")?;
-            project_files::tick(&root, &file, line)?;
+            project_files::tick(&root, &file, line, &text)?;
             self.refresh();
             return Ok(());
         }
@@ -138,6 +162,7 @@ mod tests {
         {
             let mut inner = office.lock();
             inner.store.records.todos.push(TodoItem {
+                project_tag: None,
                 id: "t-1".to_string(),
                 project_id: floor.id.clone(),
                 text: "own".to_string(),

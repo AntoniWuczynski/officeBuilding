@@ -23,7 +23,10 @@ export function AddFloorDialog({ canPickFolder, onPickFolder, onAdd, onCancel, w
       aria-labelledby="add-floor-title"
       data-testid="add-floor-dialog"
       onKeyDown={(e) => {
-        if (e.key === "Escape") onCancel();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
       }}
       onSubmit={(e) => {
         e.preventDefault();

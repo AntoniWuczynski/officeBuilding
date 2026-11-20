@@ -23,5 +23,6 @@ export function makeSettings(): Settings {
     agents: { view: "terminal" },
     routing: makeRoutingSettings(),
     handover: makeHandoverSettings(),
+    boards: { sharedFiles: [] },
   };
 }

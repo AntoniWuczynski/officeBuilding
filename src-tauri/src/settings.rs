@@ -12,6 +12,8 @@ use std::sync::Mutex;
 
 mod agents;
 pub use agents::AgentSettings;
+mod boards;
+pub use boards::BoardSettings;
 mod handover;
 pub use handover::{HandoverSettings, StartWith};
 mod manager;
@@ -52,6 +54,7 @@ pub struct Settings {
     pub routing: RoutingSettings,
     #[serde(deserialize_with = "handover::lenient")]
     pub handover: HandoverSettings,
+    pub boards: BoardSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -261,6 +264,8 @@ pub struct SettingsPatch {
     pub routing: Option<RoutingSettings>,
     #[serde(default)]
     pub handover: Option<HandoverSettings>,
+    #[serde(default)]
+    pub boards: Option<BoardSettings>,
 }
 
 impl Settings {
@@ -301,6 +306,9 @@ impl Settings {
         }
         if let Some(handover) = patch.handover {
             self.handover = handover.checked()?;
+        }
+        if let Some(boards) = patch.boards {
+            self.boards = boards.checked(&self.boards)?;
         }
         Ok(())
     }
@@ -346,6 +354,7 @@ impl SettingsStore {
         settings.manager = settings.manager.clamped();
         settings.routing = settings.routing.clamped();
         settings.handover = settings.handover.clamped();
+        settings.boards = settings.boards.clamped();
         Self {
             path,
             current: Mutex::new(settings),
@@ -502,6 +511,59 @@ mod tests {
     }
 
     #[test]
+    fn a_hand_edited_file_keeps_the_boards_that_are_absolute_paths_without_a_pipe() {
+        let path = with_file("boards-load", "");
+        let dir = path.parent().expect("dir").to_path_buf();
+        let board = dir.join("board.md");
+        fs::write(&board, "- [ ] a\n").expect("board");
+        let link = dir.join("link.md");
+        std::os::unix::fs::symlink(&board, &link).expect("symlink");
+        let json = serde_json::json!({ "boards": { "sharedFiles": [
+            "relative/board.md", board, "/nowhere/board.md", dir, "/tmp/a|b.md", link,
+        ] } });
+        fs::write(&path, json.to_string()).expect("write");
+        let store = SettingsStore::open(path.clone());
+        // A file missing at start stays: an unmounted drive must not lose its board.
+        assert_eq!(
+            store.get().boards.shared_files,
+            vec![
+                board.to_string_lossy().into_owned(),
+                "/nowhere/board.md".to_string(),
+                dir.to_string_lossy().into_owned(),
+            ]
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_saved_board_whose_file_is_gone_does_not_block_editing_the_list() {
+        let path = with_file("boards-gone", "");
+        let dir = path.parent().expect("dir").to_path_buf();
+        let board = dir.join("board.md");
+        fs::write(&board, "- [ ] a\n").expect("board");
+        let json = serde_json::json!({ "boards": { "sharedFiles": ["/nowhere/board.md"] } });
+        fs::write(&path, json.to_string()).expect("write");
+        let store = SettingsStore::open(path.clone());
+        let boards = |files: &[&str]| SettingsPatch {
+            boards: Some(BoardSettings {
+                shared_files: files.iter().map(ToString::to_string).collect(),
+            }),
+            ..SettingsPatch::default()
+        };
+        let both = ["/nowhere/board.md", board.to_str().expect("utf8")];
+        assert_eq!(
+            store
+                .update(boards(&both))
+                .expect("kept")
+                .boards
+                .shared_files,
+            both
+        );
+        assert!(store.update(boards(&["/nowhere/new.md"])).is_err());
+        cleanup(&path);
+    }
+
+    #[test]
     fn empty_patch_changes_nothing() {
         let path = temp_path("empty");
         let store = SettingsStore::open(path.clone());
@@ -532,7 +594,8 @@ mod tests {
             "maxDesks": 3, "spendCeilingUsd": 20 },
             "agents": { "view": "terminal" },
             "routing": { "enabled": false, "contexts": [], "connections": [], "tiers": { "fable": [], "opus": [], "sonnet": [], "haiku": [] } },
-            "handover": { "automatic": false, "claudeToCodex": null, "codexToClaude": null } }"#,
+            "handover": { "automatic": false, "claudeToCodex": null, "codexToClaude": null },
+            "boards": { "sharedFiles": [] } }"#,
         )
         .expect("json");
         assert_eq!(

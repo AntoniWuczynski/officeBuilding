@@ -6,6 +6,7 @@
 //! server.py), MIT licence, Copyright (c) 2026 Amir Fish. See
 //! `THIRD_PARTY_NOTICES.md`.
 
+use std::path::Path;
 use std::process::Command;
 
 /// Process names of terminal apps we know, and their `AppleScript` application names.
@@ -166,6 +167,29 @@ fn osascript(script: &str) -> Result<String, String> {
     }
 }
 
+/// The job id of a Claude Code background session, read from its `~/.claude/sessions/<pid>.json`. A background
+/// session lives in Claude Code's own service with no terminal window; `claude attach <id>` opens it in one.
+/// None for any other session, or an id that is not plain letters, digits and dashes (it goes into a shell line).
+#[must_use]
+pub fn background_job_id(session_file: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(session_file).ok()?;
+    if v.get("kind")?.as_str()? != "bg" {
+        return None;
+    }
+    let id = v.get("jobId")?.as_str()?;
+    (!id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+        .then(|| id.to_string())
+}
+
+/// The background job of the process `pid`, from its session file under `home`.
+#[must_use]
+pub fn background_job_of(home: &Path, pid: i32) -> Option<String> {
+    std::fs::read_to_string(home.join(".claude/sessions").join(format!("{pid}.json")))
+        .ok()
+        .as_deref()
+        .and_then(background_job_id)
+}
+
 /// Bring the terminal window running `pid` to the front.
 pub fn focus_pid(pid: i32) -> Result<(), String> {
     let app = terminal_app_of(pid).ok_or("its terminal app could not be identified")?;
@@ -258,6 +282,23 @@ mod tests {
     }
 
     #[test]
+    fn a_background_session_is_attached_to_by_its_job_id() {
+        let file = r#"{"pid":96159,"kind":"bg","jobId":"9c4967e5","name":"bugfixer-7"}"#;
+        assert_eq!(background_job_id(file), Some("9c4967e5".to_string()));
+        // An ordinary terminal session has a window to raise instead.
+        assert_eq!(
+            background_job_id(r#"{"pid":1,"kind":"interactive","jobId":"abc"}"#),
+            None
+        );
+        assert_eq!(background_job_id(r#"{"pid":1}"#), None);
+        // The id goes into a shell line, so anything but a plain id is refused.
+        assert_eq!(
+            background_job_id(r#"{"kind":"bg","jobId":"x; rm -rf ~"}"#),
+            None
+        );
+    }
+
+    #[test]
     fn quoting() {
         assert_eq!(applescript_literal(r#"say "hi" \o/"#), r#"say \"hi\" \\o/"#);
     }
@@ -270,5 +311,25 @@ mod tests {
         assert!(parent_pid(i32::try_from(std::process::id()).unwrap()).is_some_and(|p| p > 0));
         let me = process_name(i32::try_from(std::process::id()).unwrap()).expect("name");
         assert!(me.starts_with("office_building"), "got {me}");
+    }
+}
+
+#[cfg(test)]
+mod job_tests {
+    #[test]
+    fn the_job_id_comes_from_the_pids_session_file() {
+        let home = std::env::temp_dir().join(format!("ob-focus-job-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".claude/sessions")).expect("mkdir");
+        std::fs::write(
+            home.join(".claude/sessions/7.json"),
+            r#"{"kind":"bg","jobId":"abc-1"}"#,
+        )
+        .expect("write");
+        assert_eq!(
+            super::background_job_of(&home, 7),
+            Some("abc-1".to_string())
+        );
+        assert_eq!(super::background_job_of(&home, 8), None);
+        std::fs::remove_dir_all(&home).expect("cleanup");
     }
 }

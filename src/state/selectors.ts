@@ -28,6 +28,7 @@ import type {
   Verdict,
 } from "../types";
 import { relativeTime } from "../lib/time";
+import { shortName } from "../archipelago/islands";
 
 /** Worst→best ordering; higher number = more urgent. */
 export const SESSION_STATE_SEVERITY: Record<SessionState, number> = {
@@ -155,6 +156,19 @@ export function questionQueue(snapshot: OfficeSnapshot): Question[] {
   return [...snapshot.questions].sort(byUrgency);
 }
 
+/** Asked by a live session (a formal question or a prose ask), not found in a repo's decisions file. */
+export const isSessionAsk = (q: Question): boolean => q.sessionId !== "";
+
+/** The Needs-you list: live session asks before decisions-file calls, newest first within each. */
+export function needsYouQueue(snapshot: OfficeSnapshot): Question[] {
+  return [...snapshot.questions].sort((a, b) => Number(isSessionAsk(b)) - Number(isSessionAsk(a)) || b.askedAt.localeCompare(a.askedAt));
+}
+
+/** "A to B": the tag a message carries on its way between two agents. */
+export function tripTag(from: Session, to: Session): string {
+  return `${shortName(from.title)} to ${shortName(to.title)}`;
+}
+
 /** One floor's question queue (its agents' questions and its decisions file), most-urgent first. */
 export function questionsForProject(
   snapshot: OfficeSnapshot,
@@ -194,6 +208,16 @@ export function openCount(items: readonly TodoItem[]): number {
   return items.filter((t) => !t.done).length;
 }
 
+/** What a tag is compared by: the way you would type it, trimmed and in any case. */
+const tagKey = (tag: string): string => tag.trim().toLowerCase();
+
+/** Shared-board items tagged for this place: the tag is its folder's name, the name it shows now, or a tag you linked to it. */
+export function boardItemsForProject(snapshot: OfficeSnapshot, project: Project, linked: readonly string[]): TodoItem[] {
+  const folder = project.path.replace(/\/+$/, "").split("/").pop() ?? "";
+  const names = new Set([folder, project.name, ...linked].map(tagKey).filter((t) => t !== ""));
+  return snapshot.sharedBoards.flatMap((b) => b.items).filter((t) => t.projectTag !== null && names.has(tagKey(t.projectTag)));
+}
+
 /** Sum of spend across the given sessions. */
 export function totalSpend(sessions: readonly Session[]): Spend {
   return sessions.reduce<Spend>(
@@ -218,6 +242,17 @@ export function sessionById(
 export function helpersLine(session: Session): string | null {
   const n = session.helpers.length;
   return n === 0 ? null : `${n} ${n === 1 ? "helper" : "helpers"} working`;
+}
+
+/** "Last reply: ...", or null when the agent has no reply to show (a null or blank one shows nothing). */
+export function lastReplyLine(reply: string | null): string | null {
+  const text = reply?.trim() ?? "";
+  return text === "" ? null : `Last reply: ${text}`;
+}
+
+/** The most urgent agent first; agents equally urgent keep the place's own order. */
+export function sessionsByUrgency(sessions: readonly Session[]): Session[] {
+  return [...sessions].sort((a, b) => SESSION_STATE_SEVERITY[b.state] - SESSION_STATE_SEVERITY[a.state]);
 }
 
 export function modelLine(session: Session): string | null {
@@ -379,6 +414,15 @@ export function splitManager(
   const id = manager?.status.kind === "hired" ? manager.status.sessionId : null;
   if (id === null) return { rest: sessions, managerSession: undefined };
   return { rest: sessions.filter((s) => s.id !== id), managerSession: sessions.find((s) => s.id === id) };
+}
+
+/** Every place's manager and running QA reviewer: staff, so the place panel offers no way to throw them out. */
+export function staffOf(snapshot: OfficeSnapshot): ReadonlySet<string> {
+  const staff = snapshot.projects.flatMap((p) => {
+    const sessions = sessionsForProject(snapshot, p.id);
+    return [splitManager(sessions, managerFor(snapshot, p.id)).managerSession, splitReviewer(sessions, qaFor(snapshot, p.id)).reviewer];
+  });
+  return new Set(staff.flatMap((s) => (s === undefined ? [] : [s.id])));
 }
 
 /** Why a note waits, to finish the sentence "Waiting: …". */

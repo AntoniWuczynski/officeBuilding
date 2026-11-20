@@ -13,9 +13,11 @@ interface Props {
   readonly connection: Connection | undefined;
   readonly now: Date;
   readonly onTick: (id: string) => void;
+  /** Board id to board name: an item from a shared board carries its board's name as its badge, not its file path. */
+  readonly boardNames?: Readonly<Record<string, string>>;
 }
 
-export function TodoList({ items, empty, hint, connection, now, onTick }: Props): React.ReactElement {
+export function TodoList({ items, empty, hint, connection, now, onTick, boardNames }: Props): React.ReactElement {
   const [showDone, setShowDone] = useState(false);
   const [showAllOpen, setShowAllOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function TodoList({ items, empty, hint, connection, now, onTick }: Props)
           {open.length === 0 ? <p className="panel-empty">Nothing open.</p> : null}
           <ul className="todo-list">
             {shown.map((t) => {
-              const badge = sourceBadge(t.source);
+              const badge = boardNames?.[t.projectId] ?? sourceBadge(t.source);
               const linear = t.source.kind === "linear" ? t.source : null;
               return (
                 <li key={t.id} className={t.done ? "is-done" : undefined}>

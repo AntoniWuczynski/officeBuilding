@@ -59,7 +59,7 @@ pub(super) struct State {
     pub(super) book: Book,
     pub(super) works: WorkLog,
     /// Desks being handed over now, by session id.
-    underway: BTreeSet<String>,
+    pub(super) underway: BTreeSet<String>,
     /// Desks whose own proof was just read, with when: their automatic decision is still to take.
     undecided: BTreeMap<String, i64>,
     /// The terminal each handover of this run started the receiver in: terminal id to `Done::id`.
@@ -72,6 +72,17 @@ pub(super) struct State {
 }
 
 impl State {
+    /// The session each receiver this run started took over from, by the receiver's terminal.
+    pub(super) fn handed_from(&self) -> BTreeMap<String, String> {
+        self.started_in
+            .iter()
+            .filter_map(|(terminal, done)| {
+                let d = self.book.done().iter().find(|d| d.id == *done)?;
+                Some((terminal.clone(), d.from_session.clone()))
+            })
+            .collect()
+    }
+
     /// Record what the desks' own files said in one pass: which Codex desks count, their
     /// work, and each allowance that changed.
     fn note(&mut self, read: desk::Read, now: i64) {

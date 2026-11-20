@@ -13,7 +13,7 @@ async function hireClaude(api: MockApi, task: string): Promise<void> {
   await screen.findAllByTestId("storey");
   const storey = screen.getAllByTestId("storey").find((s) => s.getAttribute("data-project") === "p-arcade");
   if (storey === undefined) throw new Error("no arcade storey");
-  await user.click(within(storey).getByTestId("floor-nameplate"));
+  await user.click(storey);
   await user.click(await screen.findByTestId("hire-desk"));
   const dialog = screen.getByTestId("hire-dialog");
   await within(dialog).findByTestId("hire-model");

@@ -66,6 +66,22 @@ describe("wire", () => {
     expect(() => parseWire(snapshotSchema, "snapshot", bare)).toThrow(/chatDesks/);
   });
 
+  it("carries last replies, project tags, shared boards and the boards setting", () => {
+    const seed = makeSeedSnapshot();
+    const parsed = parseWire(snapshotSchema, "snapshot", seed);
+    expect(parsed.sessions.find((s) => s.id === "s-1")?.lastReply).toMatch(/^Checkout audit is done/);
+    expect(parsed.ended.find((e) => e.id === "e-1")?.lastReply).not.toBeNull();
+    const board = parsed.sharedBoards[0];
+    expect(board?.items.map((i) => i.projectTag)).toEqual(["corner_shop", "Office Building", null]);
+    expect(parseWire(settingsSchema, "settings", makeSettings()).boards.sharedFiles).toEqual([]);
+    const [first, ...rest] = seed.sessions;
+    if (first === undefined) throw new Error("no session in the seed");
+    const { lastReply: _reply, ...noReply } = first;
+    expect(() => parseWire(snapshotSchema, "snapshot", { ...seed, sessions: [noReply, ...rest] })).toThrow(/sessions\.0\.lastReply/);
+    const { sharedBoards: _boards, ...noBoards } = seed;
+    expect(() => parseWire(snapshotSchema, "snapshot", noBoards)).toThrow(/sharedBoards/);
+  });
+
   it("needs queued on the snapshot", () => {
     const { queued: _queued, ...bare } = makeSeedSnapshot();
     expect(() => parseWire(snapshotSchema, "snapshot", bare)).toThrow(/queued/);
@@ -96,6 +112,7 @@ describe("TauriApi", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(true)
       .mockResolvedValueOnce(floor)
       .mockResolvedValueOnce("/Users/me/code/app")
       .mockResolvedValueOnce(null);
@@ -106,6 +123,7 @@ describe("TauriApi", () => {
     await api.tickTodo("t-1");
     await api.sendAgentMessage("s-1", "s-2", "hi");
     await api.focusSession("s-1");
+    await expect(api.attachSession("s-1")).resolves.toBe(true);
     await expect(api.addFloor("~/code/app")).resolves.toEqual(floor);
     await expect(api.pickFolder()).resolves.toBe("/Users/me/code/app");
     await api.resumeSession("e-1");
@@ -117,6 +135,7 @@ describe("TauriApi", () => {
       ["tick_todo", { todoId: "t-1" }],
       ["send_agent_message", { fromSessionId: "s-1", toSessionId: "s-2", text: "hi" }],
       ["focus_session", { sessionId: "s-1" }],
+      ["attach_session", { sessionId: "s-1" }],
       ["add_floor", { path: "~/code/app" }],
       ["pick_folder", undefined],
       ["resume_session", { sessionId: "e-1" }],

@@ -15,6 +15,7 @@ import { TauriRouting } from "./api/tauriRouting";
 import { HandoverContext } from "./components/handover/HandoverContext";
 import { RoutingContext } from "./components/routing/RoutingContext";
 import "./index.css";
+import "./archipelago/camp.css";
 
 const container = document.getElementById("root");
 if (container === null) {

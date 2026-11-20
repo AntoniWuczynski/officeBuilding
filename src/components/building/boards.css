@@ -1,0 +1,177 @@
+/* Shared boards, the dot for news since you looked, last-reply lines and a place's linked tags: the same in both views. */
+.boards-menu {
+  position: relative;
+  white-space: nowrap;
+  margin-left: auto;
+}
+.needs-you + .boards-menu,
+.boards-menu + .needs-you-menu {
+  margin-left: 0;
+}
+.boards-sheet {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 14px);
+  right: 0;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  white-space: normal;
+}
+.board + .board {
+  margin-top: 12px;
+}
+.board h3 {
+  margin: 0;
+  font: 700 15px/1 var(--font-sign);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.boards-sheet .panel-body {
+  padding: 6px 0 0;
+  overflow: visible;
+}
+.boards-empty {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.new-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-left: 6px;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--wait);
+  vertical-align: middle;
+}
+.new-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.new-count .new-dot {
+  margin-left: 0;
+}
+
+/* The agent's last reply: it wraps where the card and the rows around it keep to one line. */
+.reply-line {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.worker-card .reply-line {
+  max-width: 280px;
+  color: var(--ink);
+}
+.place-panel li .place-reply {
+  color: var(--ink);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.signout-row .reply-line {
+  grid-row: 3;
+}
+.signout-row .reply-line ~ [data-testid="signed-out-handover"] {
+  grid-row: 4;
+}
+
+.place-tags {
+  display: grid;
+  /* An auto column grows to the input's intrinsic width and pushes Link out of a narrow panel. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.place-tags h3 {
+  margin: 0;
+  color: var(--ink-soft);
+  font: 700 13px/1 var(--font-sign);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.place-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.place-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 6px;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  font: 12px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.place-tag button {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.place-tags form {
+  display: flex;
+  gap: 6px;
+}
+.place-tags input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 13px var(--font-ui);
+}
+.place-tags .btn {
+  flex: none;
+  height: 30px;
+  padding: 0 10px;
+}
+
+/* Settings > Boards: the files on the list. */
+.boards-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.boards-files li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.boards-files span {
+  flex: 1;
+  min-width: 0;
+  font: 12px/1.4 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* The top bar carries two more items (the news count and Boards): below this width they get room from the gaps and the count's word. */
+@media (max-width: 1150px) {
+  .building-view .topbar {
+    gap: 8px;
+  }
+  .new-word {
+    display: none;
+  }
+}

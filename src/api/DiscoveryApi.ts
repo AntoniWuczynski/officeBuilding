@@ -52,6 +52,18 @@ export interface FileDrop {
   readonly y: number;
 }
 
+/** What a project is assigned to: a repo by id or a session by name. */
+export interface ProjectTarget {
+  readonly kind: "repo" | "session";
+  readonly key: string;
+}
+
+/** A project picked or typed: an existing rule's id, or null with a name for a new one. */
+export interface ProjectChoice {
+  readonly id: string | null;
+  readonly name: string;
+}
+
 /**
  * The single seam between the UI and its data source. Phase 1 = `MockApi`
  * (in-browser, no native deps). Phase 2+ = `TauriApi` calling the Rust backend
@@ -144,6 +156,21 @@ export interface DiscoveryApi {
    */
   demolishFloor(projectId: string): Promise<void>;
 
+  /**
+   * Put a repo (by folder) or a session (by its full name) under a project, made when none has
+   * that id or name. Rejects, changing nothing, while the rules file cannot be read.
+   */
+  assignProject(target: ProjectTarget, project: ProjectChoice): Promise<void>;
+
+  /** Stop one session cleanly; it leaves the building. Rejects, leaving it running, when it will not stop or is unknown. */
+  exileSession(sessionId: string): Promise<void>;
+
+  /**
+   * Put a session on another floor, or with `null` (or its own floor) back where it was
+   * found. Rejects for a session or floor the building does not have.
+   */
+  moveSession(sessionId: string, projectId: string | null): Promise<void>;
+
   /** Whether {@link pickFolder} can open a native folder picker here. */
   readonly canPickFolder: boolean;
 
@@ -155,6 +182,15 @@ export interface DiscoveryApi {
    * (native macOS window activation). Only meaningful for `raise-window`.
    */
   focusSession(sessionId: string): Promise<void>;
+
+  /**
+   * Open a Claude Code background session with `claude attach` in the docked terminal.
+   * Resolves false when it is not one, so its own window is raised instead.
+   */
+  attachSession(sessionId: string): Promise<boolean>;
+
+  /** Hang up the app's `claude attach` for a session, so another terminal keeps its full size. */
+  detachSession(sessionId: string): Promise<void>;
 
   /**
    * Watch the in-app terminal of a `full`-control session: replays what it

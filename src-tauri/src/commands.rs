@@ -23,7 +23,7 @@ use crate::structured::desks::Backlog;
 use crate::watch::SNAPSHOT_EVENT;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 type OfficeState<'a> = State<'a, Arc<Office>>;
 type HubState<'a> = State<'a, Arc<Hub>>;
@@ -229,9 +229,41 @@ pub fn send_agent_message(
     office.send_agent_message(&from_session_id, &to_session_id, &text)
 }
 
+/// On a blocking thread: it waits for `claude attach` to start.
+#[tauri::command]
+pub async fn attach_session(office: OfficeState<'_>, session_id: String) -> Result<bool, String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || office.attach_session(&session_id))
+        .await
+        .map_err(|e| format!("the attach did not finish: {e}"))?
+}
+
+#[tauri::command]
+pub fn detach_session(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
+    office.detach_session(&session_id);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn focus_session(office: OfficeState<'_>, session_id: String) -> Result<(), String> {
     office.focus_session(&session_id)
+}
+
+/// Stopping the agent waits for it to exit, so it runs off the main thread.
+#[tauri::command]
+pub async fn exile_session(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    session_id: String,
+) -> Result<(), String> {
+    let office = Arc::clone(&office);
+    tauri::async_runtime::spawn_blocking(move || {
+        office.exile_session(&session_id)?;
+        push_snapshot(&app, &office);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("the exile did not finish: {e}"))?
 }
 
 /// Stopping the floor's agents waits for them to exit, so it runs off the main thread.
@@ -249,6 +281,18 @@ pub async fn demolish_floor(
     })
     .await
     .map_err(|e| format!("the demolition did not finish: {e}"))?
+}
+
+#[tauri::command]
+pub fn move_session(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    session_id: String,
+    project_id: Option<String>,
+) -> Result<(), String> {
+    office.move_session(&session_id, project_id.as_deref())?;
+    push_snapshot(&app, &office);
+    Ok(())
 }
 
 #[tauri::command]
@@ -319,8 +363,10 @@ pub fn get_settings(settings: State<'_, Arc<SettingsStore>>) -> Settings {
 /// A changed agent label re-sorts the connectors' items, so it polls them again. Changed QA
 /// settings ask GitHub again at once. A routing connection that left takes its key with it, on a
 /// blocking thread that is not waited for: this runs on the main thread and the Keychain may block.
+/// Changed boards are read and pushed the same way, so a board shows without waiting for a rescan.
 #[tauri::command]
 pub fn update_settings(
+    app: AppHandle,
     settings: State<'_, Arc<SettingsStore>>,
     hub: HubState<'_>,
     watch: WatchState<'_>,
@@ -330,6 +376,7 @@ pub fn update_settings(
 ) -> Result<Settings, String> {
     let connectors_changed = patch.connectors.is_some();
     let qa_changed = patch.qa.is_some();
+    let boards_changed = patch.boards.is_some();
     let routing_before = patch.routing.is_some().then(|| settings.get().routing);
     let updated = settings.update(patch)?;
     if connectors_changed {
@@ -337,6 +384,15 @@ pub fn update_settings(
     }
     if qa_changed {
         watch.recheck();
+    }
+    if boards_changed {
+        // The office comes from the handle, not a ninth command argument.
+        drop(tauri::async_runtime::spawn_blocking(move || {
+            if let Some(office) = app.try_state::<Arc<Office>>() {
+                office.refresh();
+                push_snapshot(&app, &office);
+            }
+        }));
     }
     if let Some(before) = routing_before {
         // Memory only, so a withdrawn opt-in bites before this command returns.
@@ -542,6 +598,18 @@ pub async fn set_manager_paused(
     })
     .await
     .map_err(|e| format!("the change did not finish: {e}"))?
+}
+
+#[tauri::command]
+pub fn assign_project(
+    app: AppHandle,
+    office: OfficeState<'_>,
+    target: crate::project_rules::Target,
+    project: crate::project_rules::Choice,
+) -> Result<(), String> {
+    office.assign_project(&target, &project)?;
+    push_snapshot(&app, &office);
+    Ok(())
 }
 
 #[tauri::command]

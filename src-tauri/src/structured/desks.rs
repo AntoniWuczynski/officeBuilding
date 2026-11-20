@@ -203,6 +203,9 @@ impl Desks {
             .iter()
             .filter(|(_, d)| d.ended.is_none())
             .map(|(id, d)| Session {
+                session_name: None,
+                session_name_source: None,
+                self_reviewed: false,
                 id: id.clone(),
                 tool: d.info.tool,
                 project_id: d.info.project_id.clone(),
@@ -211,6 +214,7 @@ impl Desks {
                 control: ControlMode::Structured,
                 model: Some(d.info.model.clone()),
                 effort: Some(d.info.effort.clone()),
+                last_reply: None,
                 last_activity_at: iso(d.last),
                 pending_question_ids: Vec::new(),
                 spend: Spend::default(),
@@ -239,6 +243,7 @@ impl Desks {
                     ended_at: iso(d.last),
                     model: Some(d.info.model.clone()),
                     effort: Some(d.info.effort.clone()),
+                    last_reply: None,
                 };
                 (d.last, session)
             })

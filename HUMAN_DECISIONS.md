@@ -728,6 +728,44 @@ From the review of Stage H2. Two fixes changed behaviour:
 
 This is a follow-up to OB-210 and amends its fourth ruling, and that amendment is A Human's own. The API key routes and the router from OB-210 stay as built. A Human's ruling of 2026-10-01 that the app never stops a running agent (TODO OB-027) now has a third exception. That it follows from this ruling for the automatic handover is the build's reading, listed first above. Since Stage H2 the exception covers a session of either tool. The rule from OB-040 that the building touches no login token holds here in full. The handover reads, stores and moves no login, and uses only the exit code of `codex login status` or `claude auth status`. No account identifier from a Codex rollout reaches a brief, a log, a fixture, the saved state or the wire. The rule from OB-152 that the manager only orchestrates holds too, and the manager cannot reach the handover. One call is open for A Human, on the vendors' terms. Nobody has read OpenAI's, because its pages refused automated fetches, and Anthropic's legal page does not address two tools taking turns at one desk (TODO OB-304, beside OB-211). Stage H1 is built as TODO OB-284, with the checks for A Human in HUMAN_TODO OB-285 and the deferrals and open review findings in TODO OB-287 to OB-310. Stage H2 is built as TODO OB-286, with the checks for A Human in HUMAN_TODO OB-311 and the deferrals and the open review finding in TODO OB-312 to OB-329.
 
+## OB-332 — What may your own click end, and where does a session started above its repos sit? — DECIDED 2026-11-20: Throw out reaches any running session with one polite stop, and a session started above its repos is pinned to the first one it enters
+
+Raised by the review of pull request #13 (a contribution), which adds a Throw out button on each agent in the place panel and moves a session started above a repo onto the repo it works in.
+
+A Human on 2026-11-20, from the options offered:
+
+- Throw out (exile): "Any session, as built". It is A Human's own deliberate click, it also reaches sessions started outside the app, and it asks once and never forces. This is a fourth exception to "the app never stops a running agent" (TODO OB-027), after demolition, the QA reviewer and the handover.
+- A `cd` between repos: "Pin to the first repo". A session started outside any repo sits on the first repo it enters and stays there. A session started inside a repo never moves, not even into a submodule. This keeps A Human's earlier request that agents stop moving when they `cd` (TODO OB-055) and amends it for the one case of a session started above its repos.
+
+Calls of the review, not A Human's: the manager and the QA reviewer have no Throw out button and cannot be moved to another island, a desk that is being handed over can be neither thrown out nor sunk with its floor, and the pin is held in memory, so after a restart of the app a session is pinned to the repo it is in at that moment.
+
+## OB-333 — May a floor's manager speak to desks and end them? — DECIDED 2026-11-20: yes, desks the app started on its own floor, with a polite stop and then a forced one
+
+A Human on 2026-11-20: "I've tried using a manager to manage desks and it couldn't speak to desks or kill them so that needs fixing".
+
+- Ending desks: "App-started, polite then forced". Any desk on the manager's own floor that the app started. It asks the agent to stop and force-kills it if it has not gone after a few seconds. Sessions started outside the app are never touched.
+- Speaking to desks: the desks it failed to reach were "Desks hired in the app", so that is a defect to find and fix, not a limit to explain.
+
+This amends OB-152 ("it only orchestrates") and adds a fifth exception to TODO OB-027, the first one that an agent and not A Human sets off. Not built yet (TODO OB-333).
+
+## OB-334 — A handover you ask for, to a provider you choose — DECIDED 2026-11-20: a button starts a new session on the chosen provider, the old session keeps running, and the first prompt is the line plus the brief
+
+A Human on 2026-11-20: "I want a handover button that will start a new session (with your chosen provider) and tell it "Take over from [session_id]"".
+
+- The old session: "Keep it running". It is left alone and the new one starts beside it in the same folder. A Human closes the old one. The risk A Human accepted is two agents in one folder while the old one is still working.
+- The first prompt: "The line plus the brief". "Take over from <session id>" followed by a pointer to the brief the building already writes (TODO OB-284).
+
+This is separate from the handover of a used-up desk (OB-283), which still ends the old session. Not built yet (TODO OB-334).
+
+## OB-335 — The look of provider, model and effort (GitHub issue #14) — DECIDED 2026-11-20: the six woods as listed with generated grain, and all 24 sheets generated unattended
+
+A Human on 2026-11-20, from the options offered, on top of the decisions already written in the issue:
+
+- The art run: "All 24, unattended". Every parts sheet is generated with Codex image generation on A Human's own ChatGPT plan, failures are generated again, with a cap of about 60 images.
+- The woods: "Accept, with grain swatches". Claude Code pale maple, Codex wenge, Cursor oak, opencode walnut, Antigravity cherry and pine for an unknown tool, with one generated seamless grain swatch for each and the flat colour as the fallback.
+
+Still open in the issue: whether the fixed manager also takes its effort build. The build's call until A Human says otherwise is that it does not. Not built yet (TODO OB-335).
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.

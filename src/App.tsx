@@ -5,10 +5,19 @@ import type { DiscoveryApi, HireRequest, QuestionAnswer } from "./api/DiscoveryA
 import type { Editor, Place, Session, SettingsPatch } from "./types";
 import { TOOL_LABEL, editorLabel, sessionById } from "./state/selectors";
 import { useNow } from "./state/useNow";
+import { useClusters } from "./state/useClusters";
+import { ProjectsContext } from "./state/ProjectsContext";
+import type { ProjectsValue } from "./state/ProjectsContext";
+import { similarNames } from "./state/similarNames";
 import { useOffice } from "./state/useOffice";
+import { SeenContext, useSeen } from "./state/useSeen";
 import { ViewSwitch } from "./components/ViewSwitch";
 import { PLACE } from "./state/placeWords";
 import { useViewMode } from "./state/useViewMode";
+import { applyOverrides, dropLegacyMoves, legacyMoves, useOverrides } from "./state/overrides";
+import type { OverrideActions } from "./state/overrides";
+import { BoardsContext } from "./components/building/BoardsContext";
+import type { BoardLinks } from "./components/building/BoardsContext";
 import { BuildingView } from "./components/building/BuildingView";
 import type { ScreenOrigin } from "./components/building/BuildingView";
 import { FloorView } from "./components/floor/FloorView";
@@ -40,7 +49,16 @@ const TOAST_MS = 4500;
 
 /** Root view-state machine: building ↔ floor, plus the floor's panels and toasts. */
 export function App({ api }: Props): React.ReactElement {
-  const { state, retry } = useOffice(api);
+  const { state: discovered, retry } = useOffice(api);
+  // Your names for floors, applied once so every view agrees. Moves of sessions live in the backend.
+  const [overrides, { linkTags, ...nameActions }] = useOverrides();
+  const seen = useSeen();
+  const markSeen = seen.markSeen;
+  const boardLinks = useMemo<BoardLinks>(() => ({ linked: overrides.tags, link: linkTags }), [overrides.tags, linkTags]);
+  const state = useMemo(
+    () => (discovered.status === "ready" ? { ...discovered, snapshot: applyOverrides(discovered.snapshot, overrides) } : discovered),
+    [discovered, overrides],
+  );
   const [viewMode, setViewMode] = useViewMode();
   const words = PLACE[viewMode];
   const now = useNow();
@@ -51,6 +69,8 @@ export function App({ api }: Props): React.ReactElement {
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
   const toastSeq = useRef(0);
+  const attachedIds = useRef(new Set<string>());
+  const lastOpenId = useRef<string | null>(null);
 
   const dismiss = useCallback((id: number) => {
     setToasts((ts) => ts.filter((t) => t.id !== id));
@@ -66,6 +86,11 @@ export function App({ api }: Props): React.ReactElement {
   );
 
   const snapshot = state.status === "ready" ? state.snapshot : null;
+  const grouping = useClusters(snapshot);
+  const projects = useMemo<ProjectsValue>(
+    () => ({ ...grouping, rules: snapshot?.projectRules ?? [], rulesError: snapshot?.projectRulesError ?? null, similar: similarNames, assignProject: (target, choice) => api.assignProject(target, choice) }),
+    [grouping, snapshot, api],
+  );
   const project = view.kind === "floor" && snapshot !== null ? snapshot.projects.find((p) => p.id === view.projectId) : undefined;
 
   // A hire reported as started can still fail before the agent reaches its desk.
@@ -102,18 +127,45 @@ export function App({ api }: Props): React.ReactElement {
     setOpenSessionId(id);
   }, []);
 
+  /** `onDocked` runs when a background session attaches in a docked terminal, which only a floor shows. */
   const openSession = useCallback(
-    (session: Session) => {
+    (session: Session, onDocked?: () => void) => {
+      markSeen(session.id);
       if (session.control !== "raise-window") {
         showTerminal(session.id);
         return;
       }
       api
-        .focusSession(session.id)
-        .then(() => toast("ok", `Brought the ${TOOL_LABEL[session.tool]} window for “${session.title}” to the front.`))
+        .attachSession(session.id)
+        .then((docked) => {
+          if (docked) {
+            attachedIds.current.add(session.id);
+            onDocked?.();
+            showTerminal(session.id);
+            return undefined;
+          }
+          return api
+            .focusSession(session.id)
+            .then(() => toast("ok", `Brought the ${TOOL_LABEL[session.tool]} window for “${session.title}” to the front.`));
+        })
         .catch((err: unknown) => toast("error", `Could not raise the window for “${session.title}”: ${message(err)}.`));
     },
-    [api, toast, showTerminal],
+    [api, toast, showTerminal, markSeen],
+  );
+
+  // Closing or leaving an attached session hangs up the app's `claude attach`.
+  useEffect(() => {
+    const prev = lastOpenId.current;
+    lastOpenId.current = openSessionId;
+    if (prev === null || prev === openSessionId || !attachedIds.current.delete(prev)) return;
+    api.detachSession(prev).catch((err: unknown) => toast("error", `Could not release the attach: ${message(err)}.`));
+  }, [api, toast, openSessionId]);
+
+  useEffect(
+    () => () => {
+      attachedIds.current.forEach((id) => void api.detachSession(id).catch(() => {}));
+    },
+    [api],
   );
 
   const hire = useCallback(
@@ -160,6 +212,13 @@ export function App({ api }: Props): React.ReactElement {
     [api, editorList, toast, reloadEditors],
   );
   const editorActions = useMemo<EditorActions>(() => ({ list: editorList, open: openInEditor }), [editorList, openInEditor]);
+
+  // A session open in the docked terminal is being looked at: it stopping while you watch is not news.
+  const openNow = snapshot?.sessions.find((s) => s.id === openSessionId);
+  const watchedNews = openNow !== undefined && seen.isNew(openNow) ? openNow.id : null;
+  useEffect(() => {
+    if (watchedNews !== null) markSeen(watchedNews);
+  }, [watchedNews, markSeen]);
 
   // Cmd+Shift+O opens the desk whose panel is open, else the keyboard-focused worker. Captured first so a focused terminal cannot swallow it.
   const sessions = snapshot?.sessions;
@@ -238,6 +297,37 @@ export function App({ api }: Props): React.ReactElement {
       });
     },
     [api, snapshot, toast, words],
+  );
+
+  const overrideActions: OverrideActions = useMemo(
+    () => ({
+      ...nameActions,
+      moveSession: (sessionId, projectId) => {
+        api.moveSession(sessionId, projectId).catch((err: unknown) => toast("error", `Could not move that agent: ${message(err)}.`));
+      },
+    }),
+    [api, nameActions, toast],
+  );
+
+  const legacySent = useRef(false);
+  useEffect(() => {
+    if (snapshot === null || legacySent.current) return;
+    legacySent.current = true;
+    // Moves an earlier version kept in the webview: one the backend takes, or whose session is not here, is done with. The rest wait for the next launch.
+    const moves = Object.entries(legacyMoves());
+    const here = new Set([...snapshot.sessions, ...snapshot.ended].map((s) => s.id));
+    void Promise.all(moves.map(([sessionId, projectId]) => api.moveSession(sessionId, projectId).then(() => true, () => false))).then((taken) =>
+      dropLegacyMoves(moves.flatMap(([sessionId], i) => (taken[i] === true || !here.has(sessionId) ? [sessionId] : []))),
+    );
+  }, [api, snapshot]);
+
+  const exileSession = useCallback(
+    (sessionId: string) =>
+      api.exileSession(sessionId).catch((err: unknown) => {
+        toast("error", `Could not ${words.exileVerb.toLowerCase()} that agent: ${message(err)}.`);
+        throw err;
+      }),
+    [api, toast, words],
   );
 
   const demolishFloor = useCallback(
@@ -367,27 +457,35 @@ export function App({ api }: Props): React.ReactElement {
             transition={{ duration: 0.5, ease: CAMERA_EASE }}
           >
             <BuildingView
+              overrideActions={overrideActions}
               snapshot={snap}
               onEnter={enter}
               canPickFolder={api.canPickFolder}
               onPickFolder={pickFolder}
               onAddFloor={addFloor}
               onDemolishFloor={demolishFloor}
+              onExileSession={exileSession}
               loadUsage={loadUsage}
               onOpenPlate={closeSettings}
+              onAnswer={answer}
+              onTick={tick}
+              onOpenSettings={openSettings}
+              settingsOpen={settingsOpen}
               mode={viewMode}
               viewSwitch={<ViewSwitch mode={viewMode} onChange={setViewMode} />}
               onOpenSession={(s) => {
-                // A session in its own terminal window is raised where it is, as clicking its desk does; others open on their floor.
-                if (s.control !== "raise-window") enter(s.projectId, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-                openSession(s);
+                // A session in its own terminal window is raised where it is, as clicking its desk does; others open on their floor,
+                // and so does a background session once it attaches in a docked terminal.
+                const onFloor = (): void => enter(s.projectId, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+                if (s.control !== "raise-window") onFloor();
+                openSession(s, onFloor);
               }}
             />
           </motion.div>
         ) : (
           <motion.div
             key={`floor-${project.id}`}
-            className="view-frame"
+            className={viewMode === "islands" ? "view-frame arch-floor" : "view-frame"}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
@@ -415,6 +513,7 @@ export function App({ api }: Props): React.ReactElement {
               onNewShell={() => newShell(project.id)}
               onEndShell={(id) => api.endShell(id)}
               setup={setup}
+              look={viewMode === "islands" ? "island" : "office"}
             />
           </motion.div>
         )}
@@ -430,11 +529,17 @@ export function App({ api }: Props): React.ReactElement {
       <ConnectorsContext value={connectorActions}>
       <QaContext value={qaActions}>
       <ManagerContext value={managerActions}>
+      <SeenContext value={seen}>
+      <BoardsContext value={boardLinks}>
+      <ProjectsContext value={projects}>
         <div className={viewMode === "islands" && project === undefined ? "app is-islands" : "app"}>
           {body}
           {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </ProjectsContext>
+      </BoardsContext>
+      </SeenContext>
       </ManagerContext>
       </QaContext>
       </ConnectorsContext>

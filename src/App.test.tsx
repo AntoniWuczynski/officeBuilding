@@ -107,7 +107,7 @@ function storey(projectId: string): HTMLElement {
 
 async function enter(projectId: string): Promise<void> {
   const user = userEvent.setup();
-  await user.click(within(await findStorey(projectId)).getByTestId("floor-nameplate"));
+  await user.click(await findStorey(projectId));
   await screen.findByTestId("back-button");
 }
 
@@ -454,6 +454,19 @@ describe("floor", () => {
     expect(screen.queryByTestId("terminal-panel")).not.toBeInTheDocument();
   });
 
+  it("opens a background session in the docked terminal instead of raising a window", async () => {
+    const user = userEvent.setup();
+    const api = new MockApi();
+    const attach = vi.spyOn(api, "attachSession").mockResolvedValue(true);
+    const focus = vi.spyOn(api, "focusSession");
+    renderApp(api);
+    await enter("p-shop");
+    await user.click(screen.getByRole("button", { name: /map-tiles mirror/ }));
+    expect(attach).toHaveBeenCalledWith("s-3");
+    expect(await screen.findByTestId("terminal-panel")).toHaveAttribute("data-session", "s-3");
+    expect(focus).not.toHaveBeenCalled();
+  });
+
   it("reports a window that cannot be raised", async () => {
     const user = userEvent.setup();
     const api = new MockApi();
@@ -695,6 +708,7 @@ describe("manager's office", () => {
       done: i >= 203,
       assignee: "ai" as const,
       source: { kind: "file" as const, file: "TODO.md" },
+      projectTag: null,
     }));
     renderApp(new MockApi({ ...seed, todos: [...seed.todos, ...many] }));
     await enter("p-arcade");

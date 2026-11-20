@@ -90,6 +90,9 @@ mod tests {
 
     fn session(id: &str, project_id: &str, helpers: Vec<Helper>) -> Session {
         Session {
+            session_name: None,
+            session_name_source: None,
+            self_reviewed: false,
             id: id.to_string(),
             tool: ToolKind::ClaudeCode,
             project_id: project_id.to_string(),
@@ -98,6 +101,7 @@ mod tests {
             control: ControlMode::RaiseWindow,
             model: None,
             effort: None,
+            last_reply: None,
             last_activity_at: String::new(),
             pending_question_ids: Vec::new(),
             spend: Spend::default(),
@@ -126,6 +130,7 @@ mod tests {
             ended_at: String::new(),
             model: None,
             effort: None,
+            last_reply: None,
         }
     }
 

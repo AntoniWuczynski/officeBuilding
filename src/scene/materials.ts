@@ -7,7 +7,13 @@ export interface Materials {
   readonly backClass: "wall-windows" | "wall-pipes";
 }
 
-const OFFICE: Materials = { floor: "var(--boards)", backWall: "var(--window-wall)", leftWall: "var(--plaster-shade)", backClass: "wall-windows" };
+// The --room-* tokens are unset in the office and set by the island view's beach camp (archipelago/camp.css).
+const OFFICE: Materials = {
+  floor: "var(--room-floor, var(--boards))",
+  backWall: "var(--window-wall)",
+  leftWall: "var(--plaster-shade)",
+  backClass: "wall-windows",
+};
 const PLANT: Materials = { floor: "var(--plant-floor)", backWall: "var(--pipe-wall)", leftWall: "var(--pegboard)", backClass: "wall-pipes" };
 
 export function materialsFor(plant: boolean): Materials {

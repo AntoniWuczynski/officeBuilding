@@ -1,7 +1,7 @@
-import { useRef } from "react";
+import { useContext, useEffect, useRef } from "react";
 import type { FloorLight, Project, Session, Verdict } from "../../types";
 import type { Counts } from "../../state/selectors";
-import { lightWords, poseForState } from "../../lib/animation";
+import { poseForState } from "../../lib/animation";
 import { STOREY, floorSpotOf, seatOf, storeyDeskCount, storeyDeskX } from "../../lib/layout";
 import { lookFor, MANAGER_LOOK } from "../../lib/looks";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
@@ -10,10 +10,10 @@ import { Desk } from "../../scene/Desk";
 import { materialsFor } from "../../scene/materials";
 import { Duct, Tank } from "../../scene/PlantFittings";
 import { Person, Walker } from "../../scene/Person";
-import { DemolishIcon } from "../icons";
-import { QaStamp } from "../qa/QaStamp";
-import { STAMP_WORDS } from "../../state/selectors";
-import { PLACE } from "../../state/placeWords";
+import { STATE_LABEL } from "../../state/selectors";
+import type { Cluster } from "../../state/clusters";
+import { PlaceNameplate } from "./PlaceNameplate";
+import { ExilingContext, PLACE_PANEL_ID } from "./PlacePanel";
 import { usePresence } from "../../state/usePresence";
 import type { Phase } from "../../state/usePresence";
 
@@ -30,6 +30,8 @@ export interface FloorModel {
   readonly plant: boolean;
   /** The floor's QA stamp, when its QA is on and a review has left one. */
   readonly stamp: Verdict | null;
+  /** The project cluster the floor stands in; null for the setup floor and a floor no cluster names. */
+  readonly cluster: Cluster | null;
 }
 
 interface StoreyProps {
@@ -41,6 +43,12 @@ interface StoreyProps {
   /** Whether people who leave walk off, or vanish (reduced motion). */
   readonly animate: boolean;
   readonly onEnter: (projectId: string, from: HTMLElement) => void;
+  /** A person at a desk was clicked: open that agent's terminal or conversation. */
+  readonly onOpenSession: (session: Session) => void;
+  /** Its nameplate was clicked: open the place panel. */
+  readonly onShow: (projectId: string) => void;
+  /** The place panel is open for this floor. */
+  readonly panelOpen: boolean;
   readonly onDemolish: (projectId: string) => void;
   /** Its collapse has played and the rubble is gone. */
   readonly onGone: (projectId: string) => void;
@@ -59,8 +67,8 @@ const RUBBLE: readonly (readonly [number, number, number, number, number])[] = [
 
 const WALL_H = STOREY.height - STOREY.slab;
 
-/** One storey of the cutaway: a room you can see into. Click it to go inside. */
-export function Storey({ level, width, floor, phase, animate, onEnter, onDemolish, onGone }: StoreyProps): React.ReactElement {
+/** One storey of the cutaway: a room you can see into. Click the room to go inside; its nameplate opens the place panel instead. */
+export function Storey({ level, width, floor, phase, animate, onEnter, onOpenSession, onShow, panelOpen, onDemolish, onGone }: StoreyProps): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null);
   const { project, sessions, light, counts, pending, dimmed, plant, stamp } = floor;
   const look = materialsFor(plant);
@@ -126,7 +134,7 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
         seat === "leaving" ? (
           <Leaver key={key} session={item} x={storeyDeskX(i)} onGone={seats.done} />
         ) : (
-          <Seat key={key} session={item} x={storeyDeskX(i)} />
+          <Seat key={key} session={item} x={storeyDeskX(i)} onOpen={onOpenSession} />
         ),
       )}
       {overflow > 0 ? (
@@ -164,36 +172,22 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
       ) : null}
 
       <Billboard x={0} y={STOREY.depth} z={STOREY.height * 0.5} className="nameplate-anchor">
-        <button
-          type="button"
-          className="nameplate"
-          data-testid="floor-nameplate"
-          aria-label={`${project.name}: ${counts.active} of ${counts.total} active, ${lightWords(light)}${pending > 0 ? `, ${pending} waiting on you` : ""}${stamp === null ? "" : `, ${STAMP_WORDS[stamp].spoken}`}. Go to floor.`}
-        >
-          <i className="lamp" aria-hidden />
-          <span className="nameplate-name">{project.name}</span>
-          {plant ? <span className="nameplate-kind">Plant room</span> : null}
-          <span className="nameplate-count">
-            {counts.active}/{counts.total}
-          </span>
-          {stamp === null ? null : <QaStamp verdict={stamp} />}
-        </button>
-        {plant ? null : (
-        <button
-          type="button"
-          className="demolish-btn"
-          data-testid="demolish-floor"
-          aria-label={PLACE.office.removeLabel(project.name)}
-          title="Demolish this floor"
-          disabled={leaving}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDemolish(project.id);
-          }}
-        >
-          <DemolishIcon />
-        </button>
-        )}
+        <PlaceNameplate
+          mode="office"
+          projectId={project.id}
+          name={project.name}
+          light={light}
+          counts={counts}
+          pending={pending}
+          overflow={overflow}
+          plant={plant}
+          stamp={stamp}
+          leaving={leaving}
+          expanded={panelOpen}
+          panelId={PLACE_PANEL_ID}
+          onShow={() => onShow(project.id)}
+          onRemove={() => onDemolish(project.id)}
+        />
       </Billboard>
     </div>
   );
@@ -202,6 +196,12 @@ export function Storey({ level, width, floor, phase, animate, onEnter, onDemolis
 /** An agent whose session ended: up from the desk and off the floor. */
 function Leaver({ session, x, onGone }: { readonly session: Session; readonly x: number; readonly onGone: (id: string) => void }): React.ReactElement {
   const spot = seatOf({ x, y: STOREY.deskY });
+  // One thrown out the window has already left; it does not walk off a second time.
+  const thrown = useContext(ExilingContext).has(session.id);
+  useEffect(() => {
+    if (thrown) onGone(session.id);
+  }, [thrown, onGone, session.id]);
+  if (thrown) return <></>;
   return (
     <Billboard x={spot.x} y={spot.y} z={STOREY.slab}>
       <span
@@ -218,14 +218,27 @@ function Leaver({ session, x, onGone }: { readonly session: Session; readonly x:
   );
 }
 
-function Seat({ session, x }: { readonly session: Session; readonly x: number }): React.ReactElement {
+function Seat({ session, x, onOpen }: { readonly session: Session; readonly x: number; readonly onOpen: (session: Session) => void }): React.ReactElement {
   const desk = { x, y: STOREY.deskY };
+  const thrown = useContext(ExilingContext).has(session.id);
   const spot = session.state === "error" ? floorSpotOf(desk, STOREY.depth - 3) : seatOf(desk);
   return (
     <>
       <Desk x={x} y={STOREY.deskY} z={STOREY.slab} led={session.state} plant={session.worktree} />
       <Billboard x={spot.x} y={spot.y} z={STOREY.slab}>
-        <Person look={lookFor(session.id)} pose={poseForState(session.state)} />
+        <button
+          type="button"
+          className={`${session.state === "error" ? "worker is-down" : "worker"}${thrown ? " is-thrown" : ""}`}
+          data-testid="storey-seat"
+          aria-label={`${session.title}, ${STATE_LABEL[session.state]}. Open it.`}
+          onClick={(e) => {
+            // The storey behind it would otherwise also be entered.
+            e.stopPropagation();
+            onOpen(session);
+          }}
+        >
+          <Person look={lookFor(session.id)} pose={poseForState(session.state)} />
+        </button>
       </Billboard>
     </>
   );

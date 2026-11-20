@@ -8,8 +8,8 @@ pub mod pricing;
 pub mod rules;
 
 use crate::model::{
-    AnswerVia, ControlMode, EndedSession, Helper, Pet, Project, Question, QuestionOption, Session,
-    SessionState, Spend, ToolKind,
+    AgentMessage, AnswerVia, ControlMode, EndedSession, Helper, Pet, Project, Question,
+    QuestionOption, Session, SessionState, Spend, ToolKind,
 };
 use rules::Signals;
 use std::collections::BTreeMap;
@@ -33,6 +33,11 @@ pub struct Discovered {
     /// and each helper's by [`helper_key`]: a worktree's own folder, or its repo's root.
     /// Kept here for the backend only. Never sent to the webview.
     pub checkouts: BTreeMap<String, PathBuf>,
+    /// What other sessions and sub-agents sent the sessions found, oldest first.
+    pub peer_messages: Vec<AgentMessage>,
+    /// The skills each live session called since the human last spoke to it, by session id.
+    /// Kept here for the backend only: the snapshot decides which of them count as a review.
+    pub skills: BTreeMap<String, Vec<String>>,
 }
 
 /// FNV-1a, 32-bit: the same stable hash the frontend uses for looks.
@@ -85,6 +90,72 @@ pub fn locate(cwd: &Path) -> Location {
         root: cwd.to_path_buf(),
         worktree: false,
         checkout: cwd.to_path_buf(),
+    }
+}
+
+/// When a message was sent, for ordering; one that does not parse sorts first.
+#[must_use]
+pub(crate) fn sent_at(at: &str) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+    chrono::DateTime::parse_from_rfc3339(at).ok()
+}
+
+/// How long a session's `last_reply` may be.
+pub(crate) const REPLY_CHARS: usize = 140;
+/// How long an ended session stays on its floor's sign-out sheet.
+pub(crate) const KEEP_FINISHED: std::time::Duration = std::time::Duration::from_hours(12);
+
+/// The first sentence of a reply, at most `max` chars. None when it says nothing.
+/// Blank lines and fenced code come first and are skipped; a heading's `#`s or a list marker
+/// (`-`, `*`, `1.`) is not part of the sentence. A `.` `!` or `?` ends it only before whitespace,
+/// so `v1.2` and `foo.rs` stay whole, and a `.` after a lone letter or a number (`e.g.`, `1.`) does not end it.
+#[must_use]
+pub(crate) fn first_sentence(text: &str, max: usize) -> Option<String> {
+    let mut in_fence = false;
+    let line = text.lines().map(str::trim).find(|l| {
+        if l.starts_with("```") {
+            in_fence = !in_fence;
+            return false;
+        }
+        !in_fence && !l.is_empty()
+    })?;
+    let line = unmarked(line);
+    let mut end = line.len();
+    let mut chars = line.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let spaced = chars.peek().is_none_or(|(_, n)| n.is_whitespace());
+        if matches!(c, '.' | '!' | '?') && spaced && !(c == '.' && abbreviation(&line[..i])) {
+            end = i + c.len_utf8();
+            break;
+        }
+    }
+    let sentence = line[..end].trim();
+    (!sentence.is_empty()).then(|| crate::project_files::truncate(sentence, max))
+}
+
+/// The line without a markdown heading's `#`s or a list marker.
+fn unmarked(line: &str) -> &str {
+    let line = line.trim_start_matches('#').trim_start();
+    if let Some(rest) = line.strip_prefix(['-', '*']).filter(|r| r.starts_with(' ')) {
+        return rest.trim_start();
+    }
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    match line[digits..].strip_prefix(". ") {
+        Some(rest) if digits > 0 => rest.trim_start(),
+        _ => line,
+    }
+}
+
+/// Whether the word ending `before` is one letter or a run of digits, so a `.` after it is `e.g.` or `1.`.
+fn abbreviation(before: &str) -> bool {
+    let word: Vec<char> = before
+        .chars()
+        .rev()
+        .take_while(|c| c.is_alphanumeric())
+        .collect();
+    match word.as_slice() {
+        [] => false,
+        [_] => true,
+        w => w.iter().all(char::is_ascii_digit),
     }
 }
 
@@ -190,9 +261,16 @@ impl Discovery {
 
     pub fn scan(&mut self, now: SystemTime) -> Discovered {
         let table = (self.read_processes)();
-        let inputs = self
-            .claude
-            .scan(now)
+        let claude = self.claude.scan(now);
+        let mut peer_messages: Vec<AgentMessage> = claude
+            .iter()
+            .flat_map(|f| f.transcript.peer_messages.iter().cloned())
+            .collect();
+        peer_messages.sort_by_cached_key(|m| sent_at(&m.sent_at));
+        // A resumed transcript repeats its msg_ids; none of 526 real msg_ids repeated across receivers (16 Nov 2026).
+        let mut seen = std::collections::HashSet::new();
+        peer_messages.retain(|m| seen.insert(m.id.clone()));
+        let inputs = claude
             .into_iter()
             .filter_map(|f| from_claude(f, &table))
             .chain(
@@ -203,7 +281,8 @@ impl Discovery {
             )
             .filter(still_there)
             .collect();
-        let found = assemble(&self.home, inputs, locate, &self.checkouts);
+        let mut found = assemble(&self.home, inputs, locate, &self.checkouts);
+        found.peer_messages = peer_messages;
         self.checkouts.clone_from(&found.checkouts);
         found
     }
@@ -213,6 +292,13 @@ impl Discovery {
     pub fn ignore_running_codex(&mut self) {
         self.codex.list_pids = Vec::new;
         self.read_processes = Vec::new;
+    }
+
+    /// Transcripts read from disk so far.
+    #[cfg(test)]
+    #[must_use]
+    pub fn parses(&self) -> u32 {
+        self.claude.parses
     }
 
     /// Pid of a running session, for focusing its terminal window.
@@ -258,6 +344,12 @@ struct SessionInput {
     pets: Vec<Pet>,
     /// A person started it, so once it ends it can be offered to resume.
     resumable: bool,
+    /// First sentence of its latest reply to the human.
+    last_reply: Option<String>,
+    /// The name the tool's own registry gives it.
+    session_name: Option<String>,
+    session_name_source: Option<crate::model::NameSource>,
+    skills: Vec<String>,
 }
 
 fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<SessionInput> {
@@ -315,6 +407,10 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
         helpers: f.helpers,
         helper_places: f.helper_places,
         resumable: !f.transcript.scripted,
+        last_reply: f.transcript.last_reply,
+        session_name: f.live.as_ref().and_then(|l| l.name.clone()),
+        session_name_source: f.live.as_ref().and_then(|l| l.name_source),
+        skills: f.transcript.skills_since_prompt,
     })
 }
 
@@ -344,6 +440,10 @@ fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInpu
             .map(|pid| pets::pets_of(pid, table, &[]))
             .unwrap_or_default(),
         resumable: f.resumable,
+        last_reply: f.transcript.last_reply,
+        session_name: None,
+        session_name_source: None,
+        skills: Vec::new(),
     })
 }
 
@@ -401,6 +501,7 @@ fn signed_out(input: SessionInput, root: &Path) -> EndedSession {
         ended_at: input.last_activity,
         model: input.model,
         effort: input.effort,
+        last_reply: input.last_reply,
     }
 }
 
@@ -409,6 +510,79 @@ fn signed_out(input: SessionInput, root: &Path) -> EndedSession {
 /// its agent is still at work even if the folder went from under it.
 fn still_there(input: &SessionInput) -> bool {
     input.live || Path::new(&input.cwd).is_dir()
+}
+
+/// Where a session sits: its floor, the checkout it works in, and its worktree badge.
+struct Placement {
+    root: PathBuf,
+    checkout: PathBuf,
+    worktree: bool,
+    branch: Option<String>,
+}
+
+fn place(
+    input: &SessionInput,
+    locate: &impl Fn(&Path) -> Location,
+    before: &BTreeMap<String, PathBuf>,
+) -> Placement {
+    let started = locate(Path::new(&input.cwd));
+    let now_in = locate(Path::new(&input.latest_cwd));
+    let earlier = before.get(&input.session_id);
+    // A session launched above a repo (from the plain folder that holds several) sits on the first repo
+    // it works in and stays there: a later `cd` into another repo does not move it (A Human, OB-055).
+    // One started inside a repo never moves, not into a submodule or a nested clone either.
+    // Only into a real checkout: `locate` returns a plain folder as its own root, and a `cd ~/Downloads/x`
+    // must not raise a floor called "x".
+    let plain_start = !started.root.join(".git").exists();
+    let below = |root: &Path| {
+        plain_start
+            && root != started.root
+            && root.starts_with(&started.root)
+            && root.join(".git").exists()
+    };
+    let pinned = earlier
+        .map(|was| locate(was).root)
+        .filter(|root| below(root));
+    let home = pinned.or_else(|| below(&now_in.root).then(|| now_in.root.clone()));
+    let root = home.clone().unwrap_or_else(|| started.root.clone());
+    let at_home = now_in.root == root;
+    let worktree = now_in.worktree && at_home;
+    let branch = if worktree {
+        branch_of(&now_in.checkout)
+    } else {
+        None
+    };
+    // Away from its floor's repo, a pinned session keeps that repo as its checkout, which is also
+    // what holds the pin at the next scan.
+    let checkout = lost_checkout(earlier, &input.latest_cwd).unwrap_or(if at_home {
+        now_in.checkout
+    } else if home.is_some() {
+        root.clone()
+    } else {
+        started.checkout
+    });
+    Placement {
+        root,
+        checkout,
+        worktree,
+        branch,
+    }
+}
+
+/// Each floor as a project, named after its folder.
+fn projects_of(floors: BTreeMap<PathBuf, Vec<String>>, home: &Path) -> Vec<Project> {
+    floors
+        .into_iter()
+        .map(|(root, session_ids)| Project {
+            id: project_id(&root),
+            name: root.file_name().map_or_else(
+                || root.to_string_lossy().into_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            ),
+            path: display_path(&root, home),
+            session_ids,
+        })
+        .collect()
 }
 
 /// Build floors, desks and questions from every tool's finds. `locate` places a
@@ -425,25 +599,15 @@ fn assemble(
     let mut ended = Vec::new();
     let mut resume_dirs = BTreeMap::new();
     let mut checkouts = BTreeMap::new();
+    let mut skills = BTreeMap::new();
 
     for input in inputs {
-        let started = locate(Path::new(&input.cwd));
-        let now_in = locate(Path::new(&input.latest_cwd));
-        let same_repo = now_in.root == started.root;
-        let worktree = now_in.worktree && same_repo;
-        let branch = if worktree {
-            branch_of(&now_in.checkout)
-        } else {
-            None
-        };
-        let checkout = lost_checkout(before.get(&input.session_id), &input.latest_cwd).unwrap_or(
-            if same_repo {
-                now_in.checkout
-            } else {
-                started.checkout
-            },
-        );
-        let root = started.root;
+        let Placement {
+            root,
+            checkout,
+            worktree,
+            branch,
+        } = place(&input, &locate, before);
         // An ended session leaves the office; its floor stays while the session was recent.
         let ids = floors.entry(root.clone()).or_default();
         if !input.live {
@@ -474,6 +638,7 @@ fn assemble(
         }
 
         let title = input.title.clone().unwrap_or_else(|| UNTITLED.to_string());
+        skills.insert(input.session_id.clone(), input.skills);
         sessions.push(Session {
             id: input.session_id,
             tool: input.tool,
@@ -490,23 +655,16 @@ fn assemble(
             pets: input.pets,
             worktree,
             branch,
+            last_reply: input.last_reply,
+            session_name: input.session_name,
+            session_name_source: input.session_name_source,
+            self_reviewed: false,
         });
     }
 
     let root_by_id: BTreeMap<String, PathBuf> =
         floors.keys().map(|r| (project_id(r), r.clone())).collect();
-    let projects: Vec<Project> = floors
-        .into_iter()
-        .map(|(root, session_ids)| Project {
-            id: project_id(&root),
-            name: root.file_name().map_or_else(
-                || root.to_string_lossy().into_owned(),
-                |n| n.to_string_lossy().into_owned(),
-            ),
-            path: display_path(&root, home),
-            session_ids,
-        })
-        .collect();
+    let projects = projects_of(floors, home);
     // Most urgent first, then oldest ask first.
     questions.sort_by(|a, b| {
         a.priority
@@ -522,6 +680,8 @@ fn assemble(
         ended,
         resume_dirs,
         checkouts,
+        peer_messages: Vec::new(),
+        skills,
     }
 }
 
@@ -553,337 +713,4 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
 mod checkout_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::claude_code::{Found, LiveEntry, parse_transcript};
-    use super::*;
-    use std::io::Cursor;
-
-    fn found(id: &str, cwd: &str, lines: &[&str], live: bool) -> Found {
-        Found {
-            session_id: id.to_string(),
-            transcript: parse_transcript(Cursor::new(lines.join("\n"))),
-            live: live.then(|| LiveEntry {
-                pid: 1,
-                session_id: id.to_string(),
-                cwd: cwd.to_string(),
-                busy: false,
-                waiting: false,
-                name: None,
-            }),
-            helpers: Vec::new(),
-            helper_places: BTreeMap::new(),
-        }
-    }
-
-    /// Every folder is its own floor, outside any worktree.
-    fn own_floor(cwd: &Path) -> Location {
-        Location {
-            root: cwd.to_path_buf(),
-            worktree: false,
-            checkout: cwd.to_path_buf(),
-        }
-    }
-
-    fn claude_inputs(founds: Vec<Found>) -> Vec<SessionInput> {
-        founds
-            .into_iter()
-            .filter_map(|f| from_claude(f, &[]))
-            .collect()
-    }
-
-    const ASK: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:01:00Z","message":{"id":"m","content":[{"type":"tool_use","id":"toolu_1","name":"AskUserQuestion","input":{"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]}}]}}"#;
-    const PROSE: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T10:00:00Z","message":{"id":"m","content":[{"type":"text","text":"Fixed it. Should I also bump the version?"}]}}"#;
-    const DONE: &str = r#"{"type":"assistant","cwd":"/home/me/code/other","timestamp":"2026-09-29T09:00:00Z","message":{"id":"m","content":[{"type":"text","text":"All done."}]}}"#;
-
-    #[test]
-    fn an_ended_session_in_a_folder_that_is_gone_is_dropped() {
-        let here = std::env::temp_dir().to_string_lossy().into_owned();
-        let line = |cwd: &str| {
-            format!(
-                r#"{{"type":"assistant","cwd":"{cwd}","timestamp":"2026-09-29T09:00:00Z","message":{{"id":"m","content":[{{"type":"text","text":"Done."}}]}}}}"#
-            )
-        };
-        let (kept, gone) = (line(&here), line("/nowhere/deleted-checkout"));
-        let inputs = claude_inputs(vec![
-            found("a", &here, &[&kept], false),
-            found("b", "/nowhere/deleted-checkout", &[&gone], false),
-            found("c", "/nowhere/deleted-checkout", &[&gone], true),
-        ]);
-        let ids: Vec<&str> = inputs
-            .iter()
-            .filter(|i| still_there(i))
-            .map(|i| i.session_id.as_str())
-            .collect();
-        assert_eq!(
-            ids,
-            vec!["a", "c"],
-            "a live agent keeps its desk even there"
-        );
-    }
-
-    #[test]
-    fn groups_sessions_into_floors_and_queues_questions() {
-        let home = Path::new("/home/me");
-        let d = assemble(
-            home,
-            claude_inputs(vec![
-                found("s1", "/home/me/code/app", &[ASK], true),
-                found("s2", "/home/me/code/app", &[PROSE], true),
-                found("s3", "/home/me/code/other", &[DONE], false),
-            ]),
-            own_floor,
-            &BTreeMap::new(),
-        );
-        assert_eq!(d.projects.len(), 2);
-        let app = d
-            .projects
-            .iter()
-            .find(|p| p.name == "app")
-            .expect("app floor");
-        assert_eq!(app.path, "~/code/app");
-        assert_eq!(app.session_ids, vec!["s1".to_string(), "s2".to_string()]);
-
-        // An ended session leaves the office, but its recent floor stays.
-        assert!(d.sessions.iter().all(|s| s.id != "s3"));
-        let other = d
-            .projects
-            .iter()
-            .find(|p| p.name == "other")
-            .expect("other floor");
-        assert!(other.session_ids.is_empty());
-
-        assert_eq!(d.questions.len(), 2);
-        let formal = &d.questions[0];
-        assert_eq!(formal.id, "s1:toolu_1");
-        assert_eq!(
-            formal
-                .options
-                .iter()
-                .map(|o| o.label.as_str())
-                .collect::<Vec<_>>(),
-            vec!["A", "B"]
-        );
-        assert_eq!(formal.answer_via, AnswerVia::Terminal);
-        let prose = &d.questions[1];
-        assert_eq!(prose.prompt, "Fixed it. Should I also bump the version?");
-        assert!(prose.options.is_empty());
-        let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
-        assert_eq!(s1.pending_question_ids, vec!["s1:toolu_1".to_string()]);
-        assert_eq!(s1.control, ControlMode::RaiseWindow);
-    }
-
-    #[test]
-    fn ended_sessions_go_on_their_floors_sign_out_sheet_newest_first() {
-        let later = r#"{"type":"assistant","cwd":"/home/me/code/app/web","timestamp":"2026-09-29T11:00:00Z","message":{"id":"m","model":"claude-opus-5-5","content":[{"type":"text","text":"Bye."}]}}"#;
-        let scripted = r#"{"type":"assistant","entrypoint":"sdk-cli","cwd":"/home/me/code/app","timestamp":"2026-09-29T12:00:00Z","message":{"id":"m","content":[{"type":"text","text":"ok"}]}}"#;
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![
-                found("s1", "/home/me/code/app", &[ASK], true),
-                found("s3", "/home/me/code/other", &[DONE], false),
-                found("s4", "/home/me/code/app/web", &[later], false),
-                found("s5", "/home/me/code/app", &[scripted], false),
-            ]),
-            |cwd| {
-                if cwd.starts_with("/home/me/code/app") {
-                    own_floor(Path::new("/home/me/code/app"))
-                } else {
-                    own_floor(cwd)
-                }
-            },
-            &BTreeMap::new(),
-        );
-        let ended: Vec<&str> = d.ended.iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ended, vec!["s4", "s3"], "scripted runs are not listed");
-        let s4 = &d.ended[0];
-        assert_eq!(s4.project_id, project_id(Path::new("/home/me/code/app")));
-        assert_eq!(s4.ended_at, "2026-09-29T11:00:00Z");
-        assert_eq!(s4.model.as_deref(), Some("claude-opus-5-5"));
-        // Resumed in the folder it ran in, not just its floor's root.
-        assert_eq!(
-            d.resume_dirs.get("s4"),
-            Some(&PathBuf::from("/home/me/code/app/web"))
-        );
-        assert!(
-            !d.resume_dirs.contains_key("s1"),
-            "a live session is not ended"
-        );
-    }
-
-    #[test]
-    fn a_question_only_the_registry_knows_about_still_waits() {
-        // Claude Code writes an open AskUserQuestion to the transcript only once it is answered.
-        let mut asking = found("s1", "/home/me/code/app", &[DONE], true);
-        if let Some(live) = asking.live.as_mut() {
-            live.waiting = true;
-        }
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![asking]),
-            own_floor,
-            &BTreeMap::new(),
-        );
-        let s1 = d.sessions.iter().find(|s| s.id == "s1").expect("s1");
-        assert_eq!(s1.state, SessionState::WaitingHuman);
-        assert_eq!(s1.pending_question_ids, vec!["s1:waiting".to_string()]);
-        let q = &d.questions[0];
-        assert_eq!(q.prompt, "Waiting for you in its terminal");
-        assert!(q.options.is_empty());
-        assert_eq!(q.answer_via, AnswerVia::Terminal);
-    }
-
-    #[test]
-    fn a_codex_placeholder_is_an_idle_desk_that_is_never_offered_for_resuming() {
-        let placeholder = super::codex::Found {
-            session_id: "codex-new-7".to_string(),
-            transcript: super::codex::parse_transcript(Cursor::new(
-                r#"{"timestamp":"t","type":"session_meta","payload":{"id":"x","session_id":"x","cwd":"/home/me/code/app","source":"cli"}}"#,
-            )),
-            title: Some("New Codex session".to_string()),
-            live_pid: Some(7),
-            resumable: false,
-        };
-        let input = from_codex(placeholder, &[]).expect("a codex session");
-        assert!(!input.resumable);
-        let d = assemble(
-            Path::new("/home/me"),
-            vec![input],
-            own_floor,
-            &BTreeMap::new(),
-        );
-        assert_eq!(d.sessions[0].title, "New Codex session");
-        assert_eq!(d.sessions[0].state, SessionState::Idle);
-    }
-
-    #[test]
-    fn codex_sessions_join_the_same_floor_with_tool_kind_and_prose_questions() {
-        let meta = r#"{"timestamp":"2026-09-29T10:00:00.000Z","type":"session_meta","payload":{"id":"c1","session_id":"root1","cwd":"/home/me/code/app","source":"cli"}}"#;
-        let user = r#"{"timestamp":"2026-09-29T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix it"}]}}"#;
-        let reply = r#"{"timestamp":"2026-09-29T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed it. Should I also bump the version?"}]}}"#;
-        let codex_transcript =
-            super::codex::parse_transcript(Cursor::new([meta, user, reply].join("\n")));
-        let codex_found = super::codex::Found {
-            session_id: "c1".to_string(),
-            transcript: codex_transcript,
-            title: Some("Bump check".to_string()),
-            live_pid: Some(7),
-            resumable: true,
-        };
-        let idle: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T09:00:00Z","message":{"id":"m","content":[{"type":"text","text":"All good."}]}}"#;
-        let home = Path::new("/home/me");
-        let mut inputs = claude_inputs(vec![found("s1", "/home/me/code/app", &[idle], true)]);
-        inputs.extend(from_codex(codex_found, &[]));
-        let d = assemble(home, inputs, own_floor, &BTreeMap::new());
-
-        assert_eq!(d.projects.len(), 1);
-        let app = &d.projects[0];
-        assert_eq!(app.session_ids, vec!["s1".to_string(), "c1".to_string()]);
-
-        let c1 = d.sessions.iter().find(|s| s.id == "c1").expect("c1");
-        assert_eq!(c1.tool, ToolKind::Codex);
-        assert_eq!(c1.title, "Bump check");
-        assert_eq!(c1.state, SessionState::WaitingHuman);
-        assert_eq!(c1.control, ControlMode::RaiseWindow);
-
-        let prose = d
-            .questions
-            .iter()
-            .find(|q| q.session_id == "c1")
-            .expect("codex question");
-        assert_eq!(prose.prompt, "Fixed it. Should I also bump the version?");
-        assert!(prose.options.is_empty());
-        assert_eq!(prose.answer_via, AnswerVia::Terminal);
-    }
-
-    #[test]
-    fn a_worktree_session_sits_on_its_main_checkouts_floor() {
-        let main = std::env::temp_dir().join(format!("ob-worktree-{}", std::process::id()));
-        let git_dir = main.join(".git/worktrees/agent-1");
-        let tree = main.join(".claude/worktrees/agent-1");
-        let submodule = main.join("vendor/lib");
-        for dir in [
-            &git_dir,
-            &tree.join("server"),
-            &main.join("web"),
-            &main.join(".git/modules/lib"),
-            &submodule,
-        ] {
-            fs::create_dir_all(dir).expect("mkdir");
-        }
-        fs::write(git_dir.join("commondir"), "../..\n").expect("commondir");
-        fs::write(
-            tree.join(".git"),
-            format!("gitdir: {}\n", git_dir.display()),
-        )
-        .expect("pointer");
-        fs::write(submodule.join(".git"), "gitdir: ../../.git/modules/lib\n").expect("submodule");
-
-        let at = |dir: &Path| {
-            let cwd = dir.to_string_lossy().into_owned();
-            let line = format!(
-                r#"{{"type":"assistant","cwd":"{cwd}","timestamp":"2026-09-29T10:00:00Z","message":{{"id":"m","content":[{{"type":"text","text":"ok"}}]}}}}"#
-            );
-            (cwd, line)
-        };
-        let (in_main, main_line) = at(&main.join("web"));
-        let (in_tree, tree_line) = at(&tree.join("server"));
-        let d = assemble(
-            Path::new("/home/me"),
-            claude_inputs(vec![
-                found("s1", &in_main, &[&main_line], true),
-                found("s2", &in_tree, &[&tree_line], true),
-                // Started in the main checkout, then `cd`ed into the worktree.
-                found("s3", &in_main, &[&main_line, &tree_line], true),
-            ]),
-            locate,
-            &BTreeMap::new(),
-        );
-        assert_eq!(
-            d.projects.len(),
-            1,
-            "the worktree is not a floor of its own"
-        );
-        assert_eq!(
-            d.projects[0].session_ids,
-            vec!["s1".to_string(), "s2".to_string(), "s3".to_string()]
-        );
-        let worktree = |id: &str| {
-            d.sessions
-                .iter()
-                .find(|s| s.id == id)
-                .expect("session")
-                .worktree
-        };
-        assert!(!worktree("s1"));
-        assert!(worktree("s2"));
-        assert!(worktree("s3"));
-
-        // A submodule's `.git` file points at a git dir with no commondir: its own floor.
-        assert_eq!(
-            locate(&submodule),
-            Location {
-                root: submodule.clone(),
-                worktree: false,
-                checkout: submodule.clone(),
-            }
-        );
-        fs::remove_dir_all(&main).expect("cleanup");
-    }
-
-    #[test]
-    fn paths_and_ids() {
-        assert_eq!(
-            display_path(Path::new("/home/me"), Path::new("/home/me")),
-            "~"
-        );
-        assert_eq!(
-            display_path(Path::new("/opt/x"), Path::new("/home/me")),
-            "/opt/x"
-        );
-        assert_eq!(fnv1a(""), 0x811c_9dc5);
-        assert_eq!(fnv1a("a"), 0xe40c_292c);
-        assert_eq!(project_id(Path::new("/a")), project_id(Path::new("/a")));
-        let here = std::env::current_dir().expect("cwd");
-        assert!(project_root(&here).join(".git").exists());
-    }
-}
+mod tests;

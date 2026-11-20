@@ -19,6 +19,8 @@ export interface PlaceWords {
   readonly removeFailed: string;
   readonly removeLabel: (name: string) => string;
   readonly removeToast: (name: string | undefined) => string;
+  /** Stopping one session by throwing it out of the building, or kicking it into the sea. */
+  readonly exileVerb: string;
 }
 
 const OFFICE: PlaceWords = {
@@ -38,6 +40,7 @@ const OFFICE: PlaceWords = {
   removeFailed: "Could not demolish the floor",
   removeLabel: (name) => `Demolish ${name}`,
   removeToast: (name) => (name === undefined ? "Demolished the floor." : `Demolished the ${name} floor.`),
+  exileVerb: "Throw out",
 };
 
 const ISLANDS: PlaceWords = {
@@ -57,6 +60,7 @@ const ISLANDS: PlaceWords = {
   removeFailed: "Could not sink the island",
   removeLabel: (name) => `Sink ${name}`,
   removeToast: (name) => (name === undefined ? "Sank the island." : `Sank the ${name} island.`),
+  exileVerb: "Exile",
 };
 
 export const PLACE: Readonly<Record<ViewMode, PlaceWords>> = { office: OFFICE, islands: ISLANDS };

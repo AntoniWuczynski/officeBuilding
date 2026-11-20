@@ -10,7 +10,7 @@ async function enter(projectId: string): Promise<void> {
   await screen.findAllByTestId("storey");
   const storey = screen.getAllByTestId("storey").find((s) => s.getAttribute("data-project") === projectId);
   if (storey === undefined) throw new Error(`no storey ${projectId}`);
-  await user.click(within(storey).getByTestId("floor-nameplate"));
+  await user.click(storey);
   await screen.findByTestId("back-button");
 }
 

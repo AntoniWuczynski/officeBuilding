@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { ConnectorKind, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
-import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
+import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, ProjectChoice, ProjectTarget, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
   folderSchema,
   hireFailureSchema,
@@ -229,12 +229,32 @@ export class TauriApi implements DiscoveryApi {
     await call("focus_session", { sessionId });
   }
 
+  async attachSession(sessionId: string): Promise<boolean> {
+    return (await call("attach_session", { sessionId })) === true;
+  }
+
+  async detachSession(sessionId: string): Promise<void> {
+    await call("detach_session", { sessionId });
+  }
+
   async addFloor(path: string): Promise<Project> {
     return parseWire(projectSchema, "floor", await call("add_floor", { path }));
   }
 
   async demolishFloor(projectId: string): Promise<void> {
     await call("demolish_floor", { projectId });
+  }
+
+  async assignProject(target: ProjectTarget, project: ProjectChoice): Promise<void> {
+    await call("assign_project", { target, project });
+  }
+
+  async exileSession(sessionId: string): Promise<void> {
+    await call("exile_session", { sessionId });
+  }
+
+  async moveSession(sessionId: string, projectId: string | null): Promise<void> {
+    await call("move_session", { sessionId, projectId });
   }
 
   /** macOS's own picker (osascript `choose folder`) via src-tauri/src/focus.rs. */

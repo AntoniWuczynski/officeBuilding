@@ -1,6 +1,10 @@
 import type { SessionState } from "../types";
 import { DESK } from "../lib/layout";
+import { CAMP } from "./Camp";
 import { Billboard, IsoBox } from "./Iso";
+
+/** How a floor's inside is drawn: an office, or a beach camp on an island. */
+export type FloorLook = "office" | "island";
 
 interface DeskProps {
   readonly x: number;
@@ -10,10 +14,21 @@ interface DeskProps {
   readonly led?: SessionState;
   /** A potted plant on the back of the desk: its agent works in a git worktree. */
   readonly plant?: boolean;
+  /** On an island the desk is a crate with its light on the front, and no monitor or keyboard. */
+  readonly look?: FloorLook;
 }
 
 /** A timber desk with a monitor on its left end (the worker sits beside it, never behind it). */
-export function Desk({ x, y, z, led, plant = false }: DeskProps): React.ReactElement {
+export function Desk({ x, y, z, led, plant = false, look = "office" }: DeskProps): React.ReactElement {
+  const light = <b className={led === undefined ? "led" : `led led-${led}`} />;
+  if (look === "island") {
+    return (
+      <>
+        <IsoBox x={x} y={y} z={z} w={DESK.w} d={DESK.d} h={DESK.h} top={CAMP.wood} front={CAMP.woodFront} side={CAMP.woodSide} frontContent={light} />
+        {plant ? <Plant x={x + 15} y={y + 2} z={z + DESK.h} /> : null}
+      </>
+    );
+  }
   return (
     <>
       <IsoBox x={x} y={y} z={z} w={DESK.w} d={DESK.d} h={DESK.h} top="var(--timber)" front="var(--timber-front)" side="var(--timber-side)" />
@@ -27,7 +42,8 @@ export function Desk({ x, y, z, led, plant = false }: DeskProps): React.ReactEle
         top="var(--monitor-top)"
         front="var(--monitor)"
         side="var(--monitor-side)"
-        frontContent={<b className={led === undefined ? "led" : `led led-${led}`} />}
+        className="desk-monitor"
+        frontContent={light}
       />
       {/* The keyboard the worker behind the desk types on. */}
       <IsoBox x={x + 20} y={y + 1} z={z + DESK.h} w={12} d={5} h={1.2} top="var(--monitor-top)" front="var(--monitor)" side="var(--monitor-side)" />

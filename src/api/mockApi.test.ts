@@ -4,6 +4,7 @@ import { STRUCTURED } from "./mockConversation";
 import { makeSeedSnapshot } from "./mockData";
 import { addContext } from "../lib/routing";
 import { makeSettings } from "./mockSettings";
+import { snapshotSchema } from "./wire";
 
 const NOW = new Date("2026-09-29T12:00:00Z");
 const fixedNow = (): Date => NOW;
@@ -214,6 +215,16 @@ describe("MockApi", () => {
     await expect(api.tickTodo("t-nope")).rejects.toThrow(/unknown todo/);
   });
 
+  it("tickTodo ticks a shared-board item, in the board's list only", async () => {
+    const api = new MockApi();
+    const id = "board:~/Desktop/MY-ACTIONS.md|3";
+    await api.tickTodo(id);
+    const snap = await api.getSnapshot();
+    expect(snap.sharedBoards[0]?.items.find((t) => t.id === id)?.done).toBe(true);
+    expect(snap.sharedBoards[0]?.items.filter((t) => t.done)).toHaveLength(1);
+    expect(snap.todos.some((t) => t.id === id)).toBe(false);
+  });
+
   it("sendAgentMessage records the note and validates its ends and text", async () => {
     const api = new MockApi(makeSeedSnapshot(), fixedNow);
     await api.sendAgentMessage("s-1", "s-2", " need your fetcher types ");
@@ -370,6 +381,54 @@ describe("MockApi floors", () => {
     await expect(api.demolishFloor("p-shop")).rejects.toThrow(/not a floor/);
   });
 
+  it("exiling a session removes exactly that session, and rejects an unknown one", async () => {
+    const api = new MockApi();
+    const before = (await api.getSnapshot()).sessions.map((s) => s.id);
+    await api.exileSession("s-2");
+    const after = (await api.getSnapshot()).sessions.map((s) => s.id);
+    expect(after).toEqual(before.filter((id) => id !== "s-2"));
+    await expect(api.exileSession("s-2")).rejects.toThrow(/not a session/);
+  });
+
+  describe("moving a session", () => {
+    const seed = makeSeedSnapshot();
+    const mover = seed.sessions.find((s) => s.pendingQuestionIds.length > 0);
+    const from = mover?.projectId ?? "";
+    const to = seed.projects.find((p) => p.id !== from)?.id ?? "";
+    const where = async (api: MockApi) => (await api.getSnapshot()).sessions.find((s) => s.id === mover?.id)?.projectId;
+
+    it("puts the session, its place on both floors and its questions on the new floor", async () => {
+      const api = new MockApi();
+      await api.moveSession(mover?.id ?? "", to);
+      const snap = await api.getSnapshot();
+      expect(await where(api)).toBe(to);
+      expect(snap.projects.find((p) => p.id === from)?.sessionIds).not.toContain(mover?.id);
+      expect(snap.projects.find((p) => p.id === to)?.sessionIds).toContain(mover?.id);
+      expect(snap.questions.filter((q) => q.sessionId === mover?.id).every((q) => q.projectId === to)).toBe(true);
+    });
+
+    it("sinking the old floor leaves it, and sinking the new floor takes it", async () => {
+      const api = new MockApi();
+      await api.moveSession(mover?.id ?? "", to);
+      await api.demolishFloor(from);
+      expect(await where(api)).toBe(to);
+      await api.demolishFloor(to);
+      expect(await where(api)).toBeUndefined();
+    });
+
+    it("moving it back, or to null, returns it to the floor it was found on, and a stranger is refused", async () => {
+      const api = new MockApi();
+      await api.moveSession(mover?.id ?? "", to);
+      await api.moveSession(mover?.id ?? "", from);
+      expect(await where(api)).toBe(from);
+      await api.moveSession(mover?.id ?? "", to);
+      await api.moveSession(mover?.id ?? "", null);
+      expect(await where(api)).toBe(from);
+      await expect(api.moveSession(mover?.id ?? "", "p-nowhere")).rejects.toThrow(/not a floor/);
+      await expect(api.moveSession("no-such", to)).rejects.toThrow(/not a session/);
+    });
+  });
+
   describe("editors", () => {
     const place = { kind: "session", sessionId: "s-1" } as const;
 
@@ -446,6 +505,7 @@ describe("MockApi floors", () => {
           tiers: { fable: [], opus: [], sonnet: [], haiku: [] },
         },
         handover: { automatic: false, claudeToCodex: null, codexToClaude: null },
+        boards: { sharedFiles: [] },
       });
     });
 
@@ -462,6 +522,18 @@ describe("MockApi floors", () => {
       const expected = { ...makeSettings(), notifications };
       await expect(api.updateSettings({ notifications })).resolves.toEqual(expected);
       await expect(api.getSettings()).resolves.toEqual(expected);
+    });
+
+    it("saves the shared boards and lists one board for each file, in order, keeping a file's ticks", async () => {
+      const api = new MockApi();
+      await api.tickTodo("board:~/Desktop/MY-ACTIONS.md|1");
+      const sharedFiles = ["/notes/QUEUE.md", "~/Desktop/MY-ACTIONS.md"];
+      await expect(api.updateSettings({ boards: { sharedFiles } })).resolves.toMatchObject({ boards: { sharedFiles } });
+      const boards = (await api.getSnapshot()).sharedBoards;
+      expect(boards.map((b) => [b.name, b.items.length])).toEqual([["QUEUE.md", 0], ["MY-ACTIONS.md", 3]]);
+      expect(boards[1]?.items[0]?.done).toBe(true);
+      await api.updateSettings({ boards: { sharedFiles: [] } });
+      expect((await api.getSnapshot()).sharedBoards).toEqual([]);
     });
 
     it("resolves an empty patch and changes nothing", async () => {
@@ -489,5 +561,52 @@ describe("MockApi floors", () => {
       await api.setOpenDesk(null);
       expect(api.openDesk).toBeNull();
     });
+  });
+
+  it("attachSession finds no background session among the mock's", async () => {
+    const api = new MockApi();
+    await expect(api.attachSession("s-3")).resolves.toBe(false);
+    await expect(api.attachSession("ghost")).rejects.toThrow(/unknown session/);
+  });
+});
+
+describe("MockApi project rules", () => {
+  it("carries each assignment into the next snapshot, and a later one moves the repo", async () => {
+    const api = new MockApi();
+    await api.assignProject({ kind: "repo", key: "/code/beta-web" }, { id: null, name: "Beta" });
+    await api.assignProject({ kind: "session", key: "Alpha-Fix-2-X" }, { id: null, name: "Alpha" });
+    await api.assignProject({ kind: "repo", key: "/code/beta-web" }, { id: "alpha", name: "Alpha" });
+    const { projectRules } = await api.getSnapshot();
+    expect(projectRules.map((r) => [r.id, r.repos, r.prefixes])).toEqual([
+      ["beta", [], []],
+      ["alpha", ["/code/beta-web"], ["alpha-fix-2-x"]],
+    ]);
+  });
+});
+
+describe("snapshotSchema name source", () => {
+  it("refuses a source it does not know: the backend reads an unknown one as none", () => {
+    const seed = JSON.parse(JSON.stringify(makeSeedSnapshot()));
+    seed.sessions[0].sessionNameSource = "resume";
+    expect(snapshotSchema.safeParse(seed).success).toBe(false);
+    seed.sessions[0].sessionNameSource = null;
+    expect(snapshotSchema.safeParse(seed).success).toBe(true);
+  });
+});
+
+describe("assignProject on the mock", () => {
+  it("refuses an empty key", async () => {
+    const api = new MockApi();
+    await expect(api.assignProject({ kind: "session", key: " " }, { id: null, name: "Alpha" })).rejects.toThrow();
+  });
+});
+
+describe("snapshotSchema project-cluster fields", () => {
+  it("refuses a payload without them, since the backend always sends them", () => {
+    const { projectRules: _r, harnessId: _h, projectRulesError: _e, ...older } = JSON.parse(JSON.stringify(makeSeedSnapshot()));
+    expect(snapshotSchema.safeParse(older).success).toBe(false);
+    const seed = JSON.parse(JSON.stringify(makeSeedSnapshot()));
+    seed.sessions = seed.sessions.map(({ sessionName: _n, selfReviewed: _s, ...rest }: Record<string, unknown>) => rest);
+    expect(snapshotSchema.safeParse(seed).success).toBe(false);
   });
 });

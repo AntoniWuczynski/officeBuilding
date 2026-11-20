@@ -242,6 +242,38 @@ export function buildIsland(spec: IslandSpec): THREE.Group {
   return g;
 }
 
+const sailShape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(3.6, 0), new THREE.Vector2(0, 6.4)]);
+const BOAT = {
+  hull: new THREE.BoxGeometry(5.6, 1.3, 2.2),
+  bow: new THREE.ConeGeometry(1.55, 1.8, 4),
+  mast: new THREE.CylinderGeometry(0.1, 0.1, 7, 5),
+  sail: new THREE.ShapeGeometry(sailShape),
+  flag: new THREE.BoxGeometry(1.2, 0.7, 0.1),
+};
+for (const g of Object.values(BOAT)) SHARED.add(g);
+const sailMat = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, flatShading: true, roughness: 1, side: THREE.DoubleSide });
+
+/**
+ * A small sailing boat that carries a message between islands, bow towards +x. Origin is the waterline. Built from
+ * shared shapes and materials, so removing one needs no disposal.
+ */
+export function buildBoat(): THREE.Group {
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(BOAT.hull, M.wood);
+  hull.position.y = 0.45;
+  const bow = new THREE.Mesh(BOAT.bow, M.wood);
+  bow.rotation.set(Math.PI / 2, Math.PI / 4, -Math.PI / 2);
+  bow.position.set(3.4, 0.45, 0);
+  const mast = new THREE.Mesh(BOAT.mast, M.trunk);
+  mast.position.set(0, 4.4, 0);
+  const sail = new THREE.Mesh(BOAT.sail, sailMat);
+  sail.position.set(0.2, 1.4, 0);
+  const flag = new THREE.Mesh(BOAT.flag, M.roof);
+  flag.position.set(-0.6, 7.6, 0);
+  g.add(hull, bow, mast, sail, flag);
+  return g;
+}
+
 /** Shared water: a big plane that gently heaves. Returned with its animate step. */
 /** World units across the sea plane before scaling; the view scales it to cover its draw distance. */
 export const OCEAN_SIZE = 1600;

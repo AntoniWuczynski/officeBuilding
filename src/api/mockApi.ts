@@ -21,11 +21,12 @@ import type {
   Shell,
   Targets,
   TodoItem,
+  ProjectRule,
   ToolKind,
   ToolOptions,
   ToolUsage,
 } from "../types";
-import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
+import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, ProjectChoice, ProjectTarget, QuestionAnswer, TerminalHandlers, TerminalSize } from "./DiscoveryApi";
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions, withDefaultView } from "./mockHireOptions";
 import { COOLDOWN_MAX_SECS } from "../lib/cooldown";
@@ -83,6 +84,8 @@ export class MockApi implements DiscoveryApi {
   private setup: SetupView = makeSetupView();
   private settings: Settings = makeSettings();
   private installedEditors: readonly Editor[] = ["cursor", "vs-code"];
+  /** Where each moved session was found, by session id, so moving it back is a move to that floor. */
+  private readonly movedFrom = new Map<string, string>();
   private readonly goneFolders = new Set<string>();
   private readonly openLog: { readonly place: Place; readonly editor: Editor }[] = [];
   private openDeskId: string | null = null;
@@ -138,6 +141,13 @@ export class MockApi implements DiscoveryApi {
     const managerError = patch.manager === undefined ? null : managerPatchError(patch.manager);
     if (managerError !== null) return Promise.reject(new Error(managerError));
     this.settings = { ...this.settings, ...patch };
+    if (patch.boards !== undefined) {
+      // One board for each saved file, in order; a file already shown keeps its items.
+      const sharedBoards = patch.boards.sharedFiles.map(
+        (path) => this.snapshot.sharedBoards.find((b) => b.path === path) ?? { id: `board:${path}`, path, name: path.split("/").pop() ?? path, items: [] },
+      );
+      this.commit({ ...this.snapshot, sharedBoards });
+    }
     return Promise.resolve(this.settings);
   }
 
@@ -320,11 +330,15 @@ export class MockApi implements DiscoveryApi {
       effort: request.effort,
       lastActivityAt: this.stamp(),
       pendingQuestionIds: [],
+      sessionName: null,
+      sessionNameSource: null,
+      selfReviewed: false,
       spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
       helpers: [],
       pets: [],
       worktree: false,
       branch: null,
+      lastReply: null,
     };
     const projects = this.snapshot.projects.map((p) =>
       p.id === projectId ? { ...p, sessionIds: [...p.sessionIds, id] } : p,
@@ -390,11 +404,15 @@ export class MockApi implements DiscoveryApi {
       effort: ended.effort,
       lastActivityAt: this.stamp(),
       pendingQuestionIds: [],
+      sessionName: null,
+      sessionNameSource: null,
+      selfReviewed: false,
       spend: { usd: 0, tokens: 0, unpricedTokens: 0 },
       helpers: [],
       pets: [],
       worktree: false,
       branch: null,
+      lastReply: ended.lastReply,
     };
     this.commit({
       ...this.snapshot,
@@ -459,7 +477,7 @@ export class MockApi implements DiscoveryApi {
   }
 
   tickTodo(todoId: string): Promise<void> {
-    const item = this.snapshot.todos.find((t) => t.id === todoId);
+    const item = [...this.snapshot.todos, ...this.snapshot.sharedBoards.flatMap((b) => b.items)].find((t) => t.id === todoId);
     if (item === undefined) {
       return Promise.reject(new Error(`unknown todo: ${todoId}`));
     }
@@ -468,10 +486,8 @@ export class MockApi implements DiscoveryApi {
       this.linearTickFailure = null;
       return Promise.reject(new Error(message));
     }
-    const todos = this.snapshot.todos.map((t) =>
-      t.id === todoId ? { ...t, done: true } : t,
-    );
-    this.commit({ ...this.snapshot, todos });
+    const tick = (t: typeof item): typeof item => (t.id === todoId ? { ...t, done: true } : t);
+    this.commit({ ...this.snapshot, todos: this.snapshot.todos.map(tick), sharedBoards: this.snapshot.sharedBoards.map((b) => ({ ...b, items: b.items.map(tick) })) });
     return Promise.resolve();
   }
 
@@ -502,6 +518,21 @@ export class MockApi implements DiscoveryApi {
       ...this.snapshot,
       messages: [...this.snapshot.messages, message].slice(-MESSAGE_HISTORY),
     });
+    return Promise.resolve();
+  }
+
+  attachSession(sessionId: string): Promise<boolean> {
+    // Mock: none of the seed sessions is a background job.
+    return this.snapshot.sessions.some((s) => s.id === sessionId)
+      ? Promise.resolve(false)
+      : Promise.reject(new Error(`unknown session: ${sessionId}`));
+  }
+
+  /** Session ids the app let go of, in order. */
+  readonly detached: string[] = [];
+
+  detachSession(sessionId: string): Promise<void> {
+    this.detached.push(sessionId);
     return Promise.resolve();
   }
 
@@ -558,7 +589,10 @@ export class MockApi implements DiscoveryApi {
       return Promise.reject(new Error(`${projectId} is not a floor of this building`));
     }
     const leaving = new Set(this.snapshot.sessions.filter((s) => s.projectId === projectId).map((s) => s.id));
-    for (const id of leaving) this.shells.delete(id);
+    for (const id of leaving) {
+      this.shells.delete(id);
+      this.movedFrom.delete(id);
+    }
     this.commit({
       ...this.snapshot,
       projects: this.snapshot.projects.filter((p) => p.id !== projectId),
@@ -567,6 +601,66 @@ export class MockApi implements DiscoveryApi {
       questions: this.snapshot.questions.filter((q) => q.projectId !== projectId),
       connections: this.snapshot.connections.filter((c) => c.projectId !== projectId),
       managers: this.snapshot.managers.filter((m) => m.projectId !== projectId),
+    });
+    return Promise.resolve();
+  }
+
+  /** Mirrors the backend: the rules change as one fresh edit, and the next snapshot carries them. */
+  assignProject(target: ProjectTarget, project: ProjectChoice): Promise<void> {
+    if (target.key.trim() === "") return Promise.reject(new Error("nothing to put under a project"));
+    const name = project.name.trim();
+    // Mirrors `project_rules::slug` in Rust.
+    const slug = name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+    const id = project.id || slug;
+    let rules: ProjectRule[] = [...this.snapshot.projectRules];
+    let at = rules.findIndex((r) => r.id === project.id || r.name.toLowerCase() === name.toLowerCase());
+    if (at < 0) {
+      if (!name || !id || rules.some((r) => r.id === id)) return Promise.reject(new Error("that project needs a name no other project has"));
+      rules = [...rules, { id, name, prefixes: [], contains: [], repos: [] }];
+      at = rules.length - 1;
+    }
+    const key = target.kind === "repo" ? target.key : target.key.toLowerCase();
+    const field = target.kind === "repo" ? "repos" : "prefixes";
+    rules = rules.map((r, i) => ({ ...r, [field]: [...r[field].filter((k) => k !== key), ...(i === at ? [key] : [])] }));
+    this.commit({ ...this.snapshot, projectRules: rules });
+    return Promise.resolve();
+  }
+
+  /** The demo's agents always stop when asked. */
+  exileSession(sessionId: string): Promise<void> {
+    if (!this.snapshot.sessions.some((s) => s.id === sessionId)) {
+      return Promise.reject(new Error(`${sessionId} is not a session of this building`));
+    }
+    this.shells.delete(sessionId);
+    this.movedFrom.delete(sessionId);
+    this.commit({
+      ...this.snapshot,
+      sessions: this.snapshot.sessions.filter((s) => s.id !== sessionId),
+      questions: this.snapshot.questions.filter((q) => q.sessionId !== sessionId),
+    });
+    return Promise.resolve();
+  }
+
+  moveSession(sessionId: string, projectId: string | null): Promise<void> {
+    const snap = this.snapshot;
+    const now = snap.sessions.find((s) => s.id === sessionId)?.projectId ?? snap.ended.find((e) => e.id === sessionId)?.projectId;
+    if (now === undefined) return Promise.reject(new Error(`${sessionId} is not a session of this building`));
+    const home = this.movedFrom.get(sessionId) ?? now;
+    const to = projectId ?? home;
+    if (!snap.projects.some((p) => p.id === to)) return Promise.reject(new Error(`${to} is not a floor of this building`));
+    if (to === now) return Promise.resolve();
+    if (to === home) this.movedFrom.delete(sessionId);
+    else this.movedFrom.set(sessionId, home);
+    const live = snap.sessions.some((s) => s.id === sessionId);
+    this.commit({
+      ...snap,
+      projects: snap.projects.map((p) => ({
+        ...p,
+        sessionIds: !live ? p.sessionIds : p.id === to ? [...p.sessionIds, sessionId] : p.sessionIds.filter((id) => id !== sessionId),
+      })),
+      sessions: snap.sessions.map((s) => (s.id === sessionId ? { ...s, projectId: to } : s)),
+      ended: snap.ended.map((e) => (e.id === sessionId ? { ...e, projectId: to } : e)),
+      questions: snap.questions.map((q) => (q.sessionId === sessionId ? { ...q, projectId: to } : q)),
     });
     return Promise.resolve();
   }

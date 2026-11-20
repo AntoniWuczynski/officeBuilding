@@ -88,6 +88,18 @@ export interface TodoItem {
   readonly assignee: "ai" | "human";
   /** The app's own records, a line in a repo file, or a Linear issue. */
   readonly source: TodoSource;
+  /** A checklist line's second pipe column, trimmed (`- [ ] text | project | date`); null when the line has none. */
+  readonly projectTag: string | null;
+}
+
+/** A checklist file shared by the whole building (Settings > boards). Its items carry the board id as `projectId`. */
+export interface SharedBoard {
+  readonly id: string;
+  /** Absolute path of the file. */
+  readonly path: string;
+  /** The file's name, shown as the board's title. */
+  readonly name: string;
+  readonly items: readonly TodoItem[];
 }
 
 /** Where a TODO item lives (`TodoSource` in model.rs). */
@@ -167,6 +179,12 @@ export interface Session {
   readonly effort: string | null;
   readonly lastActivityAt: string;
   readonly pendingQuestionIds: readonly string[];
+  /** The name the human gave the session, if any. */
+  readonly sessionName: string | null;
+  /** Who named it, from the registry; null when it has no name. */
+  readonly sessionNameSource: "user" | "auto" | "peer" | null;
+  /** Whether the session already reviewed its own work. */
+  readonly selfReviewed: boolean;
   readonly spend: Spend;
   /** Sub-agents (plain or in a workflow) still working for this session. */
   readonly helpers: readonly Helper[];
@@ -176,6 +194,8 @@ export interface Session {
   readonly worktree: boolean;
   /** The worktree's branch; null outside a worktree or on a detached HEAD. */
   readonly branch: string | null;
+  /** First sentence of its latest reply to the human, at most 140 chars. Replies to peers and notifications never replace it. */
+  readonly lastReply: string | null;
 }
 
 /** A shell running a background or long command, Claude Code's `Monitor` watching one, a browser the agent drives, or any other program it started. */
@@ -198,6 +218,8 @@ export interface EndedSession {
   readonly endedAt: string;
   readonly model: string | null;
   readonly effort: string | null;
+  /** As `Session.lastReply`, kept for the sign-out sheet. */
+  readonly lastReply: string | null;
 }
 
 /** A sub-agent at work for a session: it gets a tiny desk beside its session's. */
@@ -378,6 +400,22 @@ export interface OfficeSnapshot {
   readonly queued: readonly QueuedNote[];
   /** Used-up subscriptions and what each desk's handover has to say. */
   readonly handover: HandoverView;
+  /** The building-wide checklist files, in Settings order. */
+  readonly sharedBoards: readonly SharedBoard[];
+  /** How sessions group into projects, from the rules file. */
+  readonly projectRules: readonly ProjectRule[];
+  readonly harnessId: string | null;
+  /** Why the rules file could not be read, if it could not. */
+  readonly projectRulesError: string | null;
+}
+
+/** One grouping rule: a session joins the project when any matcher hits. */
+export interface ProjectRule {
+  readonly id: string;
+  readonly name: string;
+  readonly prefixes: readonly string[];
+  readonly contains: readonly string[];
+  readonly repos: readonly string[];
 }
 
 /** A plain login shell the human opened on a floor (Cmd+N): not an agent, never a desk. */
@@ -700,6 +738,13 @@ export interface Settings {
   readonly agents: AgentSettings;
   readonly routing: RoutingSettings;
   readonly handover: HandoverSettings;
+  readonly boards: BoardSettings;
+}
+
+/** Checklist files shown building-wide (`BoardSettings` in settings.rs). */
+export interface BoardSettings {
+  /** Absolute paths, in the order the boards show. */
+  readonly sharedFiles: readonly string[];
 }
 
 /** A change to the settings: each group present replaces that group whole. */

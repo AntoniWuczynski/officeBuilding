@@ -13,6 +13,7 @@ const FORBIDDEN: &[&str] = &[
     "demolish_floor",
     "terminate",
     "stop_agents",
+    "exile_session",
     "terminal_write",
     "terminals.write",
     "structured.prompt",
@@ -59,5 +60,6 @@ fn the_guard_sees_a_forbidden_name_in_a_comment_and_a_method_call() {
     let found = |text: &str| FORBIDDEN.iter().any(|name| text.contains(name));
     assert!(found("// then self.terminals.write(t, x)"));
     assert!(found("office.end_shell(&id)"));
+    assert!(found("office.exile_session(&id)"));
     assert!(!found("self.terminals.backlog(t)"));
 }

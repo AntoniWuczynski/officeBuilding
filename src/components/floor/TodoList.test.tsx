@@ -6,7 +6,7 @@ import { ConnectorsContext } from "../connectors/ConnectorsContext";
 import type { ConnectorActions } from "../connectors/ConnectorsContext";
 import { TodoList } from "./TodoList";
 
-const item = (id: string, source: TodoItem["source"]): TodoItem => ({ id, projectId: "p", text: `text ${id}`, done: false, assignee: "ai", source });
+const item = (id: string, source: TodoItem["source"]): TodoItem => ({ id, projectId: "p", text: `text ${id}`, done: false, assignee: "ai", source, projectTag: null });
 
 const NOW = new Date("2026-09-28T15:41:00Z");
 const connection = (over: Partial<Connection> = {}): Connection => ({
@@ -32,8 +32,8 @@ function actionsMock(): ConnectorActions {
   };
 }
 
-function show(items: readonly TodoItem[], opts: { actions?: ConnectorActions; connection?: Connection; onTick?: (id: string) => void } = {}): void {
-  const list = <TodoList items={items} empty="Nothing." hint="Plain hint." connection={opts.connection} now={NOW} onTick={opts.onTick ?? vi.fn()} />;
+function show(items: readonly TodoItem[], opts: { actions?: ConnectorActions; connection?: Connection; onTick?: (id: string) => void; boardNames?: Record<string, string> } = {}): void {
+  const list = <TodoList items={items} empty="Nothing." hint="Plain hint." connection={opts.connection} now={NOW} onTick={opts.onTick ?? vi.fn()} {...(opts.boardNames === undefined ? {} : { boardNames: opts.boardNames })} />;
   render(opts.actions === undefined ? list : <ConnectorsContext value={opts.actions}>{list}</ConnectorsContext>);
 }
 
@@ -44,6 +44,12 @@ describe("TodoList sources", () => {
     show([item("a", { kind: "file", file: "TODO.md" }), item("b", { kind: "linear", identifier: "ENG-101", url: "https://linear.app/x" }), item("c", { kind: "app" })]);
     const badges = screen.getAllByTestId("todo-source").map((b) => b.textContent);
     expect(badges).toEqual(["TODO.md", "Linear · ENG-101"]);
+  });
+
+  it("marks an item from a shared board with the board's name instead of its path", () => {
+    const fromBoard = { ...item("a", { kind: "file", file: "/Users/me/Desktop/MY-ACTIONS.md" }), projectId: "board:/Users/me/Desktop/MY-ACTIONS.md" };
+    show([fromBoard, item("b", { kind: "file", file: "TODO.md" })], { boardNames: { "board:/Users/me/Desktop/MY-ACTIONS.md": "MY-ACTIONS.md" } });
+    expect(screen.getAllByTestId("todo-source").map((b) => b.textContent)).toEqual(["MY-ACTIONS.md", "TODO.md"]);
   });
 
   it("names every file once in the hint", () => {

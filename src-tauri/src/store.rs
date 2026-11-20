@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Keep the visible message history short; the UI only animates new ones.
-const MESSAGE_HISTORY: usize = 20;
+pub(crate) const MESSAGE_HISTORY: usize = 20;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +30,13 @@ pub struct Records {
     /// before then stays hidden, and a session started there since brings them back.
     #[serde(default)]
     pub demolished_floors: BTreeMap<String, String>,
+    /// Sessions the human moved to another floor: session id to the floor's project id.
+    #[serde(default)]
+    pub moved_sessions: BTreeMap<String, String>,
+    /// Per move, whether its session is on the building's books: `None` while it is, the time it
+    /// first was not otherwise. A move with no entry has never been confirmed. Old stores have none.
+    #[serde(default)]
+    pub move_seen: BTreeMap<String, Option<String>>,
     /// What feeds each floor from outside (absolute repo roots, like `pinned_floors`).
     #[serde(default)]
     pub connectors: BTreeMap<String, Vec<Link>>,
@@ -89,6 +96,17 @@ impl Store {
     }
 }
 
+/// The app's own notes and the peer messages found in transcripts, oldest first, trimmed to the
+/// history the office keeps. A time that does not parse sorts first; the sort is stable.
+#[must_use]
+pub fn recent_messages(own: &[AgentMessage], peers: &[AgentMessage]) -> Vec<AgentMessage> {
+    let mut all: Vec<AgentMessage> = own.iter().chain(peers).cloned().collect();
+    all.sort_by_cached_key(|m| crate::discovery::sent_at(&m.sent_at));
+    let excess = all.len().saturating_sub(MESSAGE_HISTORY);
+    all.drain(..excess);
+    all
+}
+
 /// Write `value` as pretty JSON to `path` atomically: a temp file renamed over the old one.
 pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     if let Some(dir) = path.parent() {
@@ -119,6 +137,7 @@ mod tests {
         assert_eq!(store.records, Records::default());
         let id = store.next_id("t");
         store.records.todos.push(TodoItem {
+            project_tag: None,
             id: id.clone(),
             project_id: "p".into(),
             text: "x".into(),
@@ -141,6 +160,33 @@ mod tests {
         assert_eq!(again.records.messages.len(), 20);
         assert_eq!(again.records.messages[0].id, "m5");
         fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn the_history_is_both_sources_by_time_and_the_last_twenty() {
+        let at = |id: &str, sent_at: &str| AgentMessage {
+            id: id.into(),
+            from_session_id: "a".into(),
+            to_session_id: "b".into(),
+            text: String::new(),
+            sent_at: sent_at.into(),
+        };
+        let own = [at("own", "2026-11-16T10:00:00Z")];
+        // Milliseconds sort inside their second, which as plain strings they would not.
+        let peers = [
+            at("late", "2026-11-16T10:00:00.500Z"),
+            at("early", "2026-11-16T09:59:59.900Z"),
+        ];
+        let ids: Vec<String> = recent_messages(&own, &peers)
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, ["early", "own", "late"]);
+        let many: Vec<AgentMessage> = (0..25)
+            .map(|i| at(&format!("m{i}"), &format!("2026-11-16T10:{i:02}:00Z")))
+            .collect();
+        let kept = recent_messages(&many[..10], &many[10..]);
+        assert_eq!((kept.len(), kept[0].id.as_str()), (20, "m5"));
     }
 
     #[test]
@@ -173,6 +219,17 @@ mod tests {
             Store::open(path.clone()).expect("reopen").records,
             store.records
         );
+        fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
+    }
+
+    #[test]
+    fn a_store_with_only_the_plain_move_map_loads_with_every_move_unconfirmed() {
+        let path = temp_path("moves");
+        fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+        fs::write(&path, r#"{"movedSessions":{"s1":"p2"}}"#).expect("write");
+        let store = Store::open(path.clone()).expect("open");
+        assert_eq!(store.records.moved_sessions["s1"], "p2");
+        assert!(store.records.move_seen.is_empty());
         fs::remove_dir_all(path.parent().expect("dir")).expect("cleanup");
     }
 

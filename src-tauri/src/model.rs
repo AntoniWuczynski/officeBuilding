@@ -6,6 +6,15 @@ use crate::manager::wire::ManagerFloor;
 use crate::qa::record::{Review, Verdict};
 use serde::{Deserialize, Serialize};
 
+/// Who named a session in Claude Code's registry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NameSource {
+    User,
+    Auto,
+    Peer,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub enum ToolKind {
@@ -87,6 +96,15 @@ pub struct Session {
     pub worktree: bool,
     /// The branch of the worktree it works in. None outside a worktree or on a detached HEAD.
     pub branch: Option<String>,
+    /// First sentence of its latest reply to the human, at most 140 chars. A later turn the system
+    /// started never replaces it, and a new human prompt does not clear it.
+    pub last_reply: Option<String>,
+    /// The name Claude Code's registry gives the session, apart from its `title`.
+    pub session_name: Option<String>,
+    /// Who named it.
+    pub session_name_source: Option<NameSource>,
+    /// It ran a review skill since the human last spoke to it.
+    pub self_reviewed: bool,
 }
 
 /// A session whose agent has left: listed on its floor's sign-out sheet to resume.
@@ -101,6 +119,8 @@ pub struct EndedSession {
     pub ended_at: String,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// As `Session::last_reply`, kept for the sign-out sheet.
+    pub last_reply: Option<String>,
 }
 
 /// A sub-agent at work for a session: it gets a tiny desk beside its session's.
@@ -235,6 +255,21 @@ pub struct TodoItem {
     /// Where the item lives. A store written before this field existed has none: the app's own.
     #[serde(default)]
     pub source: TodoSource,
+    /// A checklist line's second pipe column, trimmed. None when the line has none.
+    #[serde(default)]
+    pub project_tag: Option<String>,
+}
+
+/// A checklist file shared by the whole building (`boards.shared_files`). Its items carry `id` as `project_id`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedBoard {
+    /// `board:<absolute path>`.
+    pub id: String,
+    pub path: String,
+    /// The file's name.
+    pub name: String,
+    pub items: Vec<TodoItem>,
 }
 
 /// Where a TODO item lives (`TodoSource` in types.ts).
@@ -394,6 +429,14 @@ pub struct OfficeSnapshot {
     pub queued: Vec<crate::manager::wire::QueuedNote>,
     /// Used-up subscriptions and what each desk's handover has to say.
     pub handover: crate::handover::view::HandoverView,
+    /// The building-wide checklist files, in Settings order.
+    pub shared_boards: Vec<SharedBoard>,
+    /// How sessions group into projects, from the rules file.
+    pub project_rules: Vec<crate::project_rules::RuleView>,
+    /// The rule of the project whose sessions are the harness, if one is named and kept.
+    pub harness_id: Option<String>,
+    /// Why the rules file could not be read, if it could not.
+    pub project_rules_error: Option<String>,
 }
 
 /// What a floor's QA desk is doing (`QaStatus` in types.ts).

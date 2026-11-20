@@ -660,6 +660,7 @@ fn the_receiver_gets_its_note_and_the_old_desk_its_sign_out_line() {
             ended_at: String::new(),
             model: None,
             effort: None,
+            last_reply: None,
         });
         inner.owned.insert(started, "s-new".to_string());
         inner

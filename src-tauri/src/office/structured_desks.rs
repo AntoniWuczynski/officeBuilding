@@ -96,6 +96,9 @@ impl Office {
         // A desk on a floor that is not standing yet puts it up.
         self.refresh();
         Ok(Session {
+            session_name: None,
+            session_name_source: None,
+            self_reviewed: false,
             id,
             tool: req.tool,
             project_id: project_id.to_string(),
@@ -104,6 +107,7 @@ impl Office {
             control: ControlMode::Structured,
             model: Some(model.id.clone()),
             effort: Some(req.effort.clone()),
+            last_reply: None,
             last_activity_at: super::now_iso(),
             pending_question_ids: Vec::new(),
             spend: Spend::default(),

@@ -17,6 +17,7 @@ export function mockLinearTodos(projectId: string, link: LinearLink): TodoItem[]
       done: false,
       assignee,
       source: { kind: "linear", identifier, url: `https://linear.app/example/issue/${identifier}` },
+      projectTag: null,
     };
   };
   return [issue(1, "Check the refund email copy", "human"), issue(2, "Add a retry to the orders ingest", "ai")];

@@ -475,6 +475,9 @@ pub(super) mod tests {
 
     pub(in super::super) fn session(id: &str, project_id: &str, control: ControlMode) -> Session {
         Session {
+            session_name: None,
+            session_name_source: None,
+            self_reviewed: false,
             id: id.to_string(),
             tool: ToolKind::ClaudeCode,
             project_id: project_id.to_string(),
@@ -483,6 +486,7 @@ pub(super) mod tests {
             control,
             model: None,
             effort: None,
+            last_reply: None,
             last_activity_at: "2026-11-12T10:00:00Z".to_string(),
             pending_question_ids: Vec::new(),
             spend: crate::model::Spend::default(),
