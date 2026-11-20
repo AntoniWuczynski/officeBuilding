@@ -58,6 +58,13 @@ pub struct Escalate {
     pub options: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EndDesk {
+    pub desk: String,
+    pub reason: String,
+}
+
 /// One call from a manager, with its arguments checked for shape.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Call {
@@ -68,6 +75,7 @@ pub enum Call {
     WaitForDesk(WaitForDesk),
     HireDesk(HireDesk),
     Escalate(Escalate),
+    EndDesk(EndDesk),
 }
 
 /// What the building does for a manager. `floor` is the project id the connection was bound to.
@@ -89,7 +97,7 @@ const NO_ARGS_SCHEMA: &str = r#"{"type":"object","properties":{},"additionalProp
 pub const CATALOGUE: &[ToolSpec] = &[
     ToolSpec {
         name: "list_desks",
-        description: "List the desks on your floor: what each agent is doing, its tool and model, its spend, and whether a note would reach it now.",
+        description: "List the desks on your floor: what each agent is doing, its tool and model, its spend, whether a note would reach it now and why not, and what became of your last ten notes.",
         schema: NO_ARGS_SCHEMA,
     },
     ToolSpec {
@@ -104,7 +112,7 @@ pub const CATALOGUE: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "send_to_desk",
-        description: "Send a desk a note. It is handed over when the desk is idle and waits in a queue until then. A desk started outside the building cannot be reached: the note waits and the human sees it. At most 4000 characters.",
+        description: "Send a desk a note. The answer says whether it was typed into the desk now or is waiting, and why. A waiting note is typed when the desk can take it, and the human sees it at the desk until then. A desk started outside the building cannot be reached. At most 4000 characters.",
         schema: r#"{"type":"object","properties":{"desk":{"type":"string"},"text":{"type":"string"}},"required":["desk","text"],"additionalProperties":false}"#,
     },
     ToolSpec {
@@ -121,6 +129,11 @@ pub const CATALOGUE: &[ToolSpec] = &[
         name: "escalate",
         description: "Ask the human to decide something. It becomes an open call on the floor's memo pile. Give a short title, the question, and up to six options.",
         schema: r#"{"type":"object","properties":{"title":{"type":"string"},"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"maxItems":6}},"required":["title","question"],"additionalProperties":false}"#,
+    },
+    ToolSpec {
+        name: "end_desk",
+        description: "End a desk on your floor that the building started. It is the last resort, for a desk a note has not put right or cannot reach. The building asks the agent to stop and forces it after a few seconds. It refuses a desk started outside the building, a desk in a chat view and a desk the building is moving to another tool. Give the reason in one line: the human sees it, and can resume the desk from the sign-out sheet.",
+        schema: r#"{"type":"object","properties":{"desk":{"type":"string"},"reason":{"type":"string"}},"required":["desk","reason"],"additionalProperties":false}"#,
     },
 ];
 
@@ -141,6 +154,7 @@ pub fn parse(name: &str, arguments: Option<&str>) -> Result<Call, CallError> {
         "wait_for_desk" => args(arguments).map(Call::WaitForDesk),
         "hire_desk" => args(arguments).map(Call::HireDesk),
         "escalate" => args(arguments).map(Call::Escalate),
+        "end_desk" => args(arguments).map(Call::EndDesk),
         _ => Err(CallError::UnknownTool),
     }
 }
@@ -167,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn the_catalogue_has_the_seven_tools_in_order() {
+    fn the_catalogue_has_the_eight_tools_in_order() {
         let names: Vec<&str> = CATALOGUE.iter().map(|tool| tool.name).collect();
         assert_eq!(
             names,
@@ -178,7 +192,8 @@ mod tests {
                 "send_to_desk",
                 "wait_for_desk",
                 "hire_desk",
-                "escalate"
+                "escalate",
+                "end_desk"
             ]
         );
     }
@@ -276,6 +291,13 @@ mod tests {
                 options: Vec::new()
             }))
         );
+        assert_eq!(
+            parse("end_desk", Some(r#"{"desk":"d-1","reason":"stuck"}"#)),
+            Ok(Call::EndDesk(EndDesk {
+                desk: "d-1".into(),
+                reason: "stuck".into()
+            }))
+        );
     }
 
     #[test]
@@ -292,6 +314,11 @@ mod tests {
         assert!(bad("escalate", r#"{"title":"t"}"#));
         assert!(bad("hire_desk", r#"{"task":"fix it"}"#));
         assert!(bad("hire_desk", r#"{"tool":"opencode","task":"fix it"}"#));
+        assert!(bad("end_desk", r#"{"desk":"d-1"}"#));
+        assert!(bad(
+            "end_desk",
+            r#"{"desk":"d-1","reason":"x","force":true}"#
+        ));
         assert!(bad("read_desk", "not json"));
         assert!(matches!(
             parse("read_desk", None),

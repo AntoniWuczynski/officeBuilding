@@ -6,6 +6,8 @@ use crate::discovery;
 use crate::model::Session;
 use std::time::{Duration, Instant};
 
+mod end_desk;
+
 /// Ask each agent to exit (SIGTERM) and wait up to `within` for all of them.
 pub(super) fn stop_agents(agents: &[(String, i32)], within: Duration) -> Result<(), String> {
     for (_, pid) in agents {

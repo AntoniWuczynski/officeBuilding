@@ -153,6 +153,12 @@ pub fn unregistered_id(pid: i32) -> String {
     format!("{UNREGISTERED_PREFIX}{pid}")
 }
 
+/// Whether `id` is a placeholder session id from [`unregistered_id`].
+#[must_use]
+pub fn is_unregistered_id(id: &str) -> bool {
+    id.starts_with(UNREGISTERED_PREFIX)
+}
+
 /// Running Claude Code processes in `dir` (`~/.claude/sessions`) that wrote
 /// their `.key` at least [`UNREGISTERED_AFTER`] before `now` and no `.json`.
 pub fn unregistered_pids(dir: &Path, now: SystemTime, alive: impl Fn(i32) -> bool) -> Vec<i32> {

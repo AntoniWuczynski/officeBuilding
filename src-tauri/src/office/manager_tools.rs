@@ -2,9 +2,11 @@
 //! the floor its connection authenticated for, and nothing here reaches another floor.
 
 use super::deliver::DeskNow;
+use super::manager_send::hold_sentence;
 use super::{Inner, Office, last_lines, now_iso};
 use crate::delivery::gate::{Hold, Route};
 use crate::manager::tools::{Call, ReadDesk, Tools};
+use crate::manager::wire::{LogEvent, NoteState};
 use crate::model::{Decision, Party, SessionState, TodoSource, ToolKind};
 use crate::project_files;
 use crate::structured::{Entry, ToolStatus};
@@ -17,6 +19,8 @@ const TODO_TEXT_MAX: usize = 300;
 const DECISIONS_MAX: usize = 10;
 /// A desk id longer than this is no desk.
 const DESK_ID_MAX: usize = 200;
+/// The manager's newest notes `list_desks` says what became of.
+const NOTES_SHOWN: usize = 10;
 /// The lines `read_desk` reads by default and at most, and the most characters it hands back.
 const READ_LINES: u32 = 40;
 const READ_LINES_MAX: u32 = 200;
@@ -25,7 +29,7 @@ const READ_TEXT_MAX: usize = 8000;
 const HAND_STARTED: &str =
     "This desk was started outside the building, so what it says cannot be read from here.";
 
-const NO_SUCH_DESK: &str = "there is no such desk on your floor";
+pub(super) const NO_SUCH_DESK: &str = "there is no such desk on your floor";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +70,17 @@ struct DeskList {
     paused: bool,
     hiring: Hiring,
     desks: Vec<DeskLine>,
+    /// The manager's newest notes on the floor's log, newest first.
+    notes: Vec<NoteLine>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoteLine {
+    note_id: String,
+    /// The session id the note was sent to.
+    desk: String,
+    state: NoteState,
 }
 
 #[derive(Serialize)]
@@ -91,6 +106,8 @@ struct DeskLine {
     spend_usd: f64,
     /// None: a note would be handed over now.
     held: Option<Hold>,
+    /// Why `held`, in one sentence for this desk's tool.
+    held_why: Option<&'static str>,
     /// Notes waiting for it.
     waiting: usize,
     hired_by_you: bool,
@@ -119,8 +136,8 @@ impl Tools for Office {
                 .is_some_and(|seat| seat.last_call_at.replace(now.clone()) != Some(now))
         };
         let reads = matches!(call, Call::ListTodos | Call::ListDesks | Call::ReadDesk(_));
-        // The tools that act take the lock themselves, and never across a hand-over, a hire
-        // or a wait.
+        // The tools that act take the lock themselves, and never across a hand-over, a hire,
+        // a wait or a signal.
         let answer = match call {
             Call::ListTodos => self.list_todos(&self.lock(), floor),
             Call::ListDesks => self.list_desks(&self.lock(), floor),
@@ -129,6 +146,7 @@ impl Tools for Office {
             Call::WaitForDesk(args) => self.wait_for_desk(floor, &args),
             Call::HireDesk(args) => self.hire_desk(floor, &args),
             Call::Escalate(args) => self.escalate(floor, &args),
+            Call::EndDesk(args) => self.end_floor_desk(floor, &args),
         };
         // Outside the lock: the callback reads a snapshot.
         if (stamped || !reads)
@@ -218,6 +236,7 @@ impl Office {
                         .count(),
                     hired_by_you: hired.contains(&s.id),
                     held,
+                    held_why: held.map(|hold| hold_sentence(hold, s.tool)),
                     spend_usd: s.spend.usd,
                     id: s.id,
                     title: s.title,
@@ -228,6 +247,28 @@ impl Office {
                     last_activity_at: s.last_activity_at,
                 }
             })
+            .collect();
+        let notes = record
+            .log
+            .iter()
+            .rev()
+            .filter_map(|entry| match &entry.event {
+                LogEvent::Note {
+                    note_id,
+                    to_session_id,
+                    state,
+                    ..
+                } => Some(NoteLine {
+                    note_id: note_id.clone(),
+                    desk: to_session_id.clone(),
+                    state: *state,
+                }),
+                LogEvent::Hire { .. }
+                | LogEvent::Escalation { .. }
+                | LogEvent::Refused { .. }
+                | LogEvent::End { .. } => None,
+            })
+            .take(NOTES_SHOWN)
             .collect();
         json(&DeskList {
             floor: projects
@@ -243,6 +284,7 @@ impl Office {
                 spent_usd: caps.spent_usd,
             },
             desks,
+            notes,
         })
     }
 
@@ -557,6 +599,15 @@ mod tests {
         paused: bool,
         hiring: TestHiring,
         desks: Vec<TestDesk>,
+        notes: Vec<TestNote>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct TestNote {
+        note_id: String,
+        desk: String,
+        state: NoteState,
     }
 
     #[derive(Deserialize)]
@@ -581,8 +632,13 @@ mod tests {
         last_activity_at: String,
         spend_usd: f64,
         held: Option<Hold>,
+        held_why: Option<String>,
         waiting: usize,
         hired_by_you: bool,
+    }
+
+    fn desks(office: &Office, floor: &str) -> TestDesks {
+        serde_json::from_str(&office.call(floor, Call::ListDesks).unwrap()).unwrap()
     }
 
     #[derive(Deserialize)]
@@ -709,6 +765,87 @@ mod tests {
             serde_json::from_str(&office.call(&floor.id, Call::ListDesks).unwrap()).unwrap();
         assert!(list.paused);
         assert!(list.desks.iter().all(|d| d.held == Some(Hold::Paused)));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn list_desks_says_why_a_desk_holds_and_what_became_of_the_last_ten_notes() {
+        use super::super::deliver::tests::{event, seat as desk_at};
+        use super::super::manager_send::log_event;
+        use crate::manager::tools::SendToDesk;
+        let (office, dir, floor, registry, _) = manager_office("tools-notes");
+        seat(&office, &dir, &floor, &registry, "/bin/cat");
+        let (_, idle) = desk_at(
+            &office,
+            &dir,
+            &floor,
+            ToolKind::ClaudeCode,
+            SessionState::Idle,
+        );
+        event(&office, &idle, "Stop", None);
+        let (_, busy) = desk_at(
+            &office,
+            &dir,
+            &floor,
+            ToolKind::ClaudeCode,
+            SessionState::Running,
+        );
+        event(&office, &busy, "PreToolUse", None);
+        let line = |list: &TestDesks, id: &str| {
+            let d = list.desks.iter().find(|d| d.id == id).unwrap();
+            (d.held, d.held_why.clone())
+        };
+        let list = desks(&office, &floor.id);
+        assert_eq!(line(&list, &idle), (None, None));
+        assert_eq!(
+            line(&list, &busy),
+            (
+                Some(Hold::Busy),
+                Some(hold_sentence(Hold::Busy, ToolKind::ClaudeCode).to_string())
+            )
+        );
+        assert!(list.notes.is_empty());
+
+        let send = |to: &str| {
+            let call = Call::SendToDesk(SendToDesk {
+                desk: to.to_string(),
+                text: "go".to_string(),
+            });
+            office.call(&floor.id, call).unwrap();
+        };
+        send(&idle);
+        send(&busy);
+        // The busy desk leaves while the note waits for it.
+        office.lock().found.sessions.retain(|s| s.id != busy);
+        office.deliver_due();
+        let more = |inner: &mut Inner, ids: std::ops::Range<usize>| {
+            for i in ids {
+                let event = LogEvent::Note {
+                    note_id: format!("n-more-{i}"),
+                    to_session_id: idle.clone(),
+                    to_title: "a desk".to_string(),
+                    text: "x".to_string(),
+                    state: NoteState::Queued,
+                };
+                log_event(inner, &floor.id, event);
+            }
+        };
+        more(&mut office.lock(), 0..8);
+        let notes = desks(&office, &floor.id).notes;
+        assert_eq!(notes.len(), 10);
+        assert_eq!(
+            (notes[8].desk.as_str(), notes[8].state),
+            (busy.as_str(), NoteState::Dropped)
+        );
+        assert_eq!(
+            (notes[9].desk.as_str(), notes[9].state),
+            (idle.as_str(), NoteState::Delivered)
+        );
+        assert_eq!(notes[0].note_id, "n-more-7");
+        more(&mut office.lock(), 8..9);
+        let notes = desks(&office, &floor.id).notes;
+        assert_eq!(notes.len(), 10);
+        assert_eq!(notes[9].state, NoteState::Dropped, "the oldest fell off");
         fs::remove_dir_all(&dir).unwrap();
     }
 

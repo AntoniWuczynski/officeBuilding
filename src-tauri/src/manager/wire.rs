@@ -35,6 +35,16 @@ pub enum NoteState {
     Failed,
 }
 
+/// How a desk a manager ended went (`EndHow` in types.ts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EndHow {
+    /// It exited within the wait after the one polite stop.
+    Stopped,
+    /// It outlived the wait and the building killed the process it had started.
+    Forced,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -62,6 +72,24 @@ pub enum LogEvent {
         tool: String,
         reason: String,
     },
+    /// The manager ended a desk. Serialises as kind "end".
+    End {
+        session_id: String,
+        title: String,
+        reason: String,
+        how: EndHow,
+    },
+}
+
+/// A desk a floor's manager ended (`EndedDesk` in types.ts).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndedDesk {
+    pub session_id: String,
+    /// RFC 3339, the log entry's own time.
+    pub at: String,
+    pub reason: String,
+    pub how: EndHow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +148,8 @@ pub struct ManagerFloor {
     pub queue: Vec<QueuedNote>,
     /// Newest first, at most `LOG_SHOWN`.
     pub log: Vec<LogEntry>,
+    /// Every desk this floor's manager ended that the kept log still holds, newest first.
+    pub ended: Vec<EndedDesk>,
 }
 
 /// What `store.json` keeps for a floor, by absolute repo root like `pinned_floors`.
@@ -182,6 +212,12 @@ mod tests {
                     state: NoteState::Queued,
                 },
             }],
+            ended: vec![EndedDesk {
+                session_id: DESK.into(),
+                at: "2026-11-12T10:06:00Z".into(),
+                reason: "It ignored two notes.".into(),
+                how: EndHow::Forced,
+            }],
         };
         let want = json!({ "projectId": "p-1a2b3c4d",
           "status": { "kind": "hired", "sessionId": "0f1e2d3c-0000-4000-8000-000000000001", "startedAt": "2026-11-12T10:00:00Z", "lastCallAt": "2026-11-12T10:04:10Z" },
@@ -190,7 +226,8 @@ mod tests {
           "caps": { "maxDesks": 3, "hiredNow": 1, "spendCeilingUsd": 20, "spentUsd": 1.25, "unpricedDesks": 0 },
           "queue": [{ "id": "n-41", "toSessionId": "0f1e2d3c-0000-4000-8000-000000000002", "text": "Take the first three items of TODO.md.", "queuedAt": "2026-11-12T10:04:10Z", "hold": "busy" }],
           "log": [{ "id": "g-42", "at": "2026-11-12T10:04:10Z",
-                    "event": { "kind": "note", "noteId": "n-41", "toSessionId": "0f1e2d3c-0000-4000-8000-000000000002", "toTitle": "audit checkout", "text": "Take the first three items of TODO.md.", "state": "queued" } }] });
+                    "event": { "kind": "note", "noteId": "n-41", "toSessionId": "0f1e2d3c-0000-4000-8000-000000000002", "toTitle": "audit checkout", "text": "Take the first three items of TODO.md.", "state": "queued" } }],
+          "ended": [{ "sessionId": "0f1e2d3c-0000-4000-8000-000000000002", "at": "2026-11-12T10:06:00Z", "reason": "It ignored two notes.", "how": "forced" }] });
         assert_eq!(value(&floor), want);
         assert_eq!(
             serde_json::from_value::<ManagerFloor>(want).expect("read"),
@@ -216,11 +253,12 @@ mod tests {
             },
             queue: Vec::new(),
             log: Vec::new(),
+            ended: Vec::new(),
         };
         let want = json!({ "projectId": "p", "status": { "kind": "absent" }, "paused": false,
             "mayHire": false, "escalated": false, "managed": [],
             "caps": { "maxDesks": 3, "hiredNow": 0, "spendCeilingUsd": 20, "spentUsd": 0.0, "unpricedDesks": 0 },
-            "queue": [], "log": [] });
+            "queue": [], "log": [], "ended": [] });
         assert_eq!(value(&floor), want);
     }
 
@@ -244,6 +282,15 @@ mod tests {
                     reason: "paused".into(),
                 },
                 json!({ "kind": "refused", "tool": "send_to_desk", "reason": "paused" }),
+            ),
+            (
+                LogEvent::End {
+                    session_id: DESK.into(),
+                    title: "audit checkout".into(),
+                    reason: "stuck".into(),
+                    how: EndHow::Stopped,
+                },
+                json!({ "kind": "end", "sessionId": DESK, "title": "audit checkout", "reason": "stuck", "how": "stopped" }),
             ),
         ];
         for (event, want) in cases {
