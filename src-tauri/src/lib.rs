@@ -2,6 +2,7 @@
 //! tool's own files, keeps them live, and serves them to the webview.
 
 pub mod alerts;
+pub mod attention;
 pub mod commands;
 pub mod connectors;
 pub mod delivery;

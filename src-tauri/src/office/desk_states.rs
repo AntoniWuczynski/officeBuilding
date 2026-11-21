@@ -1,8 +1,10 @@
 //! Each desk's state for the alert tracker (alerts/): the same desks the snapshot shows.
 
-use super::{Office, with_structured};
+use super::{Inner, Office, with_structured};
 use crate::alerts::DeskState;
-use crate::model::{ControlMode, Project, Session};
+use crate::discovery::Discovered;
+use crate::model::{ControlMode, Project, Session, SessionState};
+use std::time::SystemTime;
 
 impl Office {
     /// Every desk's state now, for the alert tracker: discovery's sessions and the structured desks.
@@ -11,6 +13,30 @@ impl Office {
         let inner = self.lock();
         let (projects, sessions, _) = with_structured(&inner.found, &self.structured);
         states(&projects, sessions, |id| inner.feed.reports(id))
+    }
+}
+
+impl Inner {
+    /// Collect the hook feed, then settle every desk's requests into `found`.
+    pub(super) fn settle(&mut self, found: &mut Discovered, now: SystemTime) {
+        self.feed.collect(now);
+        crate::attention::reconcile(found, &mut self.feed, |id| self.discovery.host_of(id), now);
+    }
+}
+
+/// The state the alert tracker judges: a chat desk with a request open needs A Human
+/// even while it works on.
+fn alert_state(session: &Session) -> SessionState {
+    let asks = session.control == ControlMode::Structured
+        && !session.pending_question_ids.is_empty()
+        && matches!(
+            session.state,
+            SessionState::Running | SessionState::Thinking
+        );
+    if asks {
+        SessionState::WaitingHuman
+    } else {
+        session.state
     }
 }
 
@@ -29,9 +55,9 @@ fn states(
                 .find(|p| p.id == session.project_id)
                 .map(|p| p.name.clone())
                 .unwrap_or_default(),
+            state: alert_state(&session),
             id: session.id,
             title: session.title,
-            state: session.state,
         })
         .collect()
 }
@@ -39,7 +65,7 @@ fn states(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Helper, SessionState, Spend, ToolKind};
+    use crate::model::{Helper, Spend, ToolKind};
 
     fn session(id: &str, project_id: &str, control: ControlMode) -> Session {
         Session {

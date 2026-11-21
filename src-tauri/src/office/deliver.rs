@@ -110,7 +110,8 @@ impl Office {
                 desk: gate::Desk {
                     route: Route::Structured,
                     state: s.state,
-                    prompt_open: s.state == SessionState::WaitingHuman,
+                    prompt_open: s.state == SessionState::WaitingHuman
+                        || !s.pending_question_ids.is_empty(),
                     typed_ago: None,
                     draft_open: false,
                     awaiting_turn: awaiting(&s.id),
@@ -469,7 +470,8 @@ impl Office {
                         std::thread::sleep(SUBMIT_PAUSE);
                         self.terminals.write(t, text::SUBMIT)
                     }),
-                None => self.structured.prompt(&hand.key, &body),
+                None if hand.own => self.structured.prompt(&hand.key, &body),
+                None => self.structured.note(&hand.key, &body),
             };
             let mut guard = self.lock();
             let inner = &mut *guard;
@@ -532,3 +534,6 @@ pub(super) mod tests;
 
 #[cfg(test)]
 mod idle_tests;
+
+#[cfg(test)]
+mod request_tests;

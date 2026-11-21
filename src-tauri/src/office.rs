@@ -464,8 +464,7 @@ impl Office {
             .hired
             .retain(|terminal, _| !inner.owned.contains_key(terminal));
         reopen_earlier_sessions(&mut found.sessions, &inner.ran_in);
-        inner.feed.collect(SystemTime::now());
-        inner.feed.apply(&mut found.sessions);
+        inner.settle(&mut found, SystemTime::now());
         let shared = self.settings.as_ref().map(|s| s.get().boards.shared_files);
         let boards: Vec<SharedBoard> = shared
             .iter()
@@ -495,9 +494,7 @@ impl Office {
     pub fn snapshot(&self) -> OfficeSnapshot {
         let inner = self.lock();
         let r = &inner.store.records;
-        let mut questions = inner.found.questions.clone();
-        questions.extend(inner.files.values().flat_map(|f| f.open.iter().cloned()));
-        questions.extend(r.calls.iter().cloned());
+        let questions = structured_desks::queue(&inner, &self.structured);
         let mut decisions = r.decisions.clone();
         decisions.extend(
             inner
@@ -534,6 +531,7 @@ impl Office {
             project_rules: rules.rules.iter().map(Into::into).collect(),
             harness_id: rules.harness_id,
             project_rules_error: rules.error,
+            unseen_prompts: inner.found.unseen_prompts.clone(),
         }
     }
 
@@ -784,6 +782,7 @@ impl Office {
                     return Err("answering in the app is not wired to a terminal yet".to_string());
                 }
                 AnswerVia::Store => return Err("that call is kept by the building".to_string()),
+                AnswerVia::Chat => return Err("answer that request in its conversation".into()),
                 AnswerVia::File => {
                     let text = answer_text(question, answer)?;
                     let (file, line) =
