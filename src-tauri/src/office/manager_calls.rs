@@ -178,6 +178,7 @@ impl Office {
             asked_at: now_iso(),
             context: question.to_string(),
             source_file: None,
+            handoff: None,
         });
         inner.store.save()?;
         Ok((seq, OWN_RECORDS.to_string()))

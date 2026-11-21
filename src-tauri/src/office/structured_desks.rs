@@ -1,10 +1,11 @@
 //! Hiring and talking to structured desks (structured/), and folding them into
 //! the snapshot.
 
-use super::Office;
+use super::{Inner, Office};
 use crate::discovery::Discovered;
 use crate::model::{
-    ControlMode, EndedSession, HireRequest, ModelOption, Project, Session, SessionState, Spend,
+    ControlMode, EndedSession, HireRequest, ModelOption, Project, Question, Session, SessionState,
+    Spend,
 };
 use crate::structured::desks::{DeskInfo, Desks};
 use crate::structured::{self, Spawn};
@@ -57,6 +58,25 @@ pub(super) fn with_structured(
     );
     ended.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
     (projects, sessions, ended)
+}
+
+/// The snapshot's queue: discovery's questions, each floor's open calls, the stored
+/// calls, and every open request of a running chat desk. A conversation a chat desk
+/// hides (see `with_structured`) brings no rows of its own: they would point at a desk
+/// nobody can see, and list the desk's own requests twice.
+pub(super) fn queue(inner: &Inner, desks: &Desks) -> Vec<Question> {
+    let theirs = desks.tool_sessions();
+    let mut questions: Vec<Question> = inner
+        .found
+        .questions
+        .iter()
+        .filter(|q| !theirs.contains(&q.session_id))
+        .cloned()
+        .collect();
+    questions.extend(inner.files.values().flat_map(|f| f.open.iter().cloned()));
+    questions.extend(inner.store.records.calls.iter().cloned());
+    questions.extend(desks.questions());
+    questions
 }
 
 impl Office {
@@ -155,3 +175,6 @@ impl Office {
         self.structured.stop(session_id)
     }
 }
+
+#[cfg(test)]
+mod tests;

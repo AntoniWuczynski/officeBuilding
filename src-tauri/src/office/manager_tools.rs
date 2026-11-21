@@ -448,6 +448,7 @@ mod tests {
             asked_at: "2026-11-12T10:00:00Z".to_string(),
             context: String::new(),
             source_file: None,
+            handoff: None,
         }
     }
 

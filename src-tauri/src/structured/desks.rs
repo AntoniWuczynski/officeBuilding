@@ -1,9 +1,11 @@
 //! The structured desks the building is running: each one's transcript, state
-//! and open approval, kept for the conversation panel, and the driver that
+//! and open requests, kept for the conversation panel, and the driver that
 //! talks to its agent. Driver events arrive on the drivers' own threads.
 
 use super::{Approval, Capabilities, Driver, Entry, Event, Spawn, capabilities, capped, window};
-use crate::model::{ControlMode, EndedSession, Session, SessionState, Spend, ToolKind};
+use crate::model::{
+    AnswerVia, ControlMode, EndedSession, Handoff, Question, Session, SessionState, Spend, ToolKind,
+};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,11 +24,18 @@ pub struct DeskInfo {
     pub effort: String,
 }
 
+/// A request the desk has open, with when it was first asked.
+struct Asked {
+    approval: Approval,
+    at: SystemTime,
+}
+
 struct Live {
     info: DeskInfo,
     transcript: Vec<Entry>,
     state: SessionState,
-    approval: Option<Approval>,
+    /// Every request open, oldest first.
+    approvals: Vec<Asked>,
     /// The tool's own id for the conversation, once the driver reports it.
     tool_session: Option<String>,
     last: SystemTime,
@@ -41,12 +50,13 @@ pub struct Update {
     /// The entry that was added or replaced, if any.
     pub entry: Option<Entry>,
     pub state: SessionState,
-    pub approval: Option<Approval>,
+    /// Every request the desk has open, oldest first.
+    pub approvals: Vec<Approval>,
     /// Why the agent is gone, once it is.
     pub ended: Option<String>,
     /// Drop every entry shown so far before applying this update: the conversation was read again from the start.
     pub reset: bool,
-    /// The desk itself changed (state, or it left): the building should redraw.
+    /// The desk itself changed (its state, its open requests, or it left): the building should redraw.
     #[serde(skip)]
     pub desk_changed: bool,
 }
@@ -58,7 +68,8 @@ pub struct Backlog {
     /// The newest entries, oldest first: at most `BACKLOG_MAX`, and at most `BACKLOG_CHARS` of text.
     pub transcript: Vec<Entry>,
     pub state: SessionState,
-    pub approval: Option<Approval>,
+    /// Every request the desk has open, oldest first.
+    pub approvals: Vec<Approval>,
     pub ended: Option<String>,
     pub capabilities: Capabilities,
     /// Older entries exist that are not in `transcript`.
@@ -79,8 +90,62 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn iso(at: SystemTime) -> String {
+pub(crate) fn iso(at: SystemTime) -> String {
     chrono::DateTime::<chrono::Utc>::from(at).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+/// The id of the queue row of the request `approval_id` on the desk `desk_id`.
+#[must_use]
+pub fn request_row(desk_id: &str, approval_id: &str) -> String {
+    format!("{desk_id}:request:{approval_id}")
+}
+
+impl Live {
+    fn approvals(&self) -> Vec<Approval> {
+        self.approvals.iter().map(|a| a.approval.clone()).collect()
+    }
+
+    /// What of the open requests the building shows outside the conversation.
+    fn requests_shown(&self) -> Vec<(String, bool, Option<String>)> {
+        self.approvals
+            .iter()
+            .map(|a| {
+                let a = &a.approval;
+                (a.id.clone(), a.background, a.failed.clone())
+            })
+            .collect()
+    }
+
+    /// The queue row of one open request (spec 3.4).
+    fn row(&self, desk_id: &str, asked: &Asked) -> Question {
+        let a = &asked.approval;
+        let first = |text: &str| text.lines().next().unwrap_or_default().to_string();
+        let mut prompt = first(&a.title);
+        let detail = first(&a.detail);
+        if !detail.is_empty() {
+            prompt = format!("{prompt} {detail}");
+        }
+        Question {
+            id: request_row(desk_id, &a.id),
+            project_id: self.info.project_id.clone(),
+            session_id: desk_id.to_string(),
+            prompt: crate::project_files::truncate(&prompt, 400),
+            options: Vec::new(),
+            allow_other: false,
+            answer_via: AnswerVia::Chat,
+            priority: i32::from(a.background),
+            asked_at: iso(asked.at),
+            context: a.failed.as_ref().map_or_else(String::new, |reason| {
+                format!(
+                    "Your answer did not reach the agent: {reason}. Open the request to send it again."
+                )
+            }),
+            source_file: None,
+            handoff: Some(Handoff::Chat {
+                approval_id: a.id.clone(),
+            }),
+        }
+    }
 }
 
 impl Desks {
@@ -107,7 +172,7 @@ impl Desks {
                 transcript: Vec::new(),
                 // Not working until the driver starts a turn: its handshake is no turn.
                 state: SessionState::Idle,
-                approval: None,
+                approvals: Vec::new(),
                 tool_session: None,
                 last: SystemTime::now(),
                 ended: None,
@@ -135,7 +200,7 @@ impl Desks {
                 info,
                 transcript: Vec::new(),
                 state,
-                approval: None,
+                approvals: Vec::new(),
                 tool_session: None,
                 last: SystemTime::now(),
                 ended: None,
@@ -146,13 +211,13 @@ impl Desks {
 
     /// Fold one driver event into its desk and tell the panel. Never takes the
     /// drivers lock: a driver may report while one of its methods runs.
-    fn on_event(&self, id: &str, event: Event) {
+    pub(crate) fn on_event(&self, id: &str, event: Event) {
         let update = {
             let mut live = lock(&self.live);
             let Some(desk) = live.get_mut(id) else {
                 return;
             };
-            let before = (desk.state, desk.ended.is_some());
+            let before = (desk.state, desk.ended.is_some(), desk.requests_shown());
             let mut entry = None;
             match event {
                 Event::Entry(e) => {
@@ -165,17 +230,25 @@ impl Desks {
                 }
                 Event::State(state) => desk.state = state,
                 Event::SessionId(tool_session) => desk.tool_session = Some(tool_session),
+                // The driver's own `Event::State` says whether the request blocks the desk.
                 Event::Approval(approval) => {
-                    desk.approval = Some(approval);
-                    desk.state = SessionState::WaitingHuman;
-                }
-                Event::Resolved { approval_id } => {
-                    if desk.approval.as_ref().is_some_and(|a| a.id == approval_id) {
-                        desk.approval = None;
+                    match desk
+                        .approvals
+                        .iter_mut()
+                        .find(|a| a.approval.id == approval.id)
+                    {
+                        Some(kept) => kept.approval = approval,
+                        None => desk.approvals.push(Asked {
+                            approval,
+                            at: SystemTime::now(),
+                        }),
                     }
                 }
+                Event::Resolved { approval_id } => {
+                    desk.approvals.retain(|a| a.approval.id != approval_id);
+                }
                 Event::Exited { code, message } => {
-                    desk.approval = None;
+                    desk.approvals.clear();
                     desk.ended = Some(message.unwrap_or_else(|| match code {
                         Some(0) | None => "The agent has finished.".to_string(),
                         Some(code) => format!("The agent stopped with exit code {code}."),
@@ -187,10 +260,10 @@ impl Desks {
                 session_id: id.to_string(),
                 entry,
                 state: desk.state,
-                approval: desk.approval.clone(),
+                approvals: desk.approvals(),
                 ended: desk.ended.clone(),
                 reset: false,
-                desk_changed: before != (desk.state, desk.ended.is_some()),
+                desk_changed: before != (desk.state, desk.ended.is_some(), desk.requests_shown()),
             }
         };
         (self.notify)(update);
@@ -216,13 +289,27 @@ impl Desks {
                 effort: Some(d.info.effort.clone()),
                 last_reply: None,
                 last_activity_at: iso(d.last),
-                pending_question_ids: Vec::new(),
+                pending_question_ids: d
+                    .approvals
+                    .iter()
+                    .map(|a| request_row(id, &a.approval.id))
+                    .collect(),
                 spend: Spend::default(),
                 helpers: Vec::new(),
                 pets: Vec::new(),
                 worktree: false,
                 branch: None,
             })
+            .collect()
+    }
+
+    /// One row for every request open on a running desk, for the snapshot's queue.
+    #[must_use]
+    pub fn questions(&self) -> Vec<Question> {
+        lock(&self.live)
+            .iter()
+            .filter(|(_, d)| d.ended.is_none())
+            .flat_map(|(id, d)| d.approvals.iter().map(|a| d.row(id, a)))
             .collect()
     }
 
@@ -281,7 +368,7 @@ impl Desks {
                 .filter(|d| d.ended.is_some())
                 .ok_or_else(|| format!("{id} has not ended, so there is nothing to resume"))?;
             desk.transcript.clear();
-            desk.approval = None;
+            desk.approvals.clear();
             desk.ended = None;
             desk.state = SessionState::Idle;
             desk.last = SystemTime::now();
@@ -346,7 +433,7 @@ impl Desks {
         Ok(Backlog {
             transcript,
             state: desk.state,
-            approval: desk.approval.clone(),
+            approvals: desk.approvals(),
             ended: desk.ended.clone(),
             capabilities: capabilities(desk.info.tool),
             earlier,
@@ -371,6 +458,15 @@ impl Desks {
             return Err("write something for the agent first".to_string());
         }
         self.with_driver(id, |d| d.prompt(text))
+    }
+
+    /// A manager's note: as `prompt`, but a driver with a request open refuses it.
+    pub fn note(&self, id: &str, text: &str) -> Result<(), String> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err("write something for the agent first".to_string());
+        }
+        self.with_driver(id, |d| d.note(text))
     }
 
     pub fn answer(
@@ -398,6 +494,9 @@ impl Desks {
 }
 
 #[cfg(test)]
+mod request_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::structured::{Choice, ToolStatus};
@@ -417,7 +516,7 @@ mod tests {
                 },
                 transcript: Vec::new(),
                 state: SessionState::Thinking,
-                approval: None,
+                approvals: Vec::new(),
                 tool_session: None,
                 last: SystemTime::now(),
                 ended: None,
@@ -485,8 +584,9 @@ mod tests {
         assert_eq!(detail_of(kept.first()), want);
     }
 
+    // Spec 4.7: an approval no longer forces the hand; the driver's `Event::State` does.
     #[test]
-    fn an_approval_raises_the_hand_until_it_is_resolved() {
+    fn an_approval_is_listed_until_it_is_resolved() {
         let updates = Arc::new(Mutex::new(Vec::new()));
         let desks = desks_with_one(updates);
         desks.on_event(
@@ -501,9 +601,14 @@ mod tests {
                     label: "Allow".to_string(),
                     allow: true,
                 }],
+                ..Approval::default()
             }),
         );
-        assert_eq!(desks.sessions()[0].state, SessionState::WaitingHuman);
+        assert_eq!(desks.sessions()[0].state, SessionState::Thinking);
+        assert_eq!(
+            desks.sessions()[0].pending_question_ids,
+            vec!["structured-1:request:a1".to_string()]
+        );
         desks.on_event(
             "structured-1",
             Event::Resolved {
@@ -520,9 +625,12 @@ mod tests {
                 diffs: Vec::new(),
             }),
         );
-        assert_eq!(
-            desks.backlog("structured-1").expect("backlog").approval,
-            None
+        assert!(
+            desks
+                .backlog("structured-1")
+                .expect("backlog")
+                .approvals
+                .is_empty()
         );
     }
 

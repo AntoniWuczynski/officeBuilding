@@ -204,6 +204,26 @@ pub enum AnswerVia {
     File,
     /// An open call kept in the app's store, answered in the app.
     Store,
+    /// A chat desk's request: answered in that desk's conversation, with the request's own form.
+    Chat,
+}
+
+/// How A Human gets to the place a question is answered (`Handoff` in types.ts).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum Handoff {
+    /// The request `approval_id` in the desk's conversation panel.
+    #[serde(rename_all = "camelCase")]
+    Chat { approval_id: String },
+    /// The desk's terminal, docked in the app.
+    Docked,
+    /// A terminal window outside the app. `tab`: the app can select the session's own tab.
+    /// Otherwise it can only bring `app` forward.
+    Window { app: String, tab: bool },
+    /// The session runs where the app found nothing to bring forward.
+    Elsewhere,
+    /// A desk the building only reads.
+    ReadOnly,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -223,6 +243,10 @@ pub struct Question {
     pub context: String,
     /// The repo file the call lives in, when it comes from one.
     pub source_file: Option<String>,
+    /// How to get to where it is answered. None for a call answered in the app itself
+    /// (a decisions-file call, a stored call).
+    #[serde(default)]
+    pub handoff: Option<Handoff>,
 }
 
 /// Who decided something, or who is expected to tick a TODO off.
@@ -437,6 +461,9 @@ pub struct OfficeSnapshot {
     pub harness_id: Option<String>,
     /// Why the rules file could not be read, if it could not.
     pub project_rules_error: Option<String>,
+    /// The sessions whose approval prompts the building cannot see: Codex in a terminal
+    /// whose hooks have not reported.
+    pub unseen_prompts: Vec<String>,
 }
 
 /// What a floor's QA desk is doing (`QaStatus` in types.ts).
@@ -830,6 +857,48 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<AnswerVia>(json!("store")).expect("read"),
             AnswerVia::Store
+        );
+    }
+
+    #[test]
+    fn each_handoff_matches_the_wire_json_and_an_old_question_has_none() {
+        let cases = [
+            (
+                Handoff::Chat {
+                    approval_id: "7".into(),
+                },
+                json!({ "kind": "chat", "approvalId": "7" }),
+            ),
+            (Handoff::Docked, json!({ "kind": "docked" })),
+            (
+                Handoff::Window {
+                    app: "iTerm2".into(),
+                    tab: true,
+                },
+                json!({ "kind": "window", "app": "iTerm2", "tab": true }),
+            ),
+            (Handoff::Elsewhere, json!({ "kind": "elsewhere" })),
+            (Handoff::ReadOnly, json!({ "kind": "read-only" })),
+        ];
+        for (handoff, wire) in cases {
+            assert_eq!(value(&handoff), wire);
+            assert_eq!(
+                serde_json::from_value::<Handoff>(wire).expect("read"),
+                handoff
+            );
+        }
+        assert_eq!(value(&AnswerVia::Chat), json!("chat"));
+        // A call kept in a store written before handoffs existed.
+        let old: Question = serde_json::from_value(json!({
+            "id": "call-1", "projectId": "p", "sessionId": "", "prompt": "QUESTION-ONE",
+            "options": [], "allowOther": true, "answerVia": "store", "priority": 0,
+            "askedAt": "2026-11-20T10:00:00Z", "context": "", "sourceFile": null
+        }))
+        .expect("an old question loads");
+        assert_eq!(old.handoff, None);
+        assert_eq!(
+            value(&OfficeSnapshot::default())["unseenPrompts"],
+            json!([])
         );
     }
 
