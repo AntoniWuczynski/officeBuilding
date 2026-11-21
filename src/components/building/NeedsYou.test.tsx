@@ -12,6 +12,33 @@ function show(snapshot: OfficeSnapshot, onAnswer = vi.fn(() => Promise.resolve()
 const rows = (): string[] => screen.getAllByTestId("needs-you-row").map((r) => r.getAttribute("data-question") ?? "");
 const ask = (id: string, over: Partial<Question>): Question => ({ ...makeSeedSnapshot().questions[1], ...over, id }) as Question;
 
+describe("the Needs-you list and a chat desk's request", () => {
+  const chat = (id: string, approvalId: string): Question => ask(id, { answerVia: "chat", handoff: { kind: "chat", approvalId }, sourceFile: null });
+
+  it("enables Answer on a chat row and opens the request with it", async () => {
+    const { onOpen } = show({ ...makeSeedSnapshot(), questions: [chat("chat-row", "7")] });
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("needs-you"));
+    const answer = within(screen.getByTestId("needs-you-row")).getByRole("button", { name: "Answer" });
+    expect(answer).toBeEnabled();
+    expect(answer).toHaveAttribute("title", "Answered in its conversation");
+    await user.click(answer);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "chat-row", handoff: { kind: "chat", approvalId: "7" } }));
+  });
+
+  it("disables Answer on a terminal row with the handoff's hint, and lists each request once", async () => {
+    const terminal = ask("term-row", { answerVia: "terminal", handoff: { kind: "docked" } });
+    show({ ...makeSeedSnapshot(), questions: [terminal, chat("chat-row", "7")] });
+    await userEvent.setup().click(screen.getByTestId("needs-you"));
+    expect(rows()).toEqual(["chat-row", "term-row"].sort((a, b) => rows().indexOf(a) - rows().indexOf(b)));
+    expect(rows()).toHaveLength(2);
+    const row = screen.getAllByTestId("needs-you-row").find((r) => r.getAttribute("data-question") === "term-row") as HTMLElement;
+    const answer = within(row).getByRole("button", { name: "Answer" });
+    expect(answer).toBeDisabled();
+    expect(answer).toHaveAttribute("title", expect.stringContaining("one of the app's terminals"));
+  });
+});
+
 describe("the Needs-you list", () => {
   it("counts what waits and lists nothing until opened", () => {
     show(makeSeedSnapshot());

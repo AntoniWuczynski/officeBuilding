@@ -96,3 +96,14 @@
   border: 2px solid var(--ink);
   border-radius: 2px;
 }
+
+.conversation-field-detail {
+  white-space: pre-line;
+  color: var(--ink-soft, inherit);
+  font-size: 0.9em;
+}
+
+.conversation-approval[data-focused="true"] {
+  outline: 2px solid var(--wait);
+  outline-offset: 2px;
+}

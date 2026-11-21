@@ -13,12 +13,14 @@ interface Options {
   readonly section?: Section | null;
   readonly look?: FloorLook;
   readonly onOpenSession?: (s: Session) => void;
+  readonly onOpenRequest?: (s: Session, approvalId: string) => void;
+  readonly focusRequest?: { readonly sessionId: string; readonly approvalId: string } | null;
   readonly openSessionId?: string | null;
   readonly loadHireOptions?: () => Promise<readonly ToolOptions[]>;
 }
 
 /** A floor of the snapshot, as the tests of the floor's objects draw it. */
-export function floor(snapshot: OfficeSnapshot, projectId: string, { onSection = () => {}, section = null, look, onOpenSession = () => {}, openSessionId = null, loadHireOptions = () => Promise.resolve([]) }: Options = {}): React.ReactElement {
+export function floor(snapshot: OfficeSnapshot, projectId: string, { onSection = () => {}, section = null, look, onOpenSession = () => {}, onOpenRequest = () => {}, focusRequest = null, openSessionId = null, loadHireOptions = () => Promise.resolve([]) }: Options = {}): React.ReactElement {
   const project = snapshot.projects.find((p) => p.id === projectId);
   if (project === undefined) throw new Error(`no project ${projectId}`);
   return (
@@ -32,6 +34,8 @@ export function floor(snapshot: OfficeSnapshot, projectId: string, { onSection =
       onOpenSettings={() => {}}
       onOpenPlate={() => {}}
       onOpenSession={onOpenSession}
+      onOpenRequest={onOpenRequest}
+      focusRequest={focusRequest}
       {...(look === undefined ? {} : { look })}
       onCloseTerminal={() => {}}
       onBack={() => {}}

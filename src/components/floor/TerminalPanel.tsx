@@ -102,6 +102,8 @@ type Props = {
   readonly takeOvers?: readonly TakeOver[] | undefined;
   /** Opens the take-over sheet. Without it there is no button. */
   readonly onTakeOver?: (() => void) | undefined;
+  /** The request in this desk's conversation the queue sent the human to. */
+  readonly focusApprovalId?: string | undefined;
 } & ({ readonly session: Session } | { readonly shell: Shell; readonly path: string });
 
 /**
@@ -113,7 +115,7 @@ type Props = {
  * raise-window sessions never open here: clicking them raises their own window.
  */
 export function TerminalPanel(props: Props): React.ReactElement {
-  const { onClose, manager, queued, handover, takeOvers, onTakeOver } = props;
+  const { onClose, manager, queued, handover, takeOvers, onTakeOver, focusApprovalId } = props;
   const session = "session" in props ? props.session : null;
   // Opened on a live terminal, the panel stays on it: after `/clear` this id
   // turns read-only while the backend keeps it pointing at the same terminal.
@@ -184,7 +186,7 @@ export function TerminalPanel(props: Props): React.ReactElement {
       {session !== null && manager !== undefined ? <ManagerNoteStrip projectId={manager.projectId} tool={session.tool} notes={notesFor(manager, session.id)} /> : null}
       {flippable ? <RouteStrip sessionId={session.id} /> : null}
       {session !== null && showingChat ? (
-        <Conversation sessionId={session.id} queued={queued} onFlip={flippable ? () => setView("terminal") : undefined} />
+        <Conversation sessionId={session.id} queued={queued} onFlip={flippable ? () => setView("terminal") : undefined} focusApprovalId={focusApprovalId} />
       ) : !live ? (
         <p className="terminal-note" data-testid="read-only-note">
           This session was started outside the app and has no window to raise. Showing its transcript read-only.

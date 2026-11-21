@@ -11,6 +11,7 @@ function setup() {
   const onOpenSession = vi.fn();
   render(
     <BuildingView
+      onOpenRequest={() => {}}
       snapshot={makeSeedSnapshot()}
       onEnter={onEnter}
       canPickFolder={false}
@@ -141,6 +142,7 @@ describe("Escape in a dialog or a popover over the panel", () => {
   it("closes an open sheet when Settings opens", async () => {
     const view = (settingsOpen: boolean): React.ReactElement => (
       <BuildingView
+        onOpenRequest={() => {}}
         snapshot={makeSeedSnapshot()}
         onEnter={() => {}}
         canPickFolder={false}
@@ -166,6 +168,7 @@ describe("Escape in a dialog or a popover over the panel", () => {
 describe("the panel does not come back by itself", () => {
   const shown = (snapshot: OfficeSnapshot, mode: ViewMode): React.ReactElement => (
     <BuildingView
+      onOpenRequest={() => {}}
       snapshot={snapshot}
       mode={mode}
       onEnter={() => {}}

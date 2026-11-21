@@ -59,3 +59,25 @@ describe("the worker card's take-over line", () => {
     expect(screen.queryByTestId("worker-take-over")).not.toBeInTheDocument();
   });
 });
+
+describe("the worker card's attention lines", () => {
+  const draw = (over: Partial<typeof session>, unseen: boolean): void => {
+    render(
+      <ProjectsContext value={{ clusters: [], clusterOf: new Map(), tags: new Map(), unplaced: [], rules: [], rulesError: null, similar: () => [], assignProject: () => Promise.resolve() }}>
+        <WorkerCard session={{ ...session, ...over }} x={0} y={0} now={new Date("2026-09-28T16:00:00Z")} editorHint={null} managed={false} waiting={[]} handover={undefined} unseen={unseen} />
+      </ProjectsContext>,
+    );
+  };
+
+  it("says a working desk has a question for you", () => {
+    draw({ state: "running", pendingQuestionIds: ["q"] }, false);
+    expect(screen.getByTestId("worker-asks")).toHaveTextContent("Has a question for you");
+    expect(screen.queryByTestId("worker-unseen")).toBeNull();
+  });
+
+  it("says when approval prompts cannot be seen", () => {
+    draw({ state: "idle", control: "raise-window" }, true);
+    expect(screen.getByTestId("worker-unseen")).toHaveTextContent("started outside the app");
+    expect(screen.queryByTestId("worker-asks")).toBeNull();
+  });
+});

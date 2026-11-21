@@ -14,7 +14,7 @@ import type { ConversationApi } from "./Conversation";
 import { CLAUDE_TERMINAL } from "../chat/fixtures";
 import type { ConversationBacklog, DeskHandoverState, OfficeSnapshot, Session, TakeOver } from "../../types";
 
-const backlog: ConversationBacklog = { transcript: [], state: "idle", approval: null, ended: null, capabilities: CLAUDE_TERMINAL, earlier: false };
+const backlog: ConversationBacklog = { transcript: [], state: "idle", approvals: [], ended: null, capabilities: CLAUDE_TERMINAL, earlier: false };
 const conversationApi: ConversationApi = {
   structuredBacklog: () => Promise.resolve(backlog),
   subscribeStructured: () => () => {},

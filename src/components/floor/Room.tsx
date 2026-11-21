@@ -70,6 +70,8 @@ interface RoomProps {
   readonly handovers: readonly DeskHandover[];
   /** The take-overs on this floor's snapshot. */
   readonly takeOvers?: readonly TakeOver[];
+  /** Sessions whose approval prompts the building cannot see. */
+  readonly unseenPrompts?: readonly string[];
   /** Whether a desk may be taken over, and what asking for it does: both, or the menu has no such line. */
   readonly mayTakeOver?: (session: Session) => boolean;
   readonly onTakeOver?: (session: Session) => void;
@@ -144,7 +146,7 @@ const ACTION_WORDS: Record<Session["control"], string> = {
 };
 
 /** The open-plan floor: one desk per session, the hire desk, and the manager's objects. */
-export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, handovers, takeOvers = [], mayTakeOver, onTakeOver, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire, look = "office" }: RoomProps): React.ReactElement {
+export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, handovers, takeOvers = [], unseenPrompts = [], mayTakeOver, onTakeOver, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire, look = "office" }: RoomProps): React.ReactElement {
   const reduced = useReducedMotion() ?? false;
   const placements = useMemo<readonly Placement[]>(
     () => [...sessions.map((session, i) => ({ session, desk: roomDeskSlot(i) })), ...(reviewer === undefined ? [] : [{ session: reviewer, desk: qaDeskSlot(depth) }])],
@@ -345,6 +347,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
           managed={managed.has(carded.id)}
           handover={handoverOf(handovers, carded.id)?.state}
           takeOver={takeOverLines(takeOvers, carded.id)[0]}
+          unseen={unseenPrompts.includes(carded.id)}
           waiting={notesFor(manager, carded.id)}
         />
       )}

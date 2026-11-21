@@ -16,6 +16,8 @@ import {
   formatTokens,
   formatUsd,
   isActive,
+  asksLine,
+  unseenLine,
   helpersLine,
   modelLine,
   matchesQuery,
@@ -70,7 +72,7 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
 }
 
 function question(id: string, priority: number, askedAt: string): Question {
-  return { id, projectId: "p", sessionId: "s-1", prompt: "?", options: [], allowOther: true, answerVia: "app", priority, askedAt, context: "", sourceFile: null };
+  return { id, projectId: "p", sessionId: "s-1", prompt: "?", options: [], allowOther: true, answerVia: "app", priority, askedAt, context: "", sourceFile: null, handoff: null };
 }
 
 describe("floorLight", () => {
@@ -419,5 +421,20 @@ describe("boardItemsForProject", () => {
     expect(ids("p-office")).toEqual([]);
     expect(ids("p-office", ["  office BUILDING"])).toEqual(["2"]);
     expect(ids("p-arcade", ["", "  "])).toEqual([]);
+  });
+});
+
+describe("asksLine and unseenLine", () => {
+  it("says a working session has a question only while it works and has one pending", () => {
+    expect(asksLine(session("running", { pendingQuestionIds: ["q"] }))).toBe("Has a question for you");
+    expect(asksLine(session("thinking", { pendingQuestionIds: ["q"] }))).toBe("Has a question for you");
+    expect(asksLine(session("waiting-human", { pendingQuestionIds: ["q"] }))).toBeNull();
+    expect(asksLine(session("running"))).toBeNull();
+  });
+
+  it("explains unseen prompts by launch mode and says nothing when they are seen", () => {
+    expect(unseenLine(session("idle", { control: "full" }), false)).toBeNull();
+    expect(unseenLine(session("idle", { control: "full" }), true)).toBe("The building cannot see approval prompts here until Codex runs its hooks. Trust them once with /hooks.");
+    expect(unseenLine(session("idle", { control: "raise-window" }), true)).toBe("The building cannot see approval prompts in this session, because it was started outside the app.");
   });
 });

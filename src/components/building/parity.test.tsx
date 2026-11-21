@@ -42,6 +42,7 @@ function setup(mode: ViewMode, setupProjectId?: string, projects?: ProjectsValue
   const tree = (
     <Around link={spies.link}>
       <BuildingView
+        onOpenRequest={() => {}}
         snapshot={{ ...seed, sessions: named, ...(setupProjectId === undefined ? {} : { setupProjectId }) }}
         mode={mode}
         onEnter={spies.onEnter}
@@ -308,6 +309,7 @@ describe("a thrown-out worker in the office", () => {
     const view = (snapshot: ReturnType<typeof makeSeedSnapshot>): React.ReactElement => (
       <Around link={() => {}}>
         <BuildingView
+          onOpenRequest={() => {}}
           snapshot={snapshot}
           mode="office"
           onEnter={() => {}}

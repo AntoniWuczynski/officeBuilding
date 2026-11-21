@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
 import type { OfficeSnapshot, Question } from "../../types";
-import { isSessionAsk, needsYouQueue, sessionById } from "../../state/selectors";
+import { chatRequestOf, isSessionAsk, needsYouQueue, sessionById } from "../../state/selectors";
 import { useNow } from "../../state/useNow";
 import { relativeTime } from "../../lib/time";
+import { handoffWords } from "../../lib/handoff";
 import { message } from "../../lib/errors";
 import { useProjects } from "../../state/ProjectsContext";
 import { WHICH_PROJECT } from "../../state/clusters";
@@ -32,8 +33,9 @@ function Row({ snapshot, q, now, onOpen, onAnswer }: { readonly snapshot: Office
   const [answering, setAnswering] = useState(false);
   const [other, setOther] = useState("");
   const [error, setError] = useState<string | null>(null);
-  // A hand-started session's terminal is the only place it can be answered.
+  // A request in a terminal can only be answered there. A chat desk's is answered in its conversation, which Open also goes to.
   const external = q.answerVia === "terminal";
+  const inChat = chatRequestOf(q) !== null;
   const send = (a: QuestionAnswer): void => {
     setError(null);
     onAnswer(q.id, a).catch((err: unknown) => setError(message(err)));
@@ -46,7 +48,14 @@ function Row({ snapshot, q, now, onOpen, onAnswer }: { readonly snapshot: Office
         <button type="button" className="btn" onClick={() => onOpen(q)}>
           Open
         </button>
-        <button type="button" className="btn" aria-expanded={answering} disabled={external} title={external ? "This agent runs outside the app: answer it in its own terminal." : undefined} onClick={() => setAnswering(!answering)}>
+        <button
+          type="button"
+          className="btn"
+          aria-expanded={inChat ? undefined : answering}
+          disabled={external}
+          title={external ? handoffWords(q.handoff).hint : inChat ? "Answered in its conversation" : undefined}
+          onClick={() => (inChat ? onOpen(q) : setAnswering(!answering))}
+        >
           Answer
         </button>
       </div>

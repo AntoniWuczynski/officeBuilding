@@ -114,7 +114,7 @@ describe("MockApi", () => {
     await api.structuredPrompt(desk.id, "then this");
     const waiting = (await api.getSnapshot()).queued;
     expect(waiting).toEqual([expect.objectContaining({ toSessionId: desk.id, text: "then this", hold: "waiting-on-you" })]);
-    const approval = (await api.structuredBacklog(desk.id)).approval;
+    const approval = (await api.structuredBacklog(desk.id)).approvals[0];
     await api.structuredAnswer(desk.id, approval?.id ?? "", "deny", {});
     expect((await api.getSnapshot()).queued).toEqual([]);
     expect((await api.structuredBacklog(desk.id)).transcript.map((e) => (e.kind === "agent" ? e.text : ""))).toContain("Done: then this");
@@ -137,17 +137,19 @@ describe("MockApi", () => {
     const desk = await api.spawnSession("p-arcade", claude);
     expect((await api.structuredBacklog(desk.id)).capabilities).toEqual({ compose: true, stop: true, end: false, approvals: "terminal", terminal: true });
     await api.structuredPrompt(desk.id, "run the tests");
-    expect((await api.structuredBacklog(desk.id)).approval).toEqual({
+    expect((await api.structuredBacklog(desk.id)).approvals).toEqual([{
       id: "terminal-prompt",
       title: "Claude Code is waiting for your answer",
       detail: "Claude needs your permission to use Bash",
       fields: [],
       choices: [],
-    });
+      background: false,
+      failed: null,
+    }]);
     await api.writeTerminal(desk.id, "1");
-    expect((await api.structuredBacklog(desk.id)).approval).not.toBeNull();
+    expect((await api.structuredBacklog(desk.id)).approvals).toHaveLength(1);
     await api.writeTerminal(desk.id, "\r");
-    expect((await api.structuredBacklog(desk.id)).approval).toBeNull();
+    expect((await api.structuredBacklog(desk.id)).approvals).toEqual([]);
     await api.structuredCancel(desk.id);
     expect((await api.structuredBacklog(desk.id)).transcript.at(-1)).toMatchObject({ kind: "notice", text: "Turn stopped." });
     await expect(api.structuredStop(desk.id)).rejects.toThrow("only a structured desk can be ended from its conversation");
@@ -171,7 +173,7 @@ describe("MockApi", () => {
       ...seed,
       questions: [
         ...seed.questions,
-        { id: "q-9", projectId: "p-shop", sessionId: "s-2", prompt: "Also bump the version?", options: [], allowOther: true, answerVia: "app", priority: 3, askedAt: "2026-09-28T10:00:00Z", context: "", sourceFile: null },
+        { id: "q-9", projectId: "p-shop", sessionId: "s-2", prompt: "Also bump the version?", options: [], allowOther: true, answerVia: "app", priority: 3, askedAt: "2026-09-28T10:00:00Z", context: "", sourceFile: null, handoff: null },
       ],
       sessions: seed.sessions.map((s) => (s.id === "s-2" ? { ...s, pendingQuestionIds: ["q-1", "q-9"] } : s)),
     });

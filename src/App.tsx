@@ -67,6 +67,7 @@ export function App({ api }: Props): React.ReactElement {
   const [section, setSection] = useState<Section | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const [requestFocus, setRequestFocus] = useState<{ readonly sessionId: string; readonly approvalId: string } | null>(null);
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
   const toastSeq = useRef(0);
   const attachedIds = useRef(new Set<string>());
@@ -130,6 +131,7 @@ export function App({ api }: Props): React.ReactElement {
   /** `onDocked` runs when a background session attaches in a docked terminal, which only a floor shows. */
   const openSession = useCallback(
     (session: Session, onDocked?: () => void) => {
+      setRequestFocus(null);
       markSeen(session.id);
       if (session.control !== "raise-window") {
         showTerminal(session.id);
@@ -152,6 +154,22 @@ export function App({ api }: Props): React.ReactElement {
     },
     [api, toast, showTerminal, markSeen],
   );
+
+  // From the building view. A session in its own terminal window is raised where it is, as clicking its desk does; others open on their floor,
+  // and so does a background session once it attaches in a docked terminal.
+  const openOnFloor = (s: Session): void => {
+    const onFloor = (): void => enter(s.projectId, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    if (s.control !== "raise-window") onFloor();
+    openSession(s, onFloor);
+  };
+
+  // Open a desk, then send the conversation to one of its requests.
+  const openRequest =
+    (open: (s: Session) => void) =>
+    (s: Session, approvalId: string): void => {
+      open(s);
+      setRequestFocus({ sessionId: s.id, approvalId });
+    };
 
   // Closing or leaving an attached session hangs up the app's `claude attach`.
   useEffect(() => {
@@ -473,13 +491,8 @@ export function App({ api }: Props): React.ReactElement {
               settingsOpen={settingsOpen}
               mode={viewMode}
               viewSwitch={<ViewSwitch mode={viewMode} onChange={setViewMode} />}
-              onOpenSession={(s) => {
-                // A session in its own terminal window is raised where it is, as clicking its desk does; others open on their floor,
-                // and so does a background session once it attaches in a docked terminal.
-                const onFloor = (): void => enter(s.projectId, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-                if (s.control !== "raise-window") onFloor();
-                openSession(s, onFloor);
-              }}
+              onOpenRequest={openRequest(openOnFloor)}
+              onOpenSession={openOnFloor}
             />
           </motion.div>
         ) : (
@@ -501,7 +514,12 @@ export function App({ api }: Props): React.ReactElement {
               onOpenSettings={openSettings}
               onOpenPlate={closeSettings}
               onOpenSession={openSession}
-              onCloseTerminal={() => setOpenSessionId(null)}
+              onOpenRequest={openRequest((s) => openSession(s))}
+              focusRequest={requestFocus}
+              onCloseTerminal={() => {
+                setRequestFocus(null);
+                setOpenSessionId(null);
+              }}
               onBack={leave}
               backLabel={words.back}
               loadHireOptions={loadHireOptions}

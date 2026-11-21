@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeSeedSnapshot } from "./mockData";
 import { makeHireOptions } from "./mockHireOptions";
 import { makeSettings } from "./mockSettings";
-import { hireOptionsSchema, parseWire, settingsSchema, snapshotSchema } from "./wire";
+import { conversationBacklogSchema, conversationUpdateSchema, hireOptionsSchema, parseWire, settingsSchema, snapshotSchema } from "./wire";
 
 const invoke = vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>();
 const listeners = new Map<string, (event: { payload: unknown }) => void>();
@@ -234,11 +234,55 @@ describe("TauriApi", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  describe("requests on the wire", () => {
+    const row = makeSeedSnapshot().questions[0]!;
+    const handoffs = [
+      { kind: "chat", approvalId: "7" },
+      { kind: "docked" },
+      { kind: "window", app: "TERM-APP", tab: true },
+      { kind: "elsewhere" },
+      { kind: "read-only" },
+    ] as const;
+
+    it.each(handoffs)("parses a question with the $kind handoff, a chat answer and unseen prompts", (handoff) => {
+      const seed = makeSeedSnapshot();
+      const snapshot = { ...seed, unseenPrompts: ["s-2"], questions: [{ ...row, answerVia: "chat" as const, handoff }] };
+      expect(parseWire(snapshotSchema, "snapshot", snapshot)).toEqual(snapshot);
+    });
+
+    it("refuses a snapshot without unseenPrompts or a question without its handoff", () => {
+      const seed = makeSeedSnapshot();
+      const { unseenPrompts: _unseen, ...bare } = seed;
+      expect(() => parseWire(snapshotSchema, "snapshot", bare)).toThrow(/unseenPrompts/);
+      const { handoff: _handoff, ...old } = row;
+      expect(() => parseWire(snapshotSchema, "snapshot", { ...seed, questions: [old] })).toThrow(/handoff/);
+    });
+
+    const approval = (id: string) => ({
+      id,
+      title: "TITLE",
+      detail: "",
+      fields: [{ id: "f", label: "L", detail: "FIELD-DETAIL", kind: { kind: "pick", options: ["A"], other: true, secret: true }, required: true }],
+      choices: [{ id: "ok", label: "Send", allow: true }],
+      background: true,
+      failed: "WHY",
+    });
+    const capabilities = { compose: true, stop: true, end: true, approvals: "inline", terminal: false };
+
+    it("parses a backlog and an update with two approvals and refuses the old single key", () => {
+      const two = [approval("1"), approval("s:2")];
+      expect(parseWire(conversationBacklogSchema, "conversation", { transcript: [], state: "idle", approvals: two, ended: null, capabilities, earlier: false }).approvals).toEqual(two);
+      expect(parseWire(conversationUpdateSchema, "update", { sessionId: "s", entry: null, state: "idle", approvals: two, ended: null, reset: false }).approvals).toEqual(two);
+      expect(() => parseWire(conversationBacklogSchema, "conversation", { transcript: [], state: "idle", approval: null, ended: null, capabilities, earlier: false })).toThrow(/approvals/);
+      expect(() => parseWire(conversationUpdateSchema, "update", { sessionId: "s", entry: null, state: "idle", approval: null, ended: null, reset: false })).toThrow(/approvals/);
+    });
+  });
+
   describe("conversations", () => {
     const tool = { kind: "tool", id: "t", title: "Edit a.txt", status: "done", detail: "", diffs: [{ path: "a.txt", text: "-x\n+y" }] };
     const capabilities = { compose: true, stop: true, end: false, approvals: "terminal", terminal: true };
-    const backlog = { transcript: [tool], state: "idle", approval: null, ended: null, capabilities, earlier: false };
-    const update = { sessionId: "s-1", entry: tool, state: "idle", approval: null, ended: null, reset: false };
+    const backlog = { transcript: [tool], state: "idle", approvals: [], ended: null, capabilities, earlier: false };
+    const update = { sessionId: "s-1", entry: tool, state: "idle", approvals: [], ended: null, reset: false };
     const STRUCTURED_EVENT = "office://structured";
 
     it("reads a full backlog and refuses one without capabilities", async () => {

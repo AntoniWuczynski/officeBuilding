@@ -36,9 +36,9 @@ export function makeSeedSnapshot(): OfficeSnapshot {
       { id: "e-2", tool: "codex", projectId: "p-shop", title: "price import", endedAt: "2026-09-28T12:00:00Z", model: "gpt-6-astra", effort: "high", lastReply: null },
     ],
     questions: [
-      { id: "q-2", projectId: "p-shop", sessionId: "s-3", prompt: "The tile mirror keeps returning 429. Switch to the paid endpoint or back off?", options: [ { id: "o-1", label: "Use the paid endpoint (TILE_ENDPOINTS)" }, { id: "o-2", label: "Exponential back-off, keep the free mirrors" } ], allowOther: true, answerVia: "terminal", priority: 0, askedAt: "2026-09-28T15:21:00Z", context: "", sourceFile: null },
-      { id: "q-1", projectId: "p-shop", sessionId: "s-2", prompt: "Persist EventType onto entries (schema bump) or keep it prefill-only?", options: [ { id: "o-3", label: "Schema bump (Zod, Pydantic and parity)" }, { id: "o-4", label: "Prefill-only, no persist" } ], allowOther: true, answerVia: "app", priority: 1, askedAt: "2026-09-28T15:39:00Z", context: "", sourceFile: null },
-      { id: "q-3", projectId: "p-office", sessionId: "", prompt: "OB-001: Should the TODO panels read each repo's TODO.md?", options: [ { id: "o-5", label: "Read TODO.md, FOUNDER_TODO.md and FOUNDER_DECISIONS.md" }, { id: "o-6", label: "Keep the app's own list" } ], allowOther: true, answerVia: "file", priority: 0, askedAt: "2026-09-29T19:52:00Z", context: "Repos already keep TODO.md, and the notes repo splits the human's work into FOUNDER_TODO.md and FOUNDER_DECISIONS.md. Reading them keeps one source of truth.", sourceFile: "FOUNDER_DECISIONS.md" },
+      { id: "q-2", projectId: "p-shop", sessionId: "s-3", prompt: "The tile mirror keeps returning 429. Switch to the paid endpoint or back off?", options: [ { id: "o-1", label: "Use the paid endpoint (TILE_ENDPOINTS)" }, { id: "o-2", label: "Exponential back-off, keep the free mirrors" } ], allowOther: true, answerVia: "terminal", priority: 0, askedAt: "2026-09-28T15:21:00Z", context: "", sourceFile: null, handoff: { kind: "window", app: "Terminal", tab: false } },
+      { id: "q-1", projectId: "p-shop", sessionId: "s-2", prompt: "Persist EventType onto entries (schema bump) or keep it prefill-only?", options: [ { id: "o-3", label: "Schema bump (Zod, Pydantic and parity)" }, { id: "o-4", label: "Prefill-only, no persist" } ], allowOther: true, answerVia: "app", priority: 1, askedAt: "2026-09-28T15:39:00Z", context: "", sourceFile: null, handoff: null },
+      { id: "q-3", projectId: "p-office", sessionId: "", prompt: "OB-001: Should the TODO panels read each repo's TODO.md?", options: [ { id: "o-5", label: "Read TODO.md, FOUNDER_TODO.md and FOUNDER_DECISIONS.md" }, { id: "o-6", label: "Keep the app's own list" } ], allowOther: true, answerVia: "file", priority: 0, askedAt: "2026-09-29T19:52:00Z", context: "Repos already keep TODO.md, and the notes repo splits the human's work into FOUNDER_TODO.md and FOUNDER_DECISIONS.md. Reading them keeps one source of truth.", sourceFile: "FOUNDER_DECISIONS.md", handoff: null },
     ],
     decisions: [
       { id: "d-1", projectId: "p-office", title: "Backend based on CCC", detail: "Reuse claude-command-center for discovery and spawning. Our office UI and manager sidebar sit on top.", decidedAt: "2026-09-28T16:00:00Z", by: "human" },
@@ -66,6 +66,7 @@ export function makeSeedSnapshot(): OfficeSnapshot {
     projectRules: [],
     harnessId: null,
     projectRulesError: null,
+    unseenPrompts: [],
     sharedBoards: [
       {
         id: "board:~/Desktop/MY-ACTIONS.md",

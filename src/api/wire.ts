@@ -149,6 +149,14 @@ const qaFloorSchema = z.object({
   stamp: verdict.nullable(),
 });
 
+const handoffSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("chat"), approvalId: z.string() }),
+  z.object({ kind: z.literal("docked") }),
+  z.object({ kind: z.literal("window"), app: z.string(), tab: z.boolean() }),
+  z.object({ kind: z.literal("elsewhere") }),
+  z.object({ kind: z.literal("read-only") }),
+]);
+
 export const snapshotSchema = z.object({
   projects: z.array(projectSchema),
   sessions: z.array(sessionSchema),
@@ -172,11 +180,12 @@ export const snapshotSchema = z.object({
       prompt: z.string(),
       options: z.array(z.object({ id: z.string(), label: z.string() })),
       allowOther: z.boolean(),
-      answerVia: z.enum(["app", "terminal", "file", "store"]),
+      answerVia: z.enum(["app", "terminal", "file", "store", "chat"]),
       priority: z.number(),
       askedAt: z.string(),
       context: z.string(),
       sourceFile: z.string().nullable(),
+      handoff: handoffSchema.nullable(),
     }),
   ),
   decisions: z.array(
@@ -198,6 +207,7 @@ export const snapshotSchema = z.object({
   projectRules: z.array(projectRuleSchema),
   harnessId: z.string().nullable(),
   projectRulesError: z.string().nullable(),
+  unseenPrompts: z.array(z.string()),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [
@@ -260,14 +270,16 @@ const fieldKindSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("secret") }),
   z.object({ kind: z.literal("number") }),
   z.object({ kind: z.literal("boolean") }),
-  z.object({ kind: z.literal("pick"), options: z.array(z.string()), other: z.boolean() }),
+  z.object({ kind: z.literal("pick"), options: z.array(z.string()), other: z.boolean(), secret: z.boolean() }),
 ]);
 const approvalSchema = z.object({
   id: z.string(),
   title: z.string(),
   detail: z.string(),
-  fields: z.array(z.object({ id: z.string(), label: z.string(), kind: fieldKindSchema, required: z.boolean() })),
+  fields: z.array(z.object({ id: z.string(), label: z.string(), detail: z.string(), kind: fieldKindSchema, required: z.boolean() })),
   choices: z.array(z.object({ id: z.string(), label: z.string(), allow: z.boolean() })),
+  background: z.boolean(),
+  failed: z.string().nullable(),
 });
 
 const capabilitiesSchema = z.object({
@@ -281,7 +293,7 @@ const capabilitiesSchema = z.object({
 export const conversationBacklogSchema = z.object({
   transcript: z.array(entrySchema),
   state: sessionState,
-  approval: approvalSchema.nullable(),
+  approvals: z.array(approvalSchema),
   ended: z.string().nullable(),
   capabilities: capabilitiesSchema,
   earlier: z.boolean(),
@@ -291,7 +303,7 @@ export const conversationUpdateSchema = z.object({
   sessionId: z.string(),
   entry: entrySchema.nullable(),
   state: sessionState,
-  approval: approvalSchema.nullable(),
+  approvals: z.array(approvalSchema),
   ended: z.string().nullable(),
   reset: z.boolean(),
 }) satisfies z.ZodType<ConversationUpdate>;

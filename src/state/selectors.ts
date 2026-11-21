@@ -232,6 +232,11 @@ export function totalSpend(sessions: readonly Session[]): Spend {
   );
 }
 
+/** The approval id of a request answered in its desk's conversation, or null for any other row. */
+export function chatRequestOf(q: Question): string | null {
+  return q.handoff?.kind === "chat" ? q.handoff.approvalId : null;
+}
+
 export function sessionById(
   snapshot: OfficeSnapshot,
   sessionId: string,
@@ -533,4 +538,17 @@ export function handoverFor(snapshot: OfficeSnapshot, sessionId: string): DeskHa
 /** The notes waiting for one desk. */
 export function notesFor(manager: ManagerFloor | undefined, sessionId: string): readonly QueuedNote[] {
   return manager?.queue.filter((n) => n.toSessionId === sessionId) ?? [];
+}
+
+/** "Has a question for you" for a working session that has one open. */
+export function asksLine(session: Session): string | null {
+  return isActive(session) && session.pendingQuestionIds.length > 0 ? "Has a question for you" : null;
+}
+
+/** Why the building cannot see this session's approval prompts, when it cannot. */
+export function unseenLine(session: Session, unseen: boolean): string | null {
+  if (!unseen) return null;
+  return session.control === "full"
+    ? "The building cannot see approval prompts here until Codex runs its hooks. Trust them once with /hooks."
+    : "The building cannot see approval prompts in this session, because it was started outside the app.";
 }

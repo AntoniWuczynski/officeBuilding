@@ -21,7 +21,7 @@ const answered = vi.fn();
 const backlog = (over: Partial<ConversationBacklog> = {}): ConversationBacklog => ({
   transcript: [],
   state: "idle",
-  approval: null,
+  approvals: [],
   ended: null,
   capabilities: CLAUDE_TERMINAL,
   earlier: false,
@@ -108,7 +108,7 @@ describe("TerminalPanel flipping", () => {
     const user = userEvent.setup();
     next = backlog({
       state: "waiting-human",
-      approval: { id: "terminal-prompt", title: "Claude Code is waiting for your answer", detail: "", fields: [], choices: [] },
+      approvals: [{ id: "terminal-prompt", title: "Claude Code is waiting for your answer", detail: "", fields: [], choices: [], background: false, failed: null }],
     });
     show(claude("flip-6"), { chat: true });
     await user.click(await screen.findByRole("button", { name: "Answer in the terminal" }));

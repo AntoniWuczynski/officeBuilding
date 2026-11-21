@@ -25,6 +25,7 @@ function snapshot(withRules: boolean): OfficeSnapshot {
 function show(snap: OfficeSnapshot, mode: ViewMode, provide: boolean): React.ReactElement {
   const building = (
     <BuildingView
+      onOpenRequest={() => {}}
       snapshot={snap}
       mode={mode}
       onEnter={() => {}}

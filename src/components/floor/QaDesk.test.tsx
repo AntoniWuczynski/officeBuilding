@@ -15,6 +15,7 @@ function floor(snapshot: OfficeSnapshot, projectId: string, onSection: (s: Secti
   if (project === undefined) throw new Error(`no project ${projectId}`);
   return (
     <FloorView
+      onOpenRequest={() => {}}
       project={project}
       snapshot={snapshot}
       now={new Date("2026-09-28T15:45:00Z")}

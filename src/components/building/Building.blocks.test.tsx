@@ -24,6 +24,7 @@ function show(snap: OfficeSnapshot): React.ReactElement {
   return (
     <ProjectsContext value={{ ...grouping, rules: snap.projectRules, rulesError: null, similar: () => [], assignProject: () => Promise.resolve() }}>
       <BuildingView
+        onOpenRequest={() => {}}
         snapshot={snap}
         mode="office"
         onEnter={() => {}}

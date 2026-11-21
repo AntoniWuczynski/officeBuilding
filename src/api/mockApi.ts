@@ -38,7 +38,7 @@ import { makeSettings } from "./mockSettings";
 import { hasQueuedNote, makeAbsentManager, managerPatchError, withManagerHired, withManagerSwitch, withNoteWithdrawn } from "./mockManager";
 import { qaPatchError, withQaChecked, withQaSwitch } from "./mockQa";
 import { makeSetupView } from "./mockSetup";
-import { CLAUDE_TERMINAL, MockConversations, STRUCTURED } from "./mockConversation";
+import { CLAUDE_TERMINAL, MockConversations, STRUCTURED, withConversation } from "./mockConversation";
 
 type Listener = (snapshot: OfficeSnapshot) => void;
 
@@ -95,16 +95,7 @@ export class MockApi implements DiscoveryApi {
   private readonly linkLog: string[] = [];
   private readonly reviewLog: string[] = [];
   /** A structured desk's state follows its conversation; one that ends leaves its floor. */
-  private readonly conversations = new MockConversations((sessionId, state) => {
-    const queued = this.conversations.queued();
-    const gone = state === null;
-    this.commit({
-      ...this.snapshot,
-      queued,
-      sessions: gone ? this.snapshot.sessions.filter((x) => x.id !== sessionId) : this.snapshot.sessions.map((x) => (x.id === sessionId ? { ...x, state } : x)),
-      projects: gone ? this.snapshot.projects.map((p) => ({ ...p, sessionIds: p.sessionIds.filter((x) => x !== sessionId) })) : this.snapshot.projects,
-    });
-  });
+  private readonly conversations = new MockConversations((sessionId, state) => this.commit(withConversation(this.snapshot, sessionId, state, this.conversations)));
   private readonly shells = new Map<string, FakeShell>();
 
   constructor(seed: OfficeSnapshot = makeSeedSnapshot(), now: () => Date = () => new Date()) {

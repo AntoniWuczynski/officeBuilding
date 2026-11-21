@@ -17,7 +17,7 @@ export const ConversationApiContext = createContext<ConversationApi | null>(null
 interface View {
   readonly transcript: readonly ConversationEntry[];
   readonly state: SessionState;
-  readonly approval: Approval | null;
+  readonly approvals: readonly Approval[];
   readonly ended: string | null;
   readonly capabilities: ChatCapabilities;
   readonly earlier: boolean;
@@ -39,7 +39,7 @@ function apply(view: View, u: ConversationUpdate): View {
   return {
     transcript: over ? grown.slice(grown.length - PANEL_MAX) : grown,
     state: u.state,
-    approval: u.approval,
+    approvals: u.approvals,
     ended: u.ended,
     capabilities: view.capabilities,
     earlier: view.earlier || over,
@@ -47,8 +47,8 @@ function apply(view: View, u: ConversationUpdate): View {
 }
 
 function open(b: ConversationBacklog): View {
-  const { transcript, state, approval, ended, capabilities, earlier } = b;
-  return { transcript, state, approval, ended, capabilities, earlier };
+  const { transcript, state, approvals, ended, capabilities, earlier } = b;
+  return { transcript, state, approvals, ended, capabilities, earlier };
 }
 
 /**
@@ -60,10 +60,13 @@ export function Conversation({
   sessionId,
   queued = [],
   onFlip,
+  focusApprovalId,
 }: {
   readonly sessionId: string;
   readonly queued?: readonly QueuedNote[] | undefined;
   readonly onFlip?: (() => void) | undefined;
+  /** The request the queue sent the human to. */
+  readonly focusApprovalId?: string | undefined;
 }): React.ReactElement {
   const api = useContext(ConversationApiContext);
   if (api === null) throw new Error("Conversation needs a ConversationApiContext provider");
@@ -91,7 +94,7 @@ export function Conversation({
 
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: "end" });
-  }, [view?.transcript.length, view?.approval]);
+  }, [view?.transcript.length, view?.approvals.length]);
 
   // Shows a refusal and passes it on, so a caller that must keep something on refusal can.
   const attempt = (call: Promise<void>): Promise<void> => {
@@ -121,18 +124,16 @@ export function Conversation({
         ))}
         {view.transcript.length === 0 && view.ended === null ? <li className="conversation-hint">Nothing has been said yet.</li> : null}
       </ol>
-      {view.approval === null ? null : (
+      {view.approvals.map((approval) => (
         <ApprovalCard
-          key={view.approval.id}
-          approval={view.approval}
+          key={approval.id}
+          approval={approval}
           mode={capabilities.approvals}
           onFlip={onFlip}
-          onAnswer={(choiceId, values) => {
-            const approval = view.approval;
-            if (approval !== null) run(api.structuredAnswer(sessionId, approval.id, choiceId, values));
-          }}
+          focused={approval.id === focusApprovalId}
+          onAnswer={(choiceId, values) => attempt(api.structuredAnswer(sessionId, approval.id, choiceId, values))}
         />
-      )}
+      ))}
       <div ref={end} />
       {error === null ? null : (
         <p className="terminal-note terminal-status" role="alert">

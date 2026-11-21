@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MockApi } from "../../api/mockApi";
-import type { ChatCapabilities, ConversationBacklog, ConversationEntry, ConversationUpdate, QueuedNote, SessionState } from "../../types";
+import type { Approval, ChatCapabilities, ConversationBacklog, ConversationEntry, ConversationUpdate, QueuedNote, SessionState } from "../../types";
 import { CLAUDE_TERMINAL, READ_ONLY, STRUCTURED, sampleTranscript } from "../chat/fixtures";
 import { Conversation, ConversationApiContext, type ConversationApi } from "./Conversation";
 
@@ -15,7 +15,7 @@ class FakeApi implements ConversationApi {
   constructor(private readonly backlog: Partial<ConversationBacklog>) {}
 
   structuredBacklog(): Promise<ConversationBacklog> {
-    return Promise.resolve({ transcript: [], state: "idle", approval: null, ended: null, capabilities: STRUCTURED, earlier: false, ...this.backlog });
+    return Promise.resolve({ transcript: [], state: "idle", approvals: [], ended: null, capabilities: STRUCTURED, earlier: false, ...this.backlog });
   }
   subscribeStructured(_id: string, listener: (u: ConversationUpdate) => void): () => void {
     this.listener = listener;
@@ -42,7 +42,7 @@ class FakeApi implements ConversationApi {
   }
   push(entry: ConversationEntry | null, over: Partial<ConversationUpdate> = {}): void {
     act(() => {
-      this.listener?.({ sessionId: "s", entry, state: "idle", approval: null, ended: null, reset: false, ...over });
+      this.listener?.({ sessionId: "s", entry, state: "idle", approvals: [], ended: null, reset: false, ...over });
     });
   }
 }
@@ -56,7 +56,7 @@ function shown(api: FakeApi, onFlip?: () => void): ReturnType<typeof render> {
 }
 
 const MESSAGE_BOX = "Message to the agent";
-const approval = { id: "ap", title: "Run it?", detail: "rm -rf nothing", fields: [], choices: [{ id: "ok", label: "Allow once", allow: true }] };
+const approval = { id: "ap", title: "Run it?", detail: "rm -rf nothing", fields: [], choices: [{ id: "ok", label: "Allow once", allow: true }], background: false, failed: null };
 const message = (n: number): ConversationEntry => ({ kind: "agent", id: `m${n}`, text: `line ${n}` });
 
 /** The conversation of a desk, with the waiting messages the way the floor passes them on. */
@@ -164,7 +164,7 @@ describe("Conversation", () => {
 
   it("answers an approval in terminal mode by flipping, never by answering", async () => {
     const user = userEvent.setup();
-    const api = new FakeApi({ capabilities: CLAUDE_TERMINAL, approval, state: "waiting-human" });
+    const api = new FakeApi({ capabilities: CLAUDE_TERMINAL, approvals: [approval], state: "waiting-human" });
     let flips = 0;
     shown(api, () => {
       flips += 1;
@@ -179,7 +179,7 @@ describe("Conversation", () => {
   });
 
   it("has no button on an approval of a read-only conversation", async () => {
-    shown(new FakeApi({ capabilities: READ_ONLY, approval }));
+    shown(new FakeApi({ capabilities: READ_ONLY, approvals: [approval] }));
     const card = within(await screen.findByTestId("conversation-approval"));
     expect(card.queryByRole("button")).toBeNull();
     expect(card.getByText("Answer it where the session runs.")).toBeInTheDocument();
@@ -254,5 +254,57 @@ describe("Conversation", () => {
     expect(await screen.findByText("Done: first extra")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-queue")).toBeNull();
     expect(screen.getByTestId("conversation").querySelector(".conversation-log")).toHaveTextContent("first extra");
+  });
+});
+
+describe("a conversation with several open requests", () => {
+  const withField = (id: string): Approval => ({
+    ...approval,
+    id,
+    title: `TITLE-${id}`,
+    fields: [{ id: "f", label: `LABEL-${id}`, detail: "", kind: { kind: "text" as const }, required: false }],
+  });
+  const cards = (): HTMLElement[] => screen.getAllByTestId("conversation-approval");
+
+  it("draws one card per request, and an update without the second leaves the first with what was typed", async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi({ approvals: [withField("one"), withField("two")], state: "waiting-human" });
+    shown(api);
+    await screen.findByText("TITLE-one");
+    expect(cards()).toHaveLength(2);
+    await user.type(screen.getByLabelText("LABEL-one"), "TYPED");
+    api.push(null, { state: "waiting-human", approvals: [withField("one")] });
+    expect(cards()).toHaveLength(1);
+    expect(screen.getByLabelText("LABEL-one")).toHaveValue("TYPED");
+  });
+
+  it("sends an answer to the card's own id", async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi({ approvals: [approval, { ...approval, id: "second", title: "SECOND" }] });
+    shown(api);
+    await screen.findByText("SECOND");
+    await user.click(within(cards()[1] as HTMLElement).getByRole("button", { name: "Allow once" }));
+    expect(api.answers).toEqual(["second"]);
+  });
+
+  it("marks the card the queue named", async () => {
+    const api = new FakeApi({ approvals: [approval, { ...approval, id: "second", title: "SECOND" }] });
+    render(
+      <ConversationApiContext value={api}>
+        <Conversation sessionId="s" focusApprovalId="second" />
+      </ConversationApiContext>,
+    );
+    await screen.findByText("SECOND");
+    expect(cards().map((c) => c.getAttribute("data-focused"))).toEqual([null, "true"]);
+  });
+
+  it("shows a refused answer in the panel and lets the card be answered again", async () => {
+    const user = userEvent.setup();
+    const api = new FakeApi({ approvals: [approval] });
+    api.structuredAnswer = (): Promise<void> => Promise.reject(new Error("NO-WAY"));
+    shown(api);
+    await user.click(await screen.findByRole("button", { name: "Allow once" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("NO-WAY");
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeEnabled();
   });
 });

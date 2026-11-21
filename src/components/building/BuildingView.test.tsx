@@ -10,6 +10,7 @@ type Demolish = (projectId: string) => Promise<void>;
 function view(snapshot: OfficeSnapshot, onDemolishFloor: Demolish = () => Promise.resolve()): React.ReactElement {
   return (
     <BuildingView
+      onOpenRequest={() => {}}
       snapshot={snapshot}
       onEnter={() => {}}
       canPickFolder={false}

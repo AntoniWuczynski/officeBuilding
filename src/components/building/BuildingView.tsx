@@ -5,6 +5,7 @@ import type { OfficeSnapshot, Project, Question, Session, ToolUsage } from "../.
 import type { ViewMode } from "../../state/useViewMode";
 import { PLACE } from "../../state/placeWords";
 import {
+  chatRequestOf,
   floorLight,
   matchesQuery,
   qaFor,
@@ -56,6 +57,8 @@ interface Props {
   readonly mode?: ViewMode;
   /** Open one agent's terminal or conversation, from a place's panel or the Needs-you list. */
   readonly onOpenSession: (session: Session) => void;
+  /** Open a chat desk's conversation at one of its requests. */
+  readonly onOpenRequest: (session: Session, approvalId: string) => void;
   /** Name a place, or move an agent to another one. */
   readonly overrideActions: OverrideActions;
   /** Answer a waiting question from the Needs-you list. */
@@ -81,7 +84,7 @@ const EXILE_MS = 1000;
 const ISLANDS_DEFAULT_NAME = "The Islands";
 
 /** The sketch's projects screen: the building, a floor search and the active/total tally. */
-export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, onExileSession, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, overrideActions, onAnswer, onTick, onOpenSettings, settingsOpen = false }: Props): React.ReactElement {
+export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, onAddFloor, onDemolishFloor, onExileSession, loadUsage, onOpenPlate, viewSwitch, mode = "office", onOpenSession, onOpenRequest, overrideActions, onAnswer, onTick, onOpenSettings, settingsOpen = false }: Props): React.ReactElement {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [demolishing, setDemolishing] = useState<string | null>(null);
@@ -225,7 +228,9 @@ export function BuildingView({ snapshot, onEnter, canPickFolder, onPickFolder, o
   }, [placeId, placed]);
   const openAsk = (q: Question): void => {
     const asker = sessionById(snapshot, q.sessionId);
-    if (asker !== undefined) onOpenSession(asker);
+    const approvalId = chatRequestOf(q);
+    if (asker !== undefined && approvalId !== null) onOpenRequest(asker, approvalId);
+    else if (asker !== undefined) onOpenSession(asker);
     else onEnter(q.projectId, originOf(viewRef.current?.querySelector<HTMLElement>(`[data-project="${q.projectId}"]`) ?? null));
   };
 

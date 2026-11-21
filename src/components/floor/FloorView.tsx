@@ -53,6 +53,10 @@ interface Props {
   /** The Hire plate is opening, so no other plate may stay open over it. */
   readonly onOpenPlate: () => void;
   readonly onOpenSession: (session: Session) => void;
+  /** Open a chat desk's conversation at one of its requests. */
+  readonly onOpenRequest: (session: Session, approvalId: string) => void;
+  /** The request the queue sent the human to, if any. */
+  readonly focusRequest?: { readonly sessionId: string; readonly approvalId: string } | null;
   readonly onCloseTerminal: () => void;
   readonly onBack: () => void;
   /** The back button's word: the overview this screen returns to (Building or Islands). */
@@ -74,7 +78,7 @@ interface Props {
 
 /** The sketch's project screen: the open-plan floor, its search and tally, the rail and panels. */
 export function FloorView(props: Props): React.ReactElement {
-  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onCloseTerminal, onBack, onOpenSettings, onOpenPlate, loadHireOptions, onHire, onAnswer, onTick, onResume, onOpenShell, onNewShell, onEndShell, setup } = props;
+  const { project, snapshot, now, openSessionId, onSection, onOpenSession, onOpenRequest, focusRequest, onCloseTerminal, onBack, onOpenSettings, onOpenPlate, loadHireOptions, onHire, onAnswer, onTick, onResume, onOpenShell, onNewShell, onEndShell, setup } = props;
   const setupFloor = snapshot.setupProjectId === project.id;
   // Only the setup floor has a Setup panel, even if one was left open on it.
   const section = (props.section === "setup" && !setupFloor) || (props.section === "manager" && setupFloor) ? null : props.section;
@@ -193,6 +197,7 @@ export function FloorView(props: Props): React.ReactElement {
               messages={snapshot.messages}
               handovers={snapshot.handover.desks}
               takeOvers={snapshot.handover.takeOvers}
+              unseenPrompts={snapshot.unseenPrompts}
               mayTakeOver={mayTakeOver}
               onTakeOver={askTakeOver}
               objects={objects}
@@ -238,6 +243,7 @@ export function FloorView(props: Props): React.ReactElement {
                 handover={handoverFor(snapshot, openSession.id)}
                 takeOvers={snapshot.handover.takeOvers}
                 onTakeOver={mayTakeOver(openSession) ? () => askTakeOver(openSession) : undefined}
+                focusApprovalId={focusRequest?.sessionId === openSession.id ? focusRequest.approvalId : undefined}
                 onClose={onCloseTerminal}
               />
             ) : openShell !== undefined ? (
@@ -260,6 +266,7 @@ export function FloorView(props: Props): React.ReactElement {
               onAnswer={onAnswer}
               onTick={onTick}
               onOpenSession={onOpenSession}
+              onOpenRequest={onOpenRequest}
               onResume={onResume}
               onOpenShell={onOpenShell}
               onNewShell={onNewShell}

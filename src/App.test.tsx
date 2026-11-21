@@ -72,6 +72,9 @@ const xterm = vi.hoisted(() => {
 vi.mock("@xterm/xterm", () => ({ Terminal: xterm.FakeTerminal }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: xterm.FakeFitAddon }));
 
+/** For a wait that outlasts testing-library's one second when the whole suite runs at once. */
+const SLOW = { timeout: 4000 };
+
 function lastTerminal(): InstanceType<typeof xterm.FakeTerminal> {
   const term = xterm.FakeTerminal.last;
   if (term === null) throw new Error("no terminal was opened");
@@ -375,10 +378,11 @@ describe("floor", () => {
 
     await enter("p-shop");
     fireEvent.keyDown(window, { key: "n", metaKey: true });
-    expect(await screen.findByRole("region", { name: "Terminal: Shell 1" })).toHaveTextContent("~/code/corner_shop");
+    // The full run is many files at once: these two waits pass a second there.
+    expect(await screen.findByRole("region", { name: "Terminal: Shell 1" }, SLOW)).toHaveTextContent("~/code/corner_shop");
     expect(screen.getByTestId("terminal-screen")).toHaveTextContent("Demo shell in ~/code/corner_shop");
     fireEvent.keyDown(window, { key: "n", metaKey: true });
-    expect(await screen.findByRole("region", { name: "Terminal: Shell 2" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Terminal: Shell 2" }, SLOW)).toBeInTheDocument();
     // A shell is not an agent: the tally is unchanged.
     expect(screen.getByTestId("tally")).toHaveTextContent("1/3");
 
@@ -603,23 +607,23 @@ describe("manager's office", () => {
     await user.click(within(sidebar).getAllByTestId("question-row")[0] ?? sidebar);
     expect(within(sidebar).queryAllByTestId("question-option")).toHaveLength(0);
     expect(within(sidebar).getByText("Use the paid endpoint (TILE_ENDPOINTS)")).toBeInTheDocument();
-    expect(within(sidebar).getByText("This agent was started outside the app, so answer it in its own terminal.")).toBeInTheDocument();
+    expect(within(sidebar).getByText("This agent runs in Terminal, outside the app. Answer it there. The app can bring Terminal to the front, but cannot pick the tab.")).toBeInTheDocument();
     await user.click(within(sidebar).getByTestId("question-raise"));
-    expect(within(sidebar).getByTestId("question-raise")).toHaveTextContent("Bring its terminal to the front");
+    expect(within(sidebar).getByTestId("question-raise")).toHaveTextContent("Bring Terminal to the front");
     expect(focus).toHaveBeenCalledWith("s-3");
   });
 
   it("Decisions: an app-owned agent's terminal question opens its in-app terminal", async () => {
     const user = userEvent.setup();
     const seed = makeSeedSnapshot();
-    const api = new MockApi({ ...seed, questions: seed.questions.map((q) => (q.id === "q-1" ? { ...q, answerVia: "terminal" as const } : q)) });
+    const api = new MockApi({ ...seed, questions: seed.questions.map((q) => (q.id === "q-1" ? { ...q, answerVia: "terminal" as const, handoff: { kind: "docked" as const } } : q)) });
     const focus = vi.spyOn(api, "focusSession");
     renderApp(api);
     await enter("p-shop");
     await user.click(screen.getByTestId("rail-decisions"));
     const sidebar = screen.getByTestId("sidebar");
     await user.click(within(sidebar).getAllByTestId("question-row")[1] ?? sidebar);
-    expect(within(sidebar).getByText("This agent runs in the app, so answer it in its terminal.")).toBeInTheDocument();
+    expect(within(sidebar).getByText("This agent runs in one of the app's terminals. Answer it there. Opening the terminal does not answer it.")).toBeInTheDocument();
     await user.click(within(sidebar).getByRole("button", { name: "Open its terminal" }));
     expect(screen.getByTestId("terminal-panel")).toHaveAttribute("data-session", "s-2");
     expect(focus).not.toHaveBeenCalled();

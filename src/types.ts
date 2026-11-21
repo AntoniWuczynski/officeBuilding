@@ -58,9 +58,10 @@ export interface Question {
    * Where the human answers it. "app": the app owns the session's terminal and
    * delivers the answer. "terminal": a hand-started session; the app can only
    * bring its own terminal window to the front. "file": an open call in the
-   * repo's decisions file; the answer is written back there.
+   * repo's decisions file; the answer is written back there. "chat": a chat
+   * desk's request, answered in that desk's conversation.
    */
-  readonly answerVia: "app" | "terminal" | "file" | "store";
+  readonly answerVia: "app" | "terminal" | "file" | "store" | "chat";
   /** Lower = more urgent; the queue is sorted ascending. */
   readonly priority: number;
   readonly askedAt: string;
@@ -68,7 +69,17 @@ export interface Question {
   readonly context: string;
   /** The repo file the call lives in, when it comes from one. */
   readonly sourceFile: string | null;
+  /** How to get to where it is answered; null for a call answered in the app itself. */
+  readonly handoff: Handoff | null;
 }
+
+/** How to get to the place a question is answered (`Handoff` in model.rs). */
+export type Handoff =
+  | { readonly kind: "chat"; readonly approvalId: string }
+  | { readonly kind: "docked" }
+  | { readonly kind: "window"; readonly app: string; readonly tab: boolean }
+  | { readonly kind: "elsewhere" }
+  | { readonly kind: "read-only" };
 
 export interface Decision {
   readonly id: string;
@@ -310,12 +321,14 @@ export type FieldKind =
   | { readonly kind: "secret" }
   | { readonly kind: "number" }
   | { readonly kind: "boolean" }
-  | { readonly kind: "pick"; readonly options: readonly string[]; readonly other: boolean };
+  | { readonly kind: "pick"; readonly options: readonly string[]; readonly other: boolean; readonly secret: boolean };
 
 /** Something the human fills in before answering: a question's answer, a form field. */
 export interface ApprovalField {
   readonly id: string;
   readonly label: string;
+  /** What the field asks in full and what each option means. Empty: the label says it all. */
+  readonly detail: string;
   readonly kind: FieldKind;
   readonly required: boolean;
 }
@@ -327,13 +340,18 @@ export interface Approval {
   readonly detail: string;
   readonly fields: readonly ApprovalField[];
   readonly choices: readonly { readonly id: string; readonly label: string; readonly allow: boolean }[];
+  /** The agent keeps working while this is open. */
+  readonly background: boolean;
+  /** Why the last answer did not reach the agent, or may not have. */
+  readonly failed: string | null;
 }
 
 /** A structured desk as its conversation panel opens on it. */
 export interface ConversationBacklog {
   readonly transcript: readonly ConversationEntry[];
   readonly state: SessionState;
-  readonly approval: Approval | null;
+  /** Every request the desk has open, oldest first. */
+  readonly approvals: readonly Approval[];
   /** Why the agent is gone, once it is. */
   readonly ended: string | null;
   /** What the panel may offer; fixed while it is open. */
@@ -347,7 +365,8 @@ export interface ConversationUpdate {
   readonly sessionId: string;
   readonly entry: ConversationEntry | null;
   readonly state: SessionState;
-  readonly approval: Approval | null;
+  /** Every request the desk has open, oldest first. */
+  readonly approvals: readonly Approval[];
   readonly ended: string | null;
   /** The transcript was read again from the top: empty it before applying `entry`. */
   readonly reset: boolean;
@@ -407,6 +426,8 @@ export interface OfficeSnapshot {
   readonly harnessId: string | null;
   /** Why the rules file could not be read, if it could not. */
   readonly projectRulesError: string | null;
+  /** Sessions whose approval prompts the building cannot see (Codex in a terminal whose hooks have not reported). */
+  readonly unseenPrompts: readonly string[];
 }
 
 /** One grouping rule: a session joins the project when any matcher hits. */

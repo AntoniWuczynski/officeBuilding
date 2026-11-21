@@ -1,8 +1,9 @@
 import { useState } from "react";
 import type { Decision, OfficeSnapshot, Question, Session } from "../../types";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
-import { TOOL_LABEL, sessionById } from "../../state/selectors";
+import { TOOL_LABEL, chatRequestOf, sessionById } from "../../state/selectors";
 import { relativeTime } from "../../lib/time";
+import { handoffWords } from "../../lib/handoff";
 
 interface Props {
   readonly snapshot: OfficeSnapshot;
@@ -11,6 +12,8 @@ interface Props {
   readonly now: Date;
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
   readonly onOpenSession: (session: Session) => void;
+  /** Open a chat desk's conversation at one of its requests. */
+  readonly onOpenRequest: (session: Session, approvalId: string) => void;
 }
 
 /** "orders ingest fix, asked 2 h ago" or "From FOUNDER_DECISIONS.md". */
@@ -21,7 +24,7 @@ function askedBy(q: Question, asker: Session | undefined, now: Date): string {
 }
 
 /** Decisions → questions ordered by priority → one question with A / B / Other (the sketch). */
-export function DecisionsPanel({ snapshot, questions, decisions, now, onAnswer, onOpenSession }: Props): React.ReactElement {
+export function DecisionsPanel({ snapshot, questions, decisions, now, onAnswer, onOpenSession, onOpenRequest }: Props): React.ReactElement {
   const [openId, setOpenId] = useState<string | null>(null);
   const open = openId === null ? undefined : questions.find((q) => q.id === openId);
 
@@ -42,13 +45,20 @@ export function DecisionsPanel({ snapshot, questions, decisions, now, onAnswer, 
         <ol className="question-list">
           {questions.map((q, i) => {
             const asker = sessionById(snapshot, q.sessionId);
+            const approvalId = chatRequestOf(q);
             return (
               <li key={q.id}>
-                <button type="button" className="question-row" data-testid="question-row" data-question={q.id} onClick={() => setOpenId(q.id)}>
+                <button
+                  type="button"
+                  className="question-row"
+                  data-testid="question-row"
+                  data-question={q.id}
+                  onClick={() => (asker !== undefined && approvalId !== null ? onOpenRequest(asker, approvalId) : setOpenId(q.id))}
+                >
                   <span className="question-rank" aria-label={`Priority ${i + 1}`}>{i + 1}</span>
                   <span className="question-text">
                     <span className="question-prompt">{q.prompt}</span>
-                    <span className="question-meta">{askedBy(q, asker, now)}</span>
+                    <span className="question-meta">{askedBy(q, asker, now)}{asker !== undefined && approvalId !== null ? ", answered in its conversation" : ""}</span>
                   </span>
                 </button>
               </li>
@@ -116,27 +126,8 @@ function QuestionDetail({ snapshot, question, now, onBack, onAnswer, onOpenSessi
       {question.sourceFile === null || question.answerVia !== "file" ? null : (
         <p className="panel-hint">Your answer is written into {question.sourceFile}, where the agents read it.</p>
       )}
-      {question.answerVia === "terminal" ? (
-        <>
-          <p className="panel-hint">
-            {asker?.control === "full"
-              ? "This agent runs in the app, so answer it in its terminal."
-              : "This agent was started outside the app, so answer it in its own terminal."}
-          </p>
-          <ol className="options options-readonly">
-            {question.options.map((o, i) => (
-              <li key={o.id} className="option">
-                <span className="option-key">{String.fromCharCode(65 + i)}</span>
-                <span>{o.label}</span>
-              </li>
-            ))}
-          </ol>
-          {asker === undefined ? null : (
-            <button type="button" className="btn btn-primary" data-testid="question-raise" onClick={() => onOpenSession(asker)}>
-              {asker.control === "full" ? "Open its terminal" : "Bring its terminal to the front"}
-            </button>
-          )}
-        </>
+      {question.answerVia === "terminal" || question.answerVia === "chat" ? (
+        <TerminalHint question={question} asker={asker} onOpenSession={onOpenSession} />
       ) : (
         <AppAnswer question={question} sending={sending} other={other} setOther={setOther} send={send} />
       )}
@@ -199,6 +190,30 @@ function AppAnswer({ question, sending, other, setOther, send }: AppAnswerProps)
           </div>
         </form>
       ) : null}
+    </>
+  );
+}
+
+/** A row answered somewhere the app cannot reach: where to go, and the button that goes there. The row stays open. */
+function TerminalHint({ question, asker, onOpenSession }: { readonly question: Question; readonly asker: Session | undefined; readonly onOpenSession: (session: Session) => void }): React.ReactElement {
+  if (asker === undefined && chatRequestOf(question) !== null) return <p className="panel-hint">Its desk is no longer here.</p>;
+  const { hint, action } = handoffWords(question.handoff);
+  return (
+    <>
+      <p className="panel-hint">{hint}</p>
+      <ol className="options options-readonly">
+        {question.options.map((o, i) => (
+          <li key={o.id} className="option">
+            <span className="option-key">{String.fromCharCode(65 + i)}</span>
+            <span>{o.label}</span>
+          </li>
+        ))}
+      </ol>
+      {action === null || asker === undefined ? null : (
+        <button type="button" className="btn btn-primary" data-testid="question-raise" onClick={() => onOpenSession(asker)}>
+          {action}
+        </button>
+      )}
     </>
   );
 }

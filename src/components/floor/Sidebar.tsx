@@ -47,6 +47,8 @@ interface Props {
   readonly onAnswer: (questionId: string, answer: QuestionAnswer) => Promise<void>;
   readonly onTick: (todoId: string) => void;
   readonly onOpenSession: (session: Session) => void;
+  /** Open a chat desk's conversation at one of its requests. */
+  readonly onOpenRequest: (session: Session, approvalId: string) => void;
   readonly onResume: (sessionId: string) => Promise<void>;
   readonly onOpenShell: (shellId: string) => void;
   readonly onNewShell: () => Promise<void>;
@@ -78,7 +80,7 @@ export function Sidebar({ onClose, ...body }: Props): React.ReactElement {
   );
 }
 
-function SectionBody({ section, project, snapshot, humanTodos, now, onOpenSection, onAnswer, onTick, onOpenSession, onResume, onOpenShell, onNewShell, onEndShell, setup }: Omit<Props, "onClose">): React.ReactElement {
+function SectionBody({ section, project, snapshot, humanTodos, now, onOpenSection, onAnswer, onTick, onOpenSession, onOpenRequest, onResume, onOpenShell, onNewShell, onEndShell, setup }: Omit<Props, "onClose">): React.ReactElement {
   const sessions = sessionsForProject(snapshot, project.id);
   switch (section) {
     case "setup":
@@ -109,6 +111,7 @@ function SectionBody({ section, project, snapshot, humanTodos, now, onOpenSectio
           now={now}
           onAnswer={onAnswer}
           onOpenSession={onOpenSession}
+          onOpenRequest={onOpenRequest}
         />
       );
     case "human-todo":
