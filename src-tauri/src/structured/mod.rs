@@ -223,10 +223,11 @@ pub enum FieldKind {
     Number,
     /// `true` or `false`.
     Boolean,
-    /// One of `options`, or with `other` any text.
+    /// One of `options`, or with `other` any text, hidden as it is typed when `secret`.
     Pick {
         options: Vec<String>,
         other: bool,
+        secret: bool,
     },
 }
 
@@ -236,6 +237,9 @@ pub enum FieldKind {
 pub struct Field {
     pub id: String,
     pub label: String,
+    /// What the field asks in full and what each option means, shown under the label.
+    /// Empty: the label says it all.
+    pub detail: String,
     pub kind: FieldKind,
     pub required: bool,
 }
@@ -243,7 +247,7 @@ pub struct Field {
 /// The agent asks before doing something (run a command, change files, use a
 /// tool), or asks a question. A choice that lets it go ahead (`allow`) sends
 /// the `fields`' values with it.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Approval {
     pub id: String,
@@ -251,6 +255,10 @@ pub struct Approval {
     pub detail: String,
     pub fields: Vec<Field>,
     pub choices: Vec<Choice>,
+    /// The agent keeps working while this is open: it can do without the answer for now.
+    pub background: bool,
+    /// Why the last answer did not reach the agent, or may not have. It can be sent again.
+    pub failed: Option<String>,
 }
 
 /// The human's values for an approval's fields, by field id, as typed.
@@ -267,9 +275,9 @@ pub enum Event {
     /// The tool's own id for this conversation (Codex thread, ACP session), as
     /// its session files name it.
     SessionId(String),
-    /// An approval request; the turn waits until `Driver::answer`.
+    /// A request opened, or the open request with this id changed (an answer that failed).
     Approval(Approval),
-    /// An approval was settled (answered, or withdrawn by the agent).
+    /// A request is over: answered, withdrawn by the agent, or retired with its turn.
     Resolved { approval_id: String },
     /// The agent process is gone. `message` says why, when it is not a clean exit.
     Exited {
@@ -301,6 +309,10 @@ pub struct Spawn<'a> {
 pub trait Driver: Send + Sync {
     /// Send the human's message as the next turn.
     fn prompt(&self, text: &str) -> Result<(), String>;
+    /// A manager's note. Drivers that can have a formal request open refuse it while one is.
+    fn note(&self, text: &str) -> Result<(), String> {
+        self.prompt(text)
+    }
     /// Answer an open approval with one of its choices, and the fields' values.
     fn answer(&self, approval_id: &str, choice_id: &str, values: &Values) -> Result<(), String>;
     /// Stop the turn that is running, if any.

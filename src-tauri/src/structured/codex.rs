@@ -17,7 +17,12 @@
 //! sink in the order they happened.
 
 mod ask;
+#[cfg(test)]
+mod ask_tests;
 mod mapper;
+#[cfg(test)]
+mod request_tests;
+mod requests;
 #[cfg(test)]
 mod tests;
 mod views;
@@ -124,10 +129,22 @@ impl Driver for CodexDriver {
         self.shared.run(|m| m.prompt(text))
     }
 
-    fn answer(&self, approval_id: &str, choice_id: &str, values: &Values) -> Result<(), String> {
+    fn note(&self, text: &str) -> Result<(), String> {
         let mut mapper = lock(&self.shared.mapper);
-        let out = mapper.answer(approval_id, choice_id, values)?;
+        let out = mapper.note(text)?;
         self.shared.deliver(out)
+    }
+
+    fn answer(&self, approval_id: &str, choice_id: &str, values: &Values) -> Result<(), String> {
+        // The mapper's lock is held across the write, so two answers to one request
+        // cannot interleave.
+        let mut mapper = lock(&self.shared.mapper);
+        let (out, result) = mapper.answer(approval_id, choice_id, values, |line| {
+            self.shared.write(line)
+        });
+        // Events only: nothing here can fail.
+        let _ = self.shared.deliver(out);
+        result
     }
 
     fn cancel(&self) -> Result<(), String> {

@@ -181,6 +181,7 @@ fn a_permission_request_waits_for_the_human_and_answers_with_the_choice() {
                     choice("always", "Always allow", true),
                     choice("reject", "Reject", false),
                 ],
+                ..Approval::default()
             }),
             Event::State(SessionState::WaitingHuman),
         ]
@@ -554,7 +555,8 @@ fn cursor_questions_are_fields_answered_by_option_id() {
         a.fields[0].kind,
         FieldKind::Pick {
             options: vec!["Postgres".to_string(), "SQLite".to_string()],
-            other: false
+            other: false,
+            secret: false,
         }
     );
     assert_eq!(

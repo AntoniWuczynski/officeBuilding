@@ -31,8 +31,29 @@ fn feed(m: &mut Mapper, lines: &[&str]) -> Vec<Out> {
     lines.iter().flat_map(|l| m.line(l)).collect()
 }
 
+/// Answer with a write that works: the line written, then the events, in the
+/// order the driver delivers them.
+pub(super) fn answered(
+    m: &mut Mapper,
+    approval: &str,
+    choice: &str,
+    values: &crate::structured::Values,
+) -> Result<Vec<Out>, String> {
+    let mut written = Vec::new();
+    let (out, result) = m.answer(approval, choice, values, |line| {
+        written.push(Out::Send(line.to_string()));
+        Ok(())
+    });
+    result.map(|()| written.into_iter().chain(out).collect())
+}
+
 /// A mapper past the handshake, with `task` running as turn `TURN`.
 fn running(task: &str) -> Mapper {
+    running_on(THREAD, TURN, task)
+}
+
+/// A mapper past the handshake on thread `thread`, with `task` running as turn `turn`.
+pub(super) fn running_on(thread: &str, turn: &str, task: &str) -> Mapper {
     let mut m = Mapper::new("/w", None, Some("low"), None);
     m.begin(task);
     feed(
@@ -40,10 +61,10 @@ fn running(task: &str) -> Mapper {
         &[
             r#"{"id":1,"result":{"userAgent":"x","codexHome":"/h","platformFamily":"unix","platformOs":"macos"}}"#,
             &format!(
-                r#"{{"id":2,"result":{{"thread":{{"id":"{THREAD}","sessionId":"{THREAD}"}},"model":"m"}}}}"#
+                r#"{{"id":2,"result":{{"thread":{{"id":"{thread}","sessionId":"{thread}"}},"model":"m"}}}}"#
             ),
             &format!(
-                r#"{{"id":3,"result":{{"turn":{{"id":"{TURN}","items":[],"status":"inProgress","error":null}}}}}}"#
+                r#"{{"id":3,"result":{{"turn":{{"id":"{turn}","items":[],"status":"inProgress","error":null}}}}}}"#
             ),
         ],
     );
@@ -211,6 +232,7 @@ fn command_approval_offers_codexs_decisions_and_answers_them() {
         events(out),
         [
             exec(ToolStatus::Running, ""),
+            Event::State(SessionState::Running),
             Event::Approval(Approval {
                 id: "0".into(),
                 title: "Run this command?".into(),
@@ -233,19 +255,15 @@ fn command_approval_offers_codexs_decisions_and_answers_them() {
                         allow: false
                     },
                 ],
+                ..Approval::default()
             }),
             exec(ToolStatus::Pending, ""),
             Event::State(SessionState::WaitingHuman),
         ]
     );
 
-    assert!(
-        m.answer("0", "9", &crate::structured::Values::new())
-            .is_err()
-    );
-    let out = m
-        .answer("0", "1", &crate::structured::Values::new())
-        .unwrap();
+    assert!(answered(&mut m, "0", "9", &crate::structured::Values::new()).is_err());
+    let out = answered(&mut m, "0", "1", &crate::structured::Values::new()).unwrap();
     assert_eq!(
         sends(&out),
         [
@@ -259,7 +277,8 @@ fn command_approval_offers_codexs_decisions_and_answers_them() {
                 approval_id: "0".into()
             },
             exec(ToolStatus::Running, ""),
-            Event::State(SessionState::Thinking),
+            // A command running shows as running (build spec M2a, section 4.6).
+            Event::State(SessionState::Running),
         ]
     );
     // Codex confirms what we already settled: nothing more to report.
@@ -267,15 +286,15 @@ fn command_approval_offers_codexs_decisions_and_answers_them() {
         m.line(r#"{"method":"serverRequest/resolved","params":{"threadId":"t","requestId":0}}"#)
             .is_empty()
     );
-    assert!(
-        m.answer("0", "0", &crate::structured::Values::new())
-            .is_err()
-    );
+    assert!(answered(&mut m, "0", "0", &crate::structured::Values::new()).is_err());
 
     let out = m.line(r#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"exec-c7c3","command":"/bin/zsh -lc 'touch probe_ok.txt'","status":"failed","commandActions":[{"type":"unknown","command":"touch probe_ok.txt"}],"aggregatedOutput":"touch: denied","exitCode":1}}}"#);
     assert_eq!(
         events(out),
-        [exec(ToolStatus::Failed, "touch: denied\nExit code 1")]
+        [
+            exec(ToolStatus::Failed, "touch: denied\nExit code 1"),
+            Event::State(SessionState::Thinking)
+        ]
     );
 }
 
@@ -301,9 +320,8 @@ fn command_approval_without_a_decision_list_offers_the_defaults() {
             ("Decline and stop the turn", false)
         ]
     );
-    let out = m
-        .answer("a", "2", &crate::structured::Values::new())
-        .unwrap();
+    // A string id is answered behind `s:` (build spec M2a, C2).
+    let out = answered(&mut m, "s:a", "2", &crate::structured::Values::new()).unwrap();
     assert_eq!(
         sends(&out),
         [r#"{"id":"a","result":{"decision":"decline"}}"#]
@@ -334,15 +352,14 @@ fn file_change_approval_shows_the_diff() {
             }],
         })
     );
-    let Event::Approval(a) = &ev[1] else {
+    assert_eq!(ev[1], Event::State(SessionState::Running));
+    let Event::Approval(a) = &ev[2] else {
         panic!("no approval");
     };
     assert_eq!(a.title, "Apply these file changes?");
     assert_eq!(a.detail, "/w/a.txt\nhello\n");
     assert_eq!(a.choices.len(), 4);
-    let out = m
-        .answer("5", "1", &crate::structured::Values::new())
-        .unwrap();
+    let out = answered(&mut m, "5", "1", &crate::structured::Values::new()).unwrap();
     assert_eq!(
         sends(&out),
         [r#"{"id":5,"result":{"decision":"acceptForSession"}}"#]
@@ -374,9 +391,7 @@ fn permissions_grant_echoes_what_was_asked() {
         panic!("no approval");
     };
     assert_eq!(a.detail, "Fetch docs\nNetwork access");
-    let out = m
-        .answer("7", "1", &crate::structured::Values::new())
-        .unwrap();
+    let out = answered(&mut m, "7", "1", &crate::structured::Values::new()).unwrap();
     assert_eq!(
         sends(&out),
         [r#"{"id":7,"result":{"permissions":{"network":{"enabled":true}},"scope":"session"}}"#]
@@ -416,7 +431,8 @@ fn a_form_elicitation_is_filled_in_and_sent_typed() {
                 "vault",
                 &FieldKind::Pick {
                     options: vec!["work".into(), "home".into()],
-                    other: false
+                    other: false,
+                    secret: false,
                 },
                 true
             ),
@@ -425,22 +441,43 @@ fn a_form_elicitation_is_filled_in_and_sent_typed() {
     let labels: Vec<&str> = a.choices.iter().map(|c| c.label.as_str()).collect();
     assert_eq!(labels, ["Accept", "Decline", "Cancel"]);
     // A required field left empty is refused, and nothing is sent.
-    assert!(m.answer("8", "0", &values(&[("limit", "3")])).is_err());
+    assert!(answered(&mut m, "8", "0", &values(&[("limit", "3")])).is_err());
     assert!(
-        m.answer("8", "0", &values(&[("vault", "work"), ("limit", "three")]))
-            .is_err()
-    );
-    let out = m
-        .answer(
+        answered(
+            &mut m,
             "8",
             "0",
-            &values(&[("vault", "work"), ("limit", "3"), ("dry", "true")]),
+            &values(&[("vault", "work"), ("limit", "three")])
         )
-        .unwrap();
+        .is_err()
+    );
+    let out = answered(
+        &mut m,
+        "8",
+        "0",
+        &values(&[("vault", "work"), ("limit", "3"), ("dry", "true")]),
+    )
+    .unwrap();
     assert_eq!(
         sends(&out),
         [
             r#"{"id":8,"result":{"action":"accept","content":{"dry":true,"limit":3,"vault":"work"},"_meta":null}}"#
+        ]
+    );
+}
+
+#[test]
+fn a_cleaned_option_is_sent_back_as_the_server_wrote_it() {
+    let mut m = running("x");
+    let out = m.line(r#"{"method":"mcpServer/elicitation/request","id":9,"params":{"threadId":"t","turnId":null,"serverName":"brain","mode":"form","_meta":null,"message":"Pick","requestedSchema":{"type":"object","properties":{"vault":{"type":"string","enum":["wo\u200brk","home","ho\u200bme"]},"tag":{"type":"string","enum":["a\u200bb"]}},"required":[]}}}"#);
+    assert!(matches!(events(out).first(), Some(Event::Approval(_))));
+    // Two originals that show alike cannot be told apart, so nothing is sent.
+    assert!(answered(&mut m, "9", "0", &values(&[("vault", "home")])).is_err());
+    let out = answered(&mut m, "9", "0", &values(&[("tag", "ab")])).unwrap();
+    assert_eq!(
+        sends(&out),
+        [
+            "{\"id\":9,\"result\":{\"action\":\"accept\",\"content\":{\"tag\":\"a\u{200b}b\"},\"_meta\":null}}"
         ]
     );
 }
@@ -453,14 +490,16 @@ fn questions_become_fields_answered_together() {
     let Some(Event::Approval(a)) = events(out).into_iter().next() else {
         panic!("no approval");
     };
+    // Each question keeps its own prompt and options in its own field, and the
+    // card's detail is empty (build spec M2a, section 4.2).
     assert_eq!(
         (a.title.as_str(), a.detail.as_str()),
-        ("Codex has some questions", "Careful: Slower")
+        ("Codex has 3 questions", "")
     );
-    let kinds: Vec<(&str, &str, &FieldKind)> = a
+    let kinds: Vec<(&str, &str, &str, &FieldKind)> = a
         .fields
         .iter()
-        .map(|f| (f.id.as_str(), f.label.as_str(), &f.kind))
+        .map(|f| (f.id.as_str(), f.label.as_str(), f.detail.as_str(), &f.kind))
         .collect();
     assert_eq!(
         kinds,
@@ -468,23 +507,25 @@ fn questions_become_fields_answered_together() {
             (
                 "mode",
                 "Mode",
+                "Which?\nCareful: Slower",
                 &FieldKind::Pick {
                     options: vec!["Fast".into(), "Careful".into()],
-                    other: true
+                    other: true,
+                    secret: false,
                 }
             ),
-            ("name", "Name?", &FieldKind::Text),
-            ("key", "API key", &FieldKind::Secret),
+            ("name", "Name?", "", &FieldKind::Text),
+            ("key", "API key", "Key?", &FieldKind::Secret),
         ]
     );
     assert_eq!(a.choices.len(), 1);
-    let out = m
-        .answer(
-            "9",
-            "0",
-            &values(&[("mode", "Something else"), ("name", "Ada"), ("key", "k")]),
-        )
-        .unwrap();
+    let out = answered(
+        &mut m,
+        "9",
+        "0",
+        &values(&[("mode", "Something else"), ("name", "Ada"), ("key", "k")]),
+    )
+    .unwrap();
     assert_eq!(
         sends(&out),
         [
@@ -606,6 +647,8 @@ fn a_refused_thread_is_an_error_and_noise_is_skipped() {
     );
 }
 
+/// The completion names the desk's own thread: another thread's turn never
+/// idles the desk (build spec M2a, section 4.6).
 #[test]
 fn completed_turn_goes_idle_and_plan_updates_show() {
     let mut m = running("x");
@@ -616,7 +659,7 @@ fn completed_turn_goes_idle_and_plan_updates_show() {
                 r#"{{"method":"turn/plan/updated","params":{{"threadId":"t","turnId":"{TURN}","explanation":null,"plan":[{{"step":"Read","status":"completed"}},{{"step":"Write","status":"inProgress"}}]}}}}"#
             ),
             &format!(
-                r#"{{"method":"turn/completed","params":{{"threadId":"t","turn":{{"id":"{TURN}","items":[],"status":"completed","error":null}}}}}}"#
+                r#"{{"method":"turn/completed","params":{{"threadId":"{THREAD}","turn":{{"id":"{TURN}","items":[],"status":"completed","error":null}}}}}}"#
             ),
         ],
     );
@@ -863,4 +906,33 @@ fn live_resume() {
     assert!(asked && answered, "the earlier turn came back");
     std::fs::remove_dir_all(dir).unwrap();
     std::fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn a_manager_note_is_refused_while_a_request_is_open_and_sent_after() {
+    let mut m = running("touch it");
+    feed(&mut m, &[EXEC_STARTED, EXEC_APPROVAL]);
+    assert!(m.note("hello").is_err());
+    answered(&mut m, "0", "0", &crate::structured::Values::new()).unwrap();
+    assert!(m.note("hello").is_ok());
+}
+
+#[test]
+fn request_text_loses_bidi_controls() {
+    let mut m = running("touch it");
+    let out = feed(
+        &mut m,
+        &[
+            EXEC_STARTED,
+            &EXEC_APPROVAL.replace("touch probe_ok.txt\"}]", "touch \\u202eprobe_ok.txt\"}]"),
+        ],
+    );
+    let shown = events(out)
+        .into_iter()
+        .find_map(|e| match e {
+            Event::Approval(a) => Some(a.detail),
+            _ => None,
+        })
+        .unwrap_or_default();
+    assert!(!shown.contains('\u{202e}'), "{shown}");
 }

@@ -3,10 +3,9 @@
 //! wire leaves out JSON-RPC's `"jsonrpc"` field. Fields the driver does not use
 //! are left out (serde skips them), so newer Codex versions still parse.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
-use std::fmt;
 
 /// A JSON-RPC id: Codex numbers its own requests, ours are numbers too.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -14,15 +13,6 @@ use std::fmt;
 pub(super) enum RequestId {
     Number(i64),
     Text(String),
-}
-
-impl fmt::Display for RequestId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Number(n) => write!(f, "{n}"),
-            Self::Text(s) => f.write_str(s),
-        }
-    }
 }
 
 /// Any line from Codex: a request (`id` and `method`), a notification
@@ -41,6 +31,11 @@ pub(super) struct Incoming {
 pub(super) struct RpcError {
     pub code: i64,
     pub message: String,
+}
+
+/// A value that may be absent or null.
+fn nullable<'de, D: Deserializer<'de>, T: Default + Deserialize<'de>>(d: D) -> Result<T, D::Error> {
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
 
 // ---- What we send -------------------------------------------------------
@@ -157,6 +152,9 @@ pub(super) struct ThreadResumeResult {
 #[derive(Deserialize)]
 pub(super) struct ResumedThread {
     pub id: String,
+    /// Read on its own as a `ThreadStatus`, so a shape no version has yet never fails a resume.
+    #[serde(default)]
+    pub status: Option<Box<RawValue>>,
     #[serde(default)]
     pub turns: Vec<ResumedTurn>,
 }
@@ -179,8 +177,13 @@ pub(super) struct Named {
 
 // ---- Notifications ------------------------------------------------------
 
+/// `turn/started` and `turn/completed`. The thread is absent only from a Codex
+/// older than the schema, and is then taken for the desk's own.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct TurnNote {
+    #[serde(default)]
+    pub thread_id: Option<String>,
     pub turn: Turn,
 }
 
@@ -198,6 +201,9 @@ pub(super) enum TurnStatus {
     Interrupted,
     Failed,
     InProgress,
+    /// A status a later Codex adds, treated as `Completed`.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Deserialize)]
@@ -289,6 +295,37 @@ pub(super) struct ResolvedNote {
     pub request_id: RequestId,
 }
 
+/// `thread/status/changed`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct StatusNote {
+    pub thread_id: String,
+    pub status: ThreadStatus,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub(super) enum ThreadStatus {
+    #[serde(rename_all = "camelCase")]
+    Active {
+        #[serde(default)]
+        active_flags: Vec<ActiveFlag>,
+    },
+    /// `notLoaded`, `idle`, `systemError`, and any status a later Codex adds.
+    #[default]
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum ActiveFlag {
+    WaitingOnApproval,
+    WaitingOnUserInput,
+    #[serde(other)]
+    Other,
+}
+
 // ---- Thread items -------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -375,6 +412,9 @@ pub(super) enum ItemStatus {
     Completed,
     Failed,
     Declined,
+    /// A status a later Codex adds, shown as running.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -414,6 +454,18 @@ pub(super) struct McpError {
 
 // ---- Requests from Codex ------------------------------------------------
 
+/// Who owns a request: the thread and the turn its params name. A legacy
+/// request names its thread `conversationId` and no turn. Read from every
+/// request's raw params beside its typed parse.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Owner {
+    #[serde(default, alias = "conversationId")]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub turn_id: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CommandApprovalParams {
@@ -435,6 +487,10 @@ pub(super) struct CommandApprovalParams {
 pub(super) enum CommandApprovalKind {
     Command,
     WriteStdin,
+    /// `humanCommand` (Codex 0.170.0) and any kind a later Codex adds: only `accept`,
+    /// `decline` and `cancel` are offered for it.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Deserialize)]
@@ -484,6 +540,8 @@ pub(super) struct FileApprovalParams {
 pub(super) struct PermissionsParams {
     pub item_id: String,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
     pub permissions: Permissions,
 }
 
@@ -498,20 +556,90 @@ pub(super) struct Permissions {
     pub file_system: Option<Box<RawValue>>,
 }
 
+/// Read strictly, like `FileSystemPermissions` and `FsEntry`: a field the
+/// building does not know is a part of the request it cannot show, so it
+/// cannot offer to grant it.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct NetworkPermissions {
     pub enabled: Option<bool>,
 }
 
+/// What a permissions request asks of the file system, read for display. The request
+/// itself is echoed raw when granted.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct FileSystemPermissions {
+    #[serde(default)]
+    pub entries: Option<Vec<FsEntry>>,
+    #[serde(default)]
+    pub glob_scan_max_depth: Option<u64>,
+    #[serde(default)]
     pub read: Option<Vec<String>>,
+    #[serde(default)]
     pub write: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FsEntry {
+    pub access: FsAccess,
+    pub path: FsPath,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum FsAccess {
+    Read,
+    Write,
+    Deny,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(super) enum FsPath {
+    Path {
+        path: String,
+    },
+    GlobPattern {
+        pattern: String,
+    },
+    Special {
+        value: FsSpecial,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(super) enum FsSpecial {
+    Root,
+    Minimal,
+    Tmpdir,
+    SlashTmp,
+    ProjectRoots {
+        #[serde(default)]
+        subpath: Option<String>,
+    },
+    Unknown {
+        path: String,
+        #[serde(default)]
+        subpath: Option<String>,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct UserInputParams {
     pub questions: Vec<Question>,
+    /// Absent means blocking (`protocol/src/request_user_input.rs`, rust-v0.161.0).
+    #[serde(default)]
+    pub is_blocking: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -560,7 +688,7 @@ pub(super) enum Elicitation {
 pub(super) struct FormSchema {
     #[serde(default)]
     pub properties: BTreeMap<String, FormField>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "nullable")]
     pub required: Vec<String>,
 }
 

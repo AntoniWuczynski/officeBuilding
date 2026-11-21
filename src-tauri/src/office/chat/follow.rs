@@ -64,7 +64,7 @@ impl Facts {
             session_id: session_id.to_string(),
             entry,
             state: self.state,
-            approval: self.approval.clone(),
+            approvals: self.approval.clone().into_iter().collect(),
             ended: self.ended.clone(),
             reset,
             desk_changed: false,
@@ -114,6 +114,7 @@ impl Office {
                     .to_string(),
                 fields: Vec::new(),
                 choices: Vec::new(),
+                ..Approval::default()
             }
         });
         Ok(Facts {
@@ -151,7 +152,7 @@ impl Office {
         Ok(Backlog {
             transcript,
             state: facts.state,
-            approval: facts.approval,
+            approvals: facts.approval.into_iter().collect(),
             ended: facts.ended,
             capabilities: facts.capabilities,
             earlier,

@@ -124,9 +124,11 @@ pub(super) fn ask(method: &str, params: &str) -> Option<Ask> {
                 .map(|question| Field {
                     id: question.id.clone(),
                     label: question.prompt.clone(),
+                    detail: String::new(),
                     kind: FieldKind::Pick {
                         options: question.options.iter().map(|o| o.label.clone()).collect(),
                         other: false,
+                        secret: false,
                     },
                     required: true,
                 })

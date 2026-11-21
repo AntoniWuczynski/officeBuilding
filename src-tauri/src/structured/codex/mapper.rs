@@ -2,20 +2,19 @@
 //! No process here: the driver feeds it lines and delivers what it returns, so
 //! the tests can replay recorded sessions.
 
-use super::ask::{self, Ask, Fill, FormKind};
+use super::ask::{self, Ask};
+use super::requests::{Flags, Gone, Requests};
 use super::views::{mcp_text, patch_view, plan_text, user_text};
-use super::wire::{Answer, FormValue};
 use super::wire::{
-    Capabilities, ClientInfo, CommandDecision, DeltaNote, ElicitAction, ErrorNote, ErrorReply,
-    FileApprovalParams, Incoming, InitializeParams, ItemNote, ItemStatus, McpProgressNote,
-    Notification, PatchUpdatedNote, PlanNote, Reply, ReplyBody, Request, RequestId, ResolvedNote,
-    ReviewDecision, RpcError, SummaryDeltaNote, SummaryPartNote, TextInput, ThreadItem,
-    ThreadResumeParams, ThreadResumeResult, ThreadStartParams, ThreadStartResult,
-    TurnInterruptParams, TurnNote, TurnStartParams, TurnStartResult, TurnStatus, TurnSteerParams,
-    WarningNote,
+    Capabilities, ClientInfo, DeltaNote, ErrorNote, ErrorReply, FileApprovalParams, Incoming,
+    InitializeParams, ItemNote, ItemStatus, McpProgressNote, Notification, Owner, PatchUpdatedNote,
+    PlanNote, Request, RequestId, ResolvedNote, RpcError, StatusNote, SummaryDeltaNote,
+    SummaryPartNote, TextInput, ThreadItem, ThreadResumeParams, ThreadResumeResult,
+    ThreadStartParams, ThreadStartResult, ThreadStatus, TurnInterruptParams, TurnNote,
+    TurnStartParams, TurnStartResult, TurnStatus, TurnSteerParams, WarningNote,
 };
 use crate::model::SessionState;
-use crate::structured::{Approval, Choice, Entry, Event, FileDiff, ToolStatus, Values, difftext};
+use crate::structured::{Entry, Event, FileDiff, ToolStatus, Values, difftext};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::{HashMap, VecDeque};
@@ -24,6 +23,8 @@ use std::collections::{HashMap, VecDeque};
 const METHOD_NOT_FOUND: i64 = -32601;
 /// JSON-RPC's "invalid params", for a request whose params did not parse.
 const INVALID_PARAMS: i64 = -32602;
+/// Ended turns of the desk's own thread remembered, so a late notice of one changes nothing.
+const ENDED_KEPT: usize = 16;
 
 /// One thing for the driver to do, in order.
 #[derive(Debug, PartialEq, Eq)]
@@ -66,16 +67,6 @@ struct ToolView {
     diffs: Vec<FileDiff>,
 }
 
-/// An approval the human has not answered: the request to answer and, per
-/// choice (by index), the reply it sends.
-struct Open {
-    request: RequestId,
-    item: Option<String>,
-    replies: Vec<ReplyBody>,
-    fill: Option<Fill>,
-    fields: Vec<crate::structured::Field>,
-}
-
 pub(super) struct Mapper {
     cwd: String,
     model: Option<String>,
@@ -95,7 +86,10 @@ pub(super) struct Mapper {
     texts: HashMap<String, String>,
     thoughts: HashMap<String, Vec<String>>,
     tools: HashMap<String, ToolView>,
-    approvals: HashMap<String, Open>,
+    requests: Requests,
+    flags: Flags,
+    /// The last turns of the desk's own thread that ended, oldest first.
+    ended: VecDeque<String>,
 }
 
 impl Mapper {
@@ -121,7 +115,9 @@ impl Mapper {
             texts: HashMap::new(),
             thoughts: HashMap::new(),
             tools: HashMap::new(),
-            approvals: HashMap::new(),
+            requests: Requests::default(),
+            flags: Flags::default(),
+            ended: VecDeque::new(),
         }
     }
 
@@ -171,6 +167,15 @@ impl Mapper {
         out
     }
 
+    /// A manager's note: refused while any formal request is open, checked here under the
+    /// mapper's lock so a request opening a moment ago still holds it.
+    pub(super) fn note(&mut self, text: &str) -> Result<Vec<Out>, String> {
+        if self.requests.any_open() {
+            return Err("the desk has a request open".to_string());
+        }
+        Ok(self.prompt(text))
+    }
+
     /// Stop the running turn. A turn whose id has not arrived yet cannot be named, so it runs on.
     pub(super) fn cancel(&mut self) -> Vec<Out> {
         let (Some(thread), TurnState::Active(turn)) = (self.thread.clone(), self.turn.clone())
@@ -187,49 +192,38 @@ impl Mapper {
         )]
     }
 
+    /// Answer an open request. The reply is handed to `write`, and only a write that
+    /// worked removes the request. One that failed leaves it open with the reason.
+    /// Returns what the desk is to be told (events only), and what the caller is.
     pub(super) fn answer(
         &mut self,
         approval_id: &str,
         choice_id: &str,
         values: &Values,
-    ) -> Result<Vec<Out>, String> {
-        let open = self
-            .approvals
-            .get(approval_id)
-            .ok_or("that approval is no longer open")?;
-        let index: usize = choice_id
-            .parse()
-            .map_err(|_| format!("{choice_id} is not one of this approval's choices"))?;
-        let reply = open
-            .replies
-            .get(index)
-            .ok_or_else(|| format!("{choice_id} is not one of this approval's choices"))?;
-        let reply = &filled(reply, open.fill.as_ref(), &open.fields, values)?;
-        let allow = !matches!(
-            reply,
-            ReplyBody::Decision {
-                decision: CommandDecision::Decline | CommandDecision::Cancel,
-            } | ReplyBody::Review {
-                decision: ReviewDecision::Denied { .. } | ReviewDecision::Abort,
-            } | ReplyBody::Elicit {
-                action: ElicitAction::Decline | ElicitAction::Cancel,
-                ..
+        write: impl FnOnce(&str) -> Result<(), String>,
+    ) -> (Vec<Out>, Result<(), String>) {
+        let (line, allow) = match self.requests.reply(approval_id, choice_id, values) {
+            Ok(reply) => reply,
+            Err(e) => return (Vec::new(), Err(e)),
+        };
+        let result = write(&line);
+        let mut out = Vec::new();
+        match &result {
+            Ok(()) => {
+                if let Some(gone) = self.requests.sent(approval_id) {
+                    out.push(resolved(gone.approval_id));
+                    if allow && let Some(item) = gone.item {
+                        out.extend(self.set_tool_status(&item, ToolStatus::Running));
+                    }
+                }
             }
-        );
-        let mut out = vec![line(&Reply {
-            id: &open.request,
-            result: reply,
-        })];
-        let item = open.item.clone();
-        self.approvals.remove(approval_id);
-        out.push(Out::Event(Event::Resolved {
-            approval_id: approval_id.to_string(),
-        }));
-        if allow && let Some(item) = item {
-            out.extend(self.set_tool_status(&item, ToolStatus::Running));
+            Err(reason) => {
+                let view = self.requests.failed(approval_id, reason);
+                out.extend(view.map(|v| Out::Event(Event::Approval(v))));
+            }
         }
         out.push(self.state());
-        Ok(out)
+        (out, result)
     }
 
     /// One line from Codex's stdout. Anything that is not a protocol message
@@ -239,7 +233,9 @@ impl Mapper {
             return Vec::new();
         };
         let params = msg.params.as_deref().map_or("null", |p| p.get());
-        match (msg.id, msg.method) {
+        // A thread status shows only after the next line: Codex counts a request before sending it.
+        let status = msg.method.as_deref() == Some("thread/status/changed");
+        let mut out = match (msg.id, msg.method) {
             (Some(id), Some(method)) => self.server_request(&id, &method, params),
             (None, Some(method)) => self.notification(&method, params),
             (Some(RequestId::Number(id)), None) => match self.calls.remove(&id) {
@@ -250,7 +246,23 @@ impl Mapper {
                 None => Vec::new(),
             },
             _ => Vec::new(),
+        };
+        if !status {
+            let mut cards = self.unseen_cards();
+            // The cards go ahead of the state this line already carries, so the desk never
+            // shows Needs you before its row exists.
+            match out
+                .iter()
+                .position(|o| matches!(o, Out::Event(Event::State(_))))
+            {
+                Some(at) => {
+                    cards.pop();
+                    out.splice(at..at, cards);
+                }
+                None => out.extend(cards),
+            }
         }
+        out
     }
 
     // ---- Our requests and their responses ------------------------------
@@ -333,11 +345,16 @@ impl Mapper {
             Call::ThreadResume => match serde_json::from_str::<ThreadResumeResult>(result) {
                 Ok(r) => {
                     self.thread = Some(r.thread.id.clone());
+                    let status = r.thread.status.map_or_else(ThreadStatus::default, |raw| {
+                        serde_json::from_str(raw.get()).unwrap_or_default()
+                    });
+                    self.flags.set(&status, &self.requests);
                     let mut out = vec![Out::Event(Event::SessionId(r.thread.id))];
-                    // The conversation so far, as finished items.
+                    // The conversation so far: no request is made from it, and none of it still runs.
                     for item in r.thread.turns.into_iter().flat_map(|t| t.items) {
                         out.extend(self.item(item));
                     }
+                    out.extend(self.sweep_tools());
                     if let Some(first) = self.queued.pop_front() {
                         out.extend(self.start_turn(first));
                     }
@@ -394,8 +411,12 @@ impl Mapper {
         }
     }
 
+    /// The desk's own turn `id` began. One that already ended (the response to
+    /// `turn/start` arriving after its completion) changes nothing.
     fn turn_began(&mut self, id: &str) -> Vec<Out> {
-        if matches!(&self.turn, TurnState::Active(t) if t == id) {
+        if self.ended.iter().any(|t| t == id)
+            || matches!(&self.turn, TurnState::Active(t) if t == id)
+        {
             return Vec::new();
         }
         self.turn = TurnState::Active(id.to_string());
@@ -411,9 +432,19 @@ impl Mapper {
 
     fn notification(&mut self, method: &str, params: &str) -> Vec<Out> {
         match method {
-            "turn/started" => parse(params, |n: TurnNote| self.turn_began(&n.turn.id)),
+            "turn/started" => parse(params, |n: TurnNote| self.turn_started(&n)),
             "turn/completed" => parse(params, |n: TurnNote| self.turn_ended(&n)),
-            "item/started" | "item/completed" => parse(params, |n: ItemNote| self.item(n.item)),
+            "item/started" | "item/completed" => parse(params, |n: ItemNote| {
+                let mut out = self.item(n.item);
+                // A tool starting or finishing changes Running, so the desk is told.
+                if out
+                    .iter()
+                    .any(|o| matches!(o, Out::Event(Event::Entry(Entry::Tool { .. }))))
+                {
+                    out.push(self.state());
+                }
+                out
+            }),
             "item/agentMessage/delta" => parse(params, |n: DeltaNote| {
                 let text = self.texts.entry(n.item_id.clone()).or_default();
                 text.push_str(&n.delta);
@@ -451,14 +482,16 @@ impl Mapper {
                 }))]
             }),
             "serverRequest/resolved" => parse(params, |n: ResolvedNote| {
-                let id = n.request_id.to_string();
-                if self.approvals.remove(&id).is_none() {
-                    return Vec::new();
+                match self.requests.resolved(&n.request_id) {
+                    Some(gone) => vec![resolved(gone.approval_id), self.state()],
+                    None => Vec::new(),
                 }
-                vec![
-                    Out::Event(Event::Resolved { approval_id: id }),
-                    self.state(),
-                ]
+            }),
+            "thread/status/changed" => parse(params, |n: StatusNote| {
+                if self.other(Some(&n.thread_id)).is_none() {
+                    self.flags.set(&n.status, &self.requests);
+                }
+                Vec::new()
             }),
             "error" => parse(params, |n: ErrorNote| {
                 let mut text = error_text(&n.error.message, n.error.additional_details.as_deref());
@@ -474,9 +507,45 @@ impl Mapper {
         }
     }
 
+    /// A turn of thread T started: the thread's requests from other turns are over.
+    fn turn_started(&mut self, n: &TurnNote) -> Vec<Out> {
+        let thread = self.other(n.thread_id.as_deref());
+        let mut out = retired(self.requests.retire_older(thread, &n.turn.id));
+        if thread.is_some() {
+            out.push(self.state());
+            return out;
+        }
+        let began = self.turn_began(&n.turn.id);
+        if began.is_empty() && !out.is_empty() {
+            out.push(self.state());
+        }
+        out.extend(began);
+        out
+    }
+
+    /// A turn of thread T ended. It retires the requests it owns. Only the desk's
+    /// own active turn (or the one it is starting) idles the desk.
     fn turn_ended(&mut self, n: &TurnNote) -> Vec<Out> {
+        let id = &n.turn.id;
+        let thread = self.other(n.thread_id.as_deref());
+        if thread.is_none() && self.ended.contains(id) {
+            return Vec::new();
+        }
+        let mut out = retired(self.requests.retire_turn(thread, id));
+        if thread.is_none() {
+            if self.ended.len() == ENDED_KEPT {
+                self.ended.pop_front();
+            }
+            self.ended.push_back(id.clone());
+        }
+        // Another thread's turn, or a late end of an older turn of the desk's own.
+        if thread.is_some() || matches!(&self.turn, TurnState::Active(a) if a != id) {
+            out.push(self.state());
+            return out;
+        }
         self.turn = TurnState::Idle;
-        let mut out = Vec::new();
+        out.extend(self.sweep_tools());
+        self.flags.clear();
         match n.turn.status {
             TurnStatus::Failed => {
                 if !self.turn_error_shown {
@@ -495,7 +564,9 @@ impl Mapper {
                 })));
                 out.push(self.state());
             }
-            TurnStatus::Completed | TurnStatus::InProgress => out.push(self.state()),
+            TurnStatus::Completed | TurnStatus::InProgress | TurnStatus::Other => {
+                out.push(self.state());
+            }
         }
         if let Some(next) = self.queued.pop_front() {
             out.extend(self.start_turn(next));
@@ -616,12 +687,7 @@ impl Mapper {
         diffs: Vec<FileDiff>,
     ) -> Vec<Out> {
         // An approval waiting on this item keeps it pending until answered.
-        let status = if status == ToolStatus::Running
-            && self
-                .approvals
-                .values()
-                .any(|a| a.item.as_deref() == Some(id))
-        {
+        let status = if status == ToolStatus::Running && self.requests.waits_on(id) {
             ToolStatus::Pending
         } else {
             status
@@ -650,6 +716,20 @@ impl Mapper {
 
     fn set_tool_status(&mut self, id: &str, status: ToolStatus) -> Vec<Out> {
         self.tool_update(id, |t| t.status = status)
+    }
+
+    /// A turn is over: every tool still pending or running failed with it.
+    fn sweep_tools(&mut self) -> Vec<Out> {
+        let mut open: Vec<String> = self
+            .tools
+            .iter()
+            .filter(|(_, t)| matches!(t.status, ToolStatus::Pending | ToolStatus::Running))
+            .map(|(id, _)| id.clone())
+            .collect();
+        open.sort();
+        open.iter()
+            .flat_map(|id| self.set_tool_status(id, ToolStatus::Failed))
+            .collect()
     }
 
     fn tool_entry(&self, id: &str) -> Vec<Out> {
@@ -683,7 +763,7 @@ impl Mapper {
                 Some(ask::file_approval(p, files))
             }),
             "item/permissions/requestApproval" => {
-                typed(params).map(|p| Some(ask::permissions_approval(p)))
+                typed(params).map(|p| Some(ask::permissions_approval(p, &self.cwd)))
             }
             "item/tool/requestUserInput" => typed(params).map(ask::user_input),
             "mcpServer/elicitation/request" => ask::elicitation(params).map(Some),
@@ -700,7 +780,7 @@ impl Mapper {
             }
         };
         match asked {
-            Ok(Some(ask)) => self.open(id, ask),
+            Ok(Some(ask)) => self.open(id, typed(params).unwrap_or_default(), ask),
             Ok(None) => vec![line(&ErrorReply {
                 id,
                 error: RpcError {
@@ -723,41 +803,19 @@ impl Mapper {
         }
     }
 
-    fn open(&mut self, request: &RequestId, ask: Ask) -> Vec<Out> {
-        let approval_id = request.to_string();
-        let (choices, replies): (Vec<Choice>, Vec<ReplyBody>) = ask
-            .choices
-            .into_iter()
-            .enumerate()
-            .map(|(i, (label, allow, reply))| {
-                (
-                    Choice {
-                        id: i.to_string(),
-                        label,
-                        allow,
-                    },
-                    reply,
-                )
-            })
-            .unzip();
-        self.approvals.insert(
-            approval_id.clone(),
-            Open {
-                request: request.clone(),
-                item: ask.item.clone(),
-                replies,
-                fill: ask.fill,
-                fields: ask.fields.clone(),
-            },
-        );
-        let mut out = vec![Out::Event(Event::Approval(Approval {
-            id: approval_id,
-            title: ask.title,
-            detail: ask.detail,
-            fields: ask.fields,
-            choices,
-        }))];
-        if let Some(item) = ask.item {
+    fn open(&mut self, request: &RequestId, owner: Owner, ask: Ask) -> Vec<Out> {
+        let thread = self.other(owner.thread_id.as_deref()).map(str::to_string);
+        let turn = owner.turn_id.or_else(|| match (&thread, &self.turn) {
+            (None, TurnState::Active(t)) => Some(t.clone()),
+            _ => None,
+        });
+        if thread.is_none() {
+            self.flags.explain(ask.class);
+        }
+        let item = ask.item.clone();
+        let view = self.requests.open(request, thread, turn, ask);
+        let mut out = vec![Out::Event(Event::Approval(view))];
+        if let Some(item) = item {
             out.extend(self.set_tool_status(&item, ToolStatus::Pending));
         }
         out.push(self.state());
@@ -766,14 +824,33 @@ impl Mapper {
 
     // ---- Small pieces ---------------------------------------------------
 
+    /// Blocked (a request or the thread status says so), idle, a tool running, or thinking.
     fn state(&self) -> Out {
-        Out::Event(Event::State(if !self.approvals.is_empty() {
-            SessionState::WaitingHuman
-        } else if self.turn == TurnState::Idle && self.queued.is_empty() {
-            SessionState::Idle
-        } else {
-            SessionState::Thinking
-        }))
+        Out::Event(Event::State(
+            if self.requests.blocking() || self.flags.unseen() {
+                SessionState::WaitingHuman
+            } else if self.turn == TurnState::Idle && self.queued.is_empty() {
+                SessionState::Idle
+            } else if self.tools.values().any(|t| t.status == ToolStatus::Running) {
+                SessionState::Running
+            } else {
+                SessionState::Thinking
+            },
+        ))
+    }
+
+    /// None for the desk's own thread (named, or not named at all), else the other id.
+    fn other<'a>(&self, thread: Option<&'a str>) -> Option<&'a str> {
+        thread.filter(|t| self.thread.as_deref() != Some(*t))
+    }
+
+    /// The thread status's cards to show or take away, after a line that is not a status.
+    fn unseen_cards(&mut self) -> Vec<Out> {
+        let mut out: Vec<Out> = self.flags.cards().into_iter().map(Out::Event).collect();
+        if !out.is_empty() {
+            out.push(self.state());
+        }
+        out
     }
 
     fn notice(&mut self, text: String) -> Out {
@@ -787,10 +864,18 @@ impl Mapper {
 
 fn tool_status(s: ItemStatus) -> ToolStatus {
     match s {
-        ItemStatus::InProgress => ToolStatus::Running,
+        ItemStatus::InProgress | ItemStatus::Other => ToolStatus::Running,
         ItemStatus::Completed => ToolStatus::Done,
         ItemStatus::Failed | ItemStatus::Declined => ToolStatus::Failed,
     }
+}
+
+fn resolved(approval_id: String) -> Out {
+    Out::Event(Event::Resolved { approval_id })
+}
+
+fn retired(gone: Vec<Gone>) -> Vec<Out> {
+    gone.into_iter().map(|g| resolved(g.approval_id)).collect()
 }
 
 fn error_text(message: &str, details: Option<&str>) -> String {
@@ -839,74 +924,4 @@ fn parse<T: DeserializeOwned>(params: &str, f: impl FnOnce(T) -> Vec<Out>) -> Ve
 /// A request's params, typed, or why they did not parse.
 fn typed<T: DeserializeOwned>(params: &str) -> Result<T, String> {
     serde_json::from_str(params).map_err(|e| e.to_string())
-}
-
-/// The reply an answer sends: as prepared, or, for a choice that accepts a
-/// question or a form, built from the human's values. A required field left
-/// empty is refused before anything is sent.
-fn filled(
-    reply: &ReplyBody,
-    fill: Option<&Fill>,
-    fields: &[crate::structured::Field],
-    values: &Values,
-) -> Result<ReplyBody, String> {
-    let accepting = matches!(
-        reply,
-        ReplyBody::Input { .. }
-            | ReplyBody::Elicit {
-                action: ElicitAction::Accept,
-                ..
-            }
-    );
-    let Some(fill) = fill.filter(|_| accepting) else {
-        return Ok(reply.clone());
-    };
-    let value = |id: &str| values.get(id).map(|v| v.trim()).filter(|v| !v.is_empty());
-    if let Some(missing) = fields.iter().find(|f| f.required && value(&f.id).is_none()) {
-        return Err(format!("{} needs an answer first", missing.label));
-    }
-    Ok(match fill {
-        Fill::Input(ids) => ReplyBody::Input {
-            answers: ids
-                .iter()
-                .filter_map(|id| {
-                    let answer = Answer {
-                        answers: vec![value(id)?.to_string()],
-                    };
-                    Some((id.clone(), answer))
-                })
-                .collect(),
-        },
-        Fill::Form(kinds) => {
-            let mut content = std::collections::BTreeMap::new();
-            for (id, kind) in kinds {
-                let Some(v) = value(id) else { continue };
-                let typed = match kind {
-                    FormKind::Text => FormValue::Text(v.to_string()),
-                    FormKind::Boolean => FormValue::Bool(match v {
-                        "true" => true,
-                        "false" => false,
-                        _ => return Err(format!("{id} takes yes or no")),
-                    }),
-                    FormKind::Integer => FormValue::Number(
-                        v.parse::<i64>()
-                            .map_err(|_| format!("{id} takes a whole number"))?
-                            .into(),
-                    ),
-                    FormKind::Number => FormValue::Number(
-                        v.parse::<f64>()
-                            .ok()
-                            .and_then(serde_json::Number::from_f64)
-                            .ok_or_else(|| format!("{id} takes a number"))?,
-                    ),
-                };
-                content.insert(id.clone(), typed);
-            }
-            ReplyBody::Elicit {
-                action: ElicitAction::Accept,
-                content: Some(content),
-                meta: None,
-            }
-        }
-    })
 }

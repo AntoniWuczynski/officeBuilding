@@ -338,6 +338,7 @@ impl Transcript {
                 detail,
                 fields: Vec::new(),
                 choices,
+                ..Approval::default()
             }),
             Event::State(SessionState::WaitingHuman),
         ]
@@ -359,6 +360,7 @@ impl Transcript {
                 detail: ask.detail,
                 fields: ask.fields,
                 choices: ask.choices,
+                ..Approval::default()
             }),
             Event::State(SessionState::WaitingHuman),
         ]

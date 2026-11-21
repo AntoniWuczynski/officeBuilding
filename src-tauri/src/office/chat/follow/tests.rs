@@ -104,6 +104,7 @@ fn prompt_card(detail: &str) -> Approval {
         detail: detail.to_string(),
         fields: Vec::new(),
         choices: Vec::new(),
+        ..Approval::default()
     }
 }
 
@@ -121,7 +122,7 @@ fn an_app_terminal_desk_gets_its_transcript_with_the_terminal_capabilities() {
     );
     assert_eq!(backlog.capabilities, Capabilities::CLAUDE_TERMINAL);
     assert_eq!(backlog.state, SessionState::Idle);
-    assert_eq!((backlog.approval, backlog.ended), (None, None));
+    assert_eq!((backlog.approvals, backlog.ended), (Vec::new(), None));
     assert!(!backlog.earlier);
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -181,14 +182,14 @@ fn a_permission_prompt_shows_as_a_terminal_card_until_the_tool_runs() {
     let card = prompt_card("The agent wants to run a command");
     let updates = office.chat_updates();
     assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0].approval.as_ref(), Some(&card));
+    assert_eq!(updates[0].approvals, vec![card.clone()]);
     assert_eq!(updates[0].state, SessionState::WaitingHuman);
-    assert_eq!(office.chat_backlog(&id).unwrap().approval, Some(card));
+    assert_eq!(office.chat_backlog(&id).unwrap().approvals, vec![card]);
     event(&office, &id, "PostToolUse", None);
     apply_feed(&office);
     let updates = office.chat_updates();
     assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0].approval, None);
+    assert!(updates[0].approvals.is_empty());
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -203,7 +204,7 @@ fn a_prompts_message_arrives_cleaned_on_one_line() {
         "Run\u{1b}[31m this\ncommand?",
     );
     let backlog = office.chat_backlog(&id).unwrap();
-    assert_eq!(backlog.approval, Some(prompt_card("Run this command?")));
+    assert_eq!(backlog.approvals, vec![prompt_card("Run this command?")]);
     fs::remove_dir_all(&dir).unwrap();
 }
 

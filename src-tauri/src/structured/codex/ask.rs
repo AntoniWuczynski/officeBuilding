@@ -2,11 +2,13 @@
 //! detail and choices, each choice carrying the reply it sends back. Choices
 //! follow what each request type allows in the protocol (see `wire.rs`).
 
+use super::requests::Class;
 use super::wire::{
     CommandAction, CommandApprovalKind, CommandApprovalParams, CommandDecision, ElicitAction,
-    Elicitation, ElicitationHead, FileApprovalParams, FileSystemPermissions, FormSchema,
-    GrantScope, LegacyExecParams, LegacyFileChange, LegacyPatchParams, NetworkPermissions,
-    Permissions, PermissionsParams, ReplyBody, ReviewDecision, RuleAction, UserInputParams,
+    Elicitation, ElicitationHead, FileApprovalParams, FileSystemPermissions, FormSchema, FsAccess,
+    FsEntry, FsPath, FsSpecial, GrantScope, LegacyExecParams, LegacyFileChange, LegacyPatchParams,
+    NetworkPermissions, Permissions, PermissionsParams, ReplyBody, ReviewDecision, RuleAction,
+    UserInputParams,
 };
 use crate::structured::{Field, FieldKind};
 use std::collections::BTreeMap;
@@ -21,6 +23,10 @@ pub(super) struct Ask {
     pub fields: Vec<Field>,
     pub fill: Option<Fill>,
     pub choices: Vec<(String, bool, ReplyBody)>,
+    /// The agent keeps working while this is open (a non-blocking question).
+    pub background: bool,
+    /// Which of Codex's waiting flags it counts under.
+    pub class: Class,
 }
 
 /// How an accepting reply is built from the human's values.
@@ -61,108 +67,165 @@ fn command_choice(d: &CommandDecision) -> (String, bool) {
     }
 }
 
-pub(super) fn permissions_approval(p: PermissionsParams) -> Ask {
-    let network = p
-        .permissions
-        .network
-        .as_deref()
-        .and_then(|n| serde_json::from_str::<NetworkPermissions>(n.get()).ok())
-        .and_then(|n| n.enabled)
-        .map(|on| {
-            if on {
-                "Network access"
-            } else {
-                "No network access"
-            }
-            .to_string()
-        });
-    let fs = p
-        .permissions
-        .file_system
-        .as_deref()
-        .and_then(|f| serde_json::from_str::<FileSystemPermissions>(f.get()).ok());
-    let (read, write) = fs.map_or((None, None), |f| {
-        let list = |label: &str, paths: Option<Vec<String>>| {
-            paths
-                .filter(|p| !p.is_empty())
-                .map(|p| format!("{label}: {}", p.join(", ")))
-        };
-        (list("Read", f.read), list("Write", f.write))
-    });
-    let detail = lines([p.reason, network, read, write]);
+/// A permission request lists every part of what it asks, in the order Codex
+/// gives it. A grant echoes the request exactly, so it is offered only when
+/// every part could be read and listed. Otherwise it can only be declined.
+pub(super) fn permissions_approval(p: PermissionsParams, cwd: &str) -> Ask {
+    let place = p.cwd.filter(|c| c != cwd).map(|c| format!("in {c}"));
+    let scope = scope(&p.permissions);
     let grant = |scope| ReplyBody::Permissions {
         permissions: p.permissions.clone(),
         scope,
     };
-    let none = ReplyBody::Permissions {
-        permissions: Permissions {
-            network: None,
-            file_system: None,
+    let none = (
+        "Decline".to_string(),
+        false,
+        ReplyBody::Permissions {
+            permissions: Permissions {
+                network: None,
+                file_system: None,
+            },
+            scope: GrantScope::Turn,
         },
-        scope: GrantScope::Turn,
+    );
+    let (asked, choices) = match scope {
+        Some(asked) => (
+            asked,
+            vec![
+                (
+                    "Allow for this turn".to_string(),
+                    true,
+                    grant(GrantScope::Turn),
+                ),
+                (
+                    "Allow for this session".to_string(),
+                    true,
+                    grant(GrantScope::Session),
+                ),
+                none,
+            ],
+        ),
+        None => (vec![UNREADABLE.to_string()], vec![none]),
     };
     Ask {
         fields: Vec::new(),
         fill: None,
         title: "Give Codex extra permissions?".to_string(),
-        detail,
+        detail: lines(
+            [p.reason, place]
+                .into_iter()
+                .chain(asked.into_iter().map(Some)),
+        ),
         item: Some(p.item_id),
-        choices: vec![
-            (
-                "Allow for this turn".to_string(),
-                true,
-                grant(GrantScope::Turn),
-            ),
-            (
-                "Allow for this session".to_string(),
-                true,
-                grant(GrantScope::Session),
-            ),
-            ("Decline".to_string(), false, none),
-        ],
+        choices,
+        background: false,
+        class: Class::Approval,
     }
 }
 
-/// Codex's questions become fields (a pick-list for a question with options,
-/// text otherwise), answered together with "Send".
-pub(super) fn user_input(p: UserInputParams) -> Option<Ask> {
-    if p.questions.is_empty() {
-        return None;
+const UNREADABLE: &str = "The building could not read everything this request asks for, so it can only be declined here.";
+
+/// One line per part of a permission request, or `None` when a part could
+/// not be read.
+fn scope(p: &Permissions) -> Option<Vec<String>> {
+    let mut out = Vec::new();
+    if let Some(network) = &p.network {
+        match serde_json::from_str::<NetworkPermissions>(network.get())
+            .ok()?
+            .enabled
+        {
+            Some(true) => out.push("Network access".to_string()),
+            Some(false) => out.push("No network access".to_string()),
+            None => {}
+        }
     }
-    let title = match p.questions.as_slice() {
-        [q] => lines([
-            Some(q.header.clone()).filter(|h| !h.is_empty()),
-            Some(q.text.clone()),
-        ]),
-        _ => "Codex has some questions".to_string(),
+    if let Some(fs) = &p.file_system {
+        let fs: FileSystemPermissions = serde_json::from_str(fs.get()).ok()?;
+        for entry in fs.entries.into_iter().flatten() {
+            out.push(entry_line(entry)?);
+        }
+        for (label, paths) in [("Read", fs.read), ("Write", fs.write)] {
+            if let Some(paths) = paths.filter(|p| !p.is_empty()) {
+                out.push(format!("{label}: {}", paths.join(", ")));
+            }
+        }
+        if let Some(depth) = fs.glob_scan_max_depth {
+            out.push(format!("Patterns are matched up to {depth} folders deep"));
+        }
+    }
+    Some(out)
+}
+
+/// `"<access>: <what>"`, or `None` for an access, path or special path the
+/// building does not know.
+fn entry_line(entry: FsEntry) -> Option<String> {
+    let access = match entry.access {
+        FsAccess::Read => "Read",
+        FsAccess::Write => "Write",
+        FsAccess::Deny => "No access",
+        FsAccess::Other => return None,
     };
-    let detail = lines(p.questions.iter().flat_map(|q| {
-        q.options.iter().flatten().map(|o| {
-            Some(o.description.clone())
-                .filter(|d| !d.is_empty())
-                .map(|d| format!("{}: {d}", o.label))
-        })
-    }));
+    let what = match entry.path {
+        FsPath::Path { path } => path,
+        FsPath::GlobPattern { pattern } => format!("every path matching {pattern}"),
+        FsPath::Special { value } => match value {
+            FsSpecial::Root => "the whole disk".to_string(),
+            FsSpecial::Minimal => "the system's minimal paths".to_string(),
+            FsSpecial::Tmpdir => "the temporary folder".to_string(),
+            FsSpecial::SlashTmp => "/tmp".to_string(),
+            FsSpecial::ProjectRoots { subpath } => subpath.map_or_else(
+                || "the project folders".to_string(),
+                |s| format!("{s} in the project folders"),
+            ),
+            FsSpecial::Unknown { path, subpath } => match subpath {
+                Some(s) => format!("{path} ({s})"),
+                None => path,
+            },
+            FsSpecial::Other => return None,
+        },
+        FsPath::Other => return None,
+    };
+    Some(format!("{access}: {what}"))
+}
+
+/// Codex's questions, one field each with its own prompt, options and masked
+/// or free-text answer, sent together with "Send" under their own ids.
+pub(super) fn user_input(p: UserInputParams) -> Option<Ask> {
+    let several = p.questions.len() > 1;
+    let title = match p.questions.as_slice() {
+        [] => return None,
+        [q] => q.text.clone(),
+        all => format!("Codex has {} questions", all.len()),
+    };
     let ids: Vec<String> = p.questions.iter().map(|q| q.id.clone()).collect();
     let fields = p
         .questions
         .into_iter()
         .map(|q| {
-            let kind = match q.options.filter(|o| !o.is_empty()) {
-                Some(options) => FieldKind::Pick {
+            let (label, prompt) = if !q.header.is_empty() {
+                (q.header, several.then_some(q.text))
+            } else if several {
+                (q.text, None)
+            } else {
+                ("Your answer".to_string(), None)
+            };
+            let options = q.options.unwrap_or_default();
+            let detail = lines(std::iter::once(prompt).chain(options.iter().map(|o| {
+                (!o.description.is_empty()).then(|| format!("{}: {}", o.label, o.description))
+            })));
+            let kind = match (options.is_empty(), q.is_secret) {
+                (false, secret) => FieldKind::Pick {
                     options: options.into_iter().map(|o| o.label).collect(),
                     other: q.is_other,
+                    secret,
                 },
-                None if q.is_secret => FieldKind::Secret,
-                None => FieldKind::Text,
+                (true, true) => FieldKind::Secret,
+                (true, false) => FieldKind::Text,
             };
             Field {
                 id: q.id,
-                label: if q.header.is_empty() {
-                    q.text
-                } else {
-                    q.header
-                },
+                label,
+                detail,
                 kind,
                 required: true,
             }
@@ -173,11 +236,13 @@ pub(super) fn user_input(p: UserInputParams) -> Option<Ask> {
     };
     Some(Ask {
         title,
-        detail,
+        detail: String::new(),
         item: None,
         fields,
         fill: Some(Fill::Input(ids)),
         choices: vec![("Send".to_string(), true, send)],
+        background: !p.is_blocking.unwrap_or(true),
+        class: Class::Input,
     })
 }
 
@@ -211,6 +276,7 @@ pub(super) fn elicitation(params: &str) -> Result<Ask, String> {
                         FieldKind::Pick {
                             options,
                             other: false,
+                            secret: false,
                         },
                         FormKind::Text,
                     ),
@@ -227,6 +293,7 @@ pub(super) fn elicitation(params: &str) -> Result<Ask, String> {
                     required: required.contains(&name),
                     id: name.clone(),
                     label,
+                    detail: String::new(),
                     kind,
                 });
                 kinds.push((name, form));
@@ -260,6 +327,8 @@ pub(super) fn elicitation(params: &str) -> Result<Ask, String> {
         fields,
         fill,
         choices,
+        background: false,
+        class: Class::Approval,
     })
 }
 
@@ -297,6 +366,8 @@ pub(super) fn legacy_exec(p: LegacyExecParams) -> Ask {
         ]),
         item: None,
         choices: legacy_choices(),
+        background: false,
+        class: Class::Approval,
     }
 }
 
@@ -318,30 +389,61 @@ pub(super) fn legacy_patch(p: LegacyPatchParams) -> Ask {
         detail: lines([p.reason, Some(files)]),
         item: None,
         choices: legacy_choices(),
+        background: false,
+        class: Class::Approval,
     }
 }
 
+/// A command kind the building does not know (`humanCommand`, or a later one)
+/// is offered only accept, decline and cancel, never an answer Codex remembers.
 pub(super) fn command_approval(p: CommandApprovalParams, cwd: &str) -> Ask {
-    let decisions = p.available_decisions.unwrap_or_else(|| {
-        let mut d = vec![CommandDecision::Accept, CommandDecision::AcceptForSession];
-        if let Some(amendment) = p.proposed_execpolicy_amendment {
-            d.push(CommandDecision::AcceptWithExecpolicyAmendment {
-                execpolicy_amendment: amendment,
-            });
+    let unknown_kind = p.kind == Some(CommandApprovalKind::Other);
+    let decisions = if unknown_kind {
+        let plain: Vec<CommandDecision> = p
+            .available_decisions
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|d| {
+                matches!(
+                    d,
+                    CommandDecision::Accept | CommandDecision::Decline | CommandDecision::Cancel
+                )
+            })
+            .collect();
+        if plain.is_empty() {
+            vec![
+                CommandDecision::Accept,
+                CommandDecision::Decline,
+                CommandDecision::Cancel,
+            ]
+        } else {
+            plain
         }
-        for amendment in p.proposed_network_policy_amendments.unwrap_or_default() {
-            d.push(CommandDecision::ApplyNetworkPolicyAmendment {
-                network_policy_amendment: amendment,
-            });
-        }
-        d.extend([CommandDecision::Decline, CommandDecision::Cancel]);
-        d
-    });
+    } else {
+        p.available_decisions.unwrap_or_else(|| {
+            let mut d = vec![CommandDecision::Accept, CommandDecision::AcceptForSession];
+            if let Some(amendment) = p.proposed_execpolicy_amendment {
+                d.push(CommandDecision::AcceptWithExecpolicyAmendment {
+                    execpolicy_amendment: amendment,
+                });
+            }
+            for amendment in p.proposed_network_policy_amendments.unwrap_or_default() {
+                d.push(CommandDecision::ApplyNetworkPolicyAmendment {
+                    network_policy_amendment: amendment,
+                });
+            }
+            d.extend([CommandDecision::Decline, CommandDecision::Cancel]);
+            d
+        })
+    };
     let command = command_line(
         p.command_actions.unwrap_or_default(),
         p.command.unwrap_or_default(),
     );
     let title = match (&p.network_approval_context, p.kind) {
+        (_, Some(CommandApprovalKind::Other)) => {
+            "Codex asks for your decision on a command".to_string()
+        }
         (Some(net), _) => format!("Allow network access to {}?", net.host),
         (None, Some(CommandApprovalKind::WriteStdin)) => {
             "Send input to a running command?".to_string()
@@ -364,6 +466,8 @@ pub(super) fn command_approval(p: CommandApprovalParams, cwd: &str) -> Ask {
         detail,
         item: Some(p.item_id),
         choices,
+        background: false,
+        class: Class::Approval,
     }
 }
 
@@ -400,6 +504,8 @@ pub(super) fn file_approval(p: FileApprovalParams, files: Option<String>) -> Ask
         detail,
         item: Some(p.item_id),
         choices,
+        background: false,
+        class: Class::Approval,
     }
 }
 

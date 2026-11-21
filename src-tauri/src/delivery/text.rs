@@ -22,6 +22,13 @@ fn is_invisible(c: char) -> bool {
     )
 }
 
+/// `raw` without the zero-width and bidirectional controls, everything else (line breaks
+/// included) kept. For text a session sends that is shown to a person as it is.
+#[must_use]
+pub fn visible(raw: &str) -> String {
+    raw.chars().filter(|c| !is_invisible(*c)).collect()
+}
+
 /// `raw` made safe to type into a terminal, show in a panel and keep in a file.
 /// Err: it is empty once cleaned, or longer than `max` characters.
 pub fn clean(raw: &str, max: usize) -> Result<String, String> {
@@ -144,6 +151,11 @@ pub fn has_enter(data: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visible_drops_bidi_and_zero_width_and_keeps_line_breaks() {
+        assert_eq!(visible("a\u{202e}b\u{200b}c\nd"), "abc\nd");
+    }
 
     #[test]
     fn clean_removes_escapes_and_controls() {
