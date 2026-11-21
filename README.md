@@ -226,6 +226,33 @@ sessions as an **office building**:
 - **Exact desk states from hooks.** Agents the app starts (Claude Code, and Codex
   once its hooks are trusted) report each hook event to the building, so a
   permission prompt shows as a raised hand straight away.
+- **Codex questions and approvals in Decisions and Needs you.** Each request a
+  Codex desk has open is one row on the floor's memo pile and one in the top
+  bar's Needs you list, under its own floor and desk. A request is a question,
+  an approval of a command, of file changes or of permissions, or a form a Model
+  Context Protocol (MCP) server asks for. A Codex desk in the chat view is
+  answered in its conversation, and the row opens the conversation at that
+  request's own card. Several requests can be open at once and each keeps its
+  card until it is answered, withdrawn or its turn ends. An answer goes only to
+  the request you answered, the building never answers for you, and a reply that
+  could not be sent stays on the card with the reason so you can send it again.
+  A question that does not stop the agent leaves the desk Working. A Codex desk
+  in a terminal is answered in that terminal. Its row says where the agent runs
+  and offers only what the app can do. It can open the docked terminal, bring a
+  Terminal or iTerm2 tab to the front, or bring another terminal app to the
+  front without picking the tab. Where there is no window to bring forward it
+  offers no button and says so. Opening the terminal leaves the row open, and it
+  goes when the hooks or the session's own file show the request is over. For a
+  Codex terminal the hand is up exactly while such a row exists, and a token
+  count, another tool finishing or a long wait does not lower it. An approval
+  row there says Codex "may be waiting", because Codex's hook fires before
+  Codex, a reviewer or another hook has decided. The building cannot see
+  approval prompts at a Codex terminal whose hooks you have not trusted, or in a
+  Codex session you started outside the app, and the desk's hover card says so.
+  A question Codex asks with its own question tool is seen in both. This was
+  built against OpenAI's published source and the schema of codex-cli 0.161.0,
+  and has not yet been run against a live Codex session. Codex's helpers are not
+  drawn at their parent's desk yet.
 - **A chat view for desks.** A desk's panel can open as a chat in place of a
   terminal. Settings has an Agents group with View, Terminal or Chat, and
   Terminal is the default. The hire dialog's "Chat view" switch starts at that
@@ -241,7 +268,10 @@ sessions as an **office building**:
   cards that fold, with the command, the output and file changes drawn as
   diffs, thinking folded away, and approvals to allow or decline where the tool
   has them (with fields to fill in when the agent asks a question or an MCP
-  server asks for a form). A Claude Code permission prompt shows as a card
+  server asks for a form). A Codex desk shows one card for each request it has
+  open. A form with several questions keeps each question with its own options,
+  and a permission request lists everything it asks for before "Allow" can be
+  pressed. A Claude Code permission prompt shows as a card
   whose one button flips to the terminal, where you answer it. A message you
   send is typed into a Claude Code terminal, or sent as the next turn, only
   when the desk is idle. Until then it waits above the box with the reason and
@@ -477,7 +507,8 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   Spend is priced at public API list prices (`discovery/pricing.rs`), which is
   what the same work would cost through the API, not what a subscription bills.
 - **Not yet:** answering a terminal agent's own question from the Decisions
-  panel (answer it in the agent's terminal instead), the app's own MCP
+  panel (answer it in the agent's terminal instead, and the row says how to get
+  there), Codex helpers drawn at their parent's desk, the app's own MCP
   server for assistant agents, and in provider routing Sign in with ChatGPT,
   which waits for OpenAI's answer on whether the app may use it.
   In the chat view: Antigravity, a read-only chat
@@ -485,7 +516,8 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   model and effort switcher, plans as cards, sub-agent threads, paging in older
   messages and word-by-word replies from Claude Code. See `TODO.md`. Calls from
   a repo's decision files, and approvals on Codex, opencode and Cursor chat
-  desks, are already answered in the app.
+  desks, are already answered in the app. A chat desk's open requests are also
+  listed in Decisions and Needs you, and their rows open its conversation.
 
 The backend is our own. CCC (claude-command-center) moved to a non-commercial,
 source-available licence on 2026-07-28, so we port logic only from its last MIT

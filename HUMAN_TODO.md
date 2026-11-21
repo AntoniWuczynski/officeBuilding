@@ -910,6 +910,91 @@ here.
           a used-up tool is not refused. Take-over notes do not survive a
           restart. Say which you veto.
 
+- [ ] OB-375 — Check Codex attention states and questions (TODO OB-336, Stage
+      M2a of GitHub issue #12) in the installed app (`pnpm app:install`). The
+      calls the build made are in HUMAN_DECISIONS OB-336. None of this has run
+      anywhere. No Codex session and no app-server conversation was started,
+      and no window was brought forward. Every Codex fact the build rests on
+      was read in OpenAI's source at `rust-v0.161.0` and `rust-v0.170.0` and
+      in the schema that codex-cli 0.161.0 generates. No agent may start a
+      session or drive the Tauri window. For each check, write down the Codex
+      version (`codex --version`), the launch mode (chat desk, app terminal,
+      or outside terminal and which app), whether the hooks were trusted
+      (`/hooks`), the thread's history mode if you know it, the order things
+      happened in and what the window showed. Checks 1 to 6 need a Codex desk
+      hired with Chat view, checks 7 to 13 a Codex desk in one of the app's
+      terminals, and checks 14 and 15 Codex started outside the app.
+      1. Two requests at once. In Plan mode, get Codex to ask a question with
+         several parts, and while it is open get a command approval. There
+         should be two rows on the floor's memo pile and in Needs you, each
+         once and under the right desk, and two cards in the conversation.
+         Answer the approval first, close and reopen the panel, then click the
+         question's row in Decisions. It should open the conversation at that
+         card, outlined, and each reply should reach its own request.
+      2. A question that does not block. Outside Plan mode, get a question
+         while a command runs. The desk should stay Working, the row should be
+         there, the card should say that the agent keeps working, and you
+         should get one notification.
+      3. A turn that ends. Stop a turn with a request open. The card and the
+         row should go. Resume the desk from the sign-out sheet, and no old
+         card should come back. If Codex ever withdraws a request by itself,
+         the card and the row should go then too.
+      4. A reply that cannot be sent. End the desk's process from outside
+         while a card is open and press an answer. The card should say "Not
+         sent" with the reason, and go when the desk reports its exit.
+         Pressing twice quickly should send once.
+      5. A permission request. The card should list every entry and its scope
+         before "Allow" can be pressed. If it could not show all of it, it
+         should offer only to decline.
+      6. The status card. Does a card reading "Codex says it is waiting…" ever
+         appear while a real request is also there? It should not.
+      7. An approval in an app terminal. With hooks trusted, run a command
+         that needs approval. The desk should show Needs you, with one row
+         that says Codex "may be waiting". "Open its terminal" should open it
+         and leave the row. Approve it, and the row should go. Decline one
+         while the turn runs on, and the row should go, which rests on the
+         hook's `tool_use_id` being the session file's `call_id` and was never
+         seen. Press Escape on one, and the row should go.
+      8. A long wait. Leave an approval open for more than 30 minutes while
+         other tools finish. There should still be one row and Needs you.
+      9. Codex's own question tool in a terminal. Is the question's text in
+         the row while it is open? This rests on the call being written to the
+         session file before it is answered. A turn that finishes cleanly, and
+         a reply that ends on a quoted question, should raise no hand and no
+         alert.
+      10. A reviewer that settles approvals by itself. How often does Needs
+          you flash (TODO OB-363)?
+      11. Hooks not trusted. The hover card should say that the building
+          cannot see approval prompts until you trust the hooks with `/hooks`.
+          At the trust question before the first turn it should say the same.
+      12. The manager and an open approval. A manager's note to a Codex desk
+          with an approval open should be held as waiting on you, and be typed
+          once the desk is idle again.
+      13. A resumed desk (TODO OB-371). Resume a Codex desk in the app and
+          repeat check 7. Does the hand still rise? If it does not, the
+          resumed session's hooks carry another id than its desk, and Stage
+          M2b is the fix. Say also whether an old request came back on a desk
+          that was ended in the middle of one (TODO OB-373).
+      14. Two sessions in one folder. Start two Codex sessions outside the app
+          in the same folder and get a question in one. It should show on that
+          one only, on the right floor, with nothing on the other and no
+          second line on the sign-out sheet. Each hover card should say that
+          approval prompts cannot be seen in a session started outside the
+          app.
+      15. The handoff wording. With Codex in Terminal or iTerm2, "Bring its
+          tab to the front" should bring that tab. In another terminal app the
+          wording should name the app, and only the app should come forward.
+          In an editor's built-in terminal there should be no button and a
+          sentence saying why. In every case the row should stay open until
+          you answer where the agent runs.
+      16. A question for you, not a check. HUMAN_DECISIONS OB-336 lists the
+          calls the build made while you were away. The ones most worth your
+          eye are these. A question that does not block raises the hand at a
+          terminal desk and not at a chat desk. A hook's row says "may be
+          waiting". A permission that could not be shown in full can only be
+          declined in the app. A reply ending on a quoted question no longer
+          reads as an ask, for Claude Code too. Say which you veto.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`

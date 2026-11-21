@@ -837,6 +837,58 @@ A Human on 2026-11-20, from the options offered, on top of the decisions already
 
 Still open in the issue: whether the fixed manager also takes its effort build. The build's call until A Human says otherwise is that it does not. Not built yet (TODO OB-335).
 
+## OB-336 — Do the calls the build made for Codex questions and approvals stand?
+
+Raised by the build of Stage M2a of GitHub issue #12 on 2026-11-20 (TODO OB-336). No ruling of A Human's is new in this stage, and no earlier ruling is amended.
+
+What is A Human's is the issue itself. It asks that Codex's waiting state come from the best explicit events, that a real Codex question appear once in Decisions, and that an answer go to the exact pending request where the protocol takes one safely and to an honest terminal handoff where it does not. It also says "If a state cannot be observed, show that limitation rather than inventing certainty" and "Do not reduce sandbox/approval protections or automatically answer permission prompts to hide the state-detection problem".
+
+Everything below is a call the build made while A Human was away. Each is a call of the build brief's dispatcher, of the design or of the review, and none of them is A Human's. Each stands until A Human says otherwise. The stage was tested with fakes and synthetic fixtures only. No Codex session was started and nothing was seen in the installed app.
+
+From the dispatcher:
+
+- The issue is built in two stages. Stage M2a is attention states and questions. Stage M2b is child agents and parent identity, and it is not built (TODO OB-359).
+- Re-reading only what was appended to a session file is out of scope, and the delay was not measured (TODO OB-360).
+- Tests use fakes and synthetic fixtures. No real prompt or answer is in a fixture.
+
+From the design. The calls most worth A Human's eye come first:
+
+- A question that does not block does not raise a chat desk's hand. The desk stays Working, the question has a row of the second priority, and the first sight of it still notifies once (TODO OB-370).
+- At a terminal desk every open request raises the hand, blocking or not, because the session file does not say plainly whether a question blocks (TODO OB-366).
+- A permission request that a hook saw gets a row that says Codex "may be waiting". The hook fires before Codex, a reviewer or another hook decides, so the row also says that it may already be settled (TODO OB-363).
+- A Codex terminal whose hooks have not reported, and a Codex session started outside the app, are marked on the hover card as sessions whose approval prompts the building cannot see (TODO OB-362).
+- A terminal's request is never answered from the app. Its row says where the agent runs and what the app can bring forward, and opening the terminal leaves the row open (TODO OB-361).
+- A chat desk's request is answered in its conversation and never in the A / B / Other form of Decisions. Decisions and Needs you open the conversation at that request.
+- A permission grant sends back exactly what was asked, so "Allow" is offered only when every part of the request could be read and listed. Otherwise the request can only be declined in the app.
+- A reply that ends on a quoted question no longer reads as an ask, and only a turn's final message is scored. The rule is shared with Claude Code, where it can only remove a false Needs you. A rhetorical question still reads as an ask (TODO OB-365).
+- Claude Code desks do not get the new reconcile and behave as before (TODO OB-367). The opencode and Cursor drivers are unchanged too (TODO OB-368).
+
+From the design, the rest:
+
+- A request's id is the id Codex sent, as text. A number is its digits and a string carries a prefix, so a number 1 and a string "1" are two requests.
+- A request is removed as soon as its reply was written without error. A reply whose write failed stays open and can be sent again.
+- A turn's end or a new turn's start retires every request of that thread that the ended turn owns or that names no turn, because Codex itself drops them then.
+- Codex's thread status never ends a turn and never retires a request. It only adds a card with no buttons when it says the thread waits on something no request accounts for.
+- A question asked in plain prose keeps a row of its own kind and never holds a note back, as in OB-333. It now outlives the end of the turn that asked it and goes when work resumes.
+- Hook evidence is kept when its session is missing from one scan. Evidence for a session id that names no desk makes no row anywhere (TODO OB-371).
+- The `humanCommand` checkpoint of codex-cli 0.170.0 gets no flow of its own (TODO OB-364).
+
+From the review, after the design:
+
+- A manager's note is refused by the Codex driver itself when any request is open, as well as by the delivery gate.
+- Zero-width and bidirectional control characters are taken out of request text before it is shown. A picked option goes back to Codex as Codex wrote it. If two options look the same once cleaned, the answer is refused and the request stays open.
+- A card that is opened from the queue puts the keyboard on its first field or on the card, never on a choice button.
+- A hook's request is matched and retired by the command it names.
+
+One finding of the review is not fixed: a request that was open when its session was ended may come back when the session is resumed (TODO OB-373).
+
+**Options.**
+
+- **Let them stand (recommended)** — keep every call above, and say after the checks in HUMAN_TODO OB-375 whether any should change.
+- **Veto some** — name the calls to change. The two most likely are the hand at a terminal desk for a question that does not block, and the "may be waiting" row for an approval a reviewer may settle by itself.
+
+**Recommendation.** Let them stand until the checks have been run with a real Codex session. Each call can be changed alone.
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.
