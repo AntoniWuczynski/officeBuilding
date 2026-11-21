@@ -479,3 +479,139 @@ fn paths_and_ids() {
     let here = std::env::current_dir().expect("cwd");
     assert!(project_root(&here).join(".git").exists());
 }
+
+fn codex_input(id: &str, live: bool, records: &[String]) -> SessionInput {
+    let meta = format!(
+        r#"{{"timestamp":"2026-11-20T10:00:00.000Z","type":"session_meta","payload":{{"id":"{id}","session_id":"{id}","cwd":"/home/me/code/app","source":"cli"}}}}"#
+    );
+    let lines: Vec<String> = std::iter::once(meta)
+        .chain(records.iter().cloned())
+        .collect();
+    let found = super::codex::Found {
+        session_id: id.to_string(),
+        transcript: super::codex::parse_transcript(Cursor::new(lines.join("\n"))),
+        title: None,
+        live_pid: live.then_some(7),
+        resumable: true,
+    };
+    from_codex(found, &[]).expect("a codex session")
+}
+
+fn codex_event(kind: &str, extra: &str) -> String {
+    format!(
+        r#"{{"timestamp":"2026-11-20T10:00:01.000Z","type":"event_msg","payload":{{"type":"{kind}"{extra}}}}}"#
+    )
+}
+
+fn codex_reply(text: &str) -> String {
+    format!(
+        r#"{{"timestamp":"2026-11-20T10:00:02.000Z","type":"response_item","payload":{{"type":"message","role":"assistant","phase":"final_answer","content":[{{"type":"output_text","text":"{text}"}}]}}}}"#
+    )
+}
+
+fn codex_assemble(inputs: Vec<SessionInput>) -> Discovered {
+    assemble(Path::new("/home/me"), inputs, own_floor, &BTreeMap::new())
+}
+
+#[test]
+fn an_open_request_user_input_call_is_a_waiting_desk_with_a_formal_row() {
+    let arguments = r#"{\"questions\":[{\"question\":\"QUESTION-ONE\",\"options\":[{\"label\":\"OPTION-A\"},{\"label\":\"OPTION-B\"}]},{\"question\":\"QUESTION-TWO\"}]}"#;
+    let call = format!(
+        r#"{{"timestamp":"2026-11-20T10:00:03.000Z","type":"response_item","payload":{{"type":"function_call","call_id":"c1","name":"request_user_input","arguments":"{arguments}"}}}}"#
+    );
+    let d = codex_assemble(vec![codex_input(
+        "x1",
+        true,
+        &[codex_event("task_started", r#","turn_id":"t1""#), call],
+    )]);
+    assert_eq!(d.sessions[0].state, SessionState::WaitingHuman);
+    let [q] = d.questions.as_slice() else {
+        panic!("one row, got {:?}", d.questions);
+    };
+    assert_eq!(q.id, "x1:c1");
+    assert_eq!(q.prompt, "QUESTION-ONE (and 1 more in its terminal)");
+    assert_eq!(q.priority, 0);
+    assert_eq!(q.asked_at, "2026-11-20T10:00:03.000Z");
+    let labels: Vec<&str> = q.options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels, ["OPTION-A", "OPTION-B"]);
+    assert_eq!(
+        d.sessions[0].pending_question_ids,
+        vec!["x1:c1".to_string()]
+    );
+}
+
+#[test]
+fn a_codex_session_that_finished_cleanly_is_idle_with_no_row() {
+    let records = [
+        codex_event("task_started", r#","turn_id":"t1""#),
+        codex_reply("All done."),
+        codex_event("task_complete", r#","turn_id":"t1""#),
+    ];
+    let d = codex_assemble(vec![codex_input("x1", true, &records)]);
+    assert_eq!(d.sessions[0].state, SessionState::Idle);
+    assert!(d.questions.is_empty());
+}
+
+#[test]
+fn a_final_message_ending_on_a_quoted_question_is_idle_with_no_row() {
+    let records = [
+        codex_event("task_started", r#","turn_id":"t1""#),
+        codex_reply(r#"The test asks \"is it done?\""#),
+        codex_event("task_complete", r#","turn_id":"t1""#),
+    ];
+    let d = codex_assemble(vec![codex_input("x1", true, &records)]);
+    assert_eq!(d.sessions[0].state, SessionState::Idle);
+    assert!(d.questions.is_empty());
+}
+
+#[test]
+fn evidence_is_kept_for_live_codex_sessions_only() {
+    let records = [codex_event("task_started", r#","turn_id":"t1""#)];
+    let d = codex_assemble(vec![
+        codex_input("live", true, &records),
+        codex_input("gone", false, &records),
+    ]);
+    assert_eq!(d.codex.keys().collect::<Vec<_>>(), ["live"]);
+    assert_eq!(d.codex["live"].turn_id.as_deref(), Some("t1"));
+}
+
+/// Probes counted by `counting_probe`.
+static PROBES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn counting_probe(_: &Path, _: i32) -> crate::focus::Host {
+    PROBES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    crate::focus::Host::Nowhere
+}
+
+#[test]
+fn host_of_probes_once_while_the_pid_stays_and_again_when_it_changes() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let home = std::env::temp_dir().join(format!("ob-hostof-{}", std::process::id()));
+    let sessions = home.join(".claude/sessions");
+    std::fs::create_dir_all(&sessions).expect("dir");
+    let register = |pid: u32| {
+        let entry = format!(r#"{{"pid":{pid},"sessionId":"s-host","cwd":"/work/app"}}"#);
+        std::fs::write(sessions.join("s-host.json"), entry).expect("write");
+    };
+    let mut discovery = Discovery::new(home.clone());
+    discovery.ignore_running_codex();
+    discovery.read_host = counting_probe;
+    let before = PROBES.load(SeqCst);
+
+    assert_eq!(discovery.host_of("s-host"), None, "no process, no host");
+    register(std::process::id());
+    assert_eq!(
+        discovery.host_of("s-host"),
+        Some(crate::focus::Host::Nowhere)
+    );
+    assert_eq!(
+        discovery.host_of("s-host"),
+        Some(crate::focus::Host::Nowhere)
+    );
+    assert_eq!(PROBES.load(SeqCst) - before, 1);
+
+    register(std::os::unix::process::parent_id());
+    assert!(discovery.host_of("s-host").is_some());
+    assert_eq!(PROBES.load(SeqCst) - before, 2);
+    let _ = std::fs::remove_dir_all(&home);
+}

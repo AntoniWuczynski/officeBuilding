@@ -7,6 +7,7 @@ pub mod pets;
 pub mod pricing;
 pub mod rules;
 
+use crate::focus;
 use crate::model::{
     AgentMessage, AnswerVia, ControlMode, EndedSession, Helper, Pet, Project, Question,
     QuestionOption, Session, SessionState, Spend, ToolKind,
@@ -38,6 +39,12 @@ pub struct Discovered {
     /// The skills each live session called since the human last spoke to it, by session id.
     /// Kept here for the backend only: the snapshot decides which of them count as a review.
     pub skills: BTreeMap<String, Vec<String>>,
+    /// The Codex sessions in a terminal whose hooks have not reported: the building cannot see
+    /// their approval prompts.
+    pub unseen_prompts: Vec<String>,
+    /// What each live Codex session's rollout proves about its requests, by session id.
+    /// Kept here for the backend only.
+    pub codex: BTreeMap<String, codex::turns::Evidence>,
 }
 
 /// FNV-1a, 32-bit: the same stable hash the frontend uses for looks.
@@ -243,6 +250,10 @@ pub struct Discovery {
     codex: codex::CodexSource,
     /// The OS's process listing, for each session's pets; tests swap in none.
     read_processes: fn() -> Vec<pets::ProcessRow>,
+    /// The host of each session's process, with the pid it was read for.
+    hosts: BTreeMap<String, (i32, focus::Host)>,
+    /// Finds where a process shows itself; tests swap in a fake.
+    read_host: fn(&Path, i32) -> focus::Host,
     /// The checkouts of the previous scan, to remember a worktree that was then removed.
     checkouts: BTreeMap<String, PathBuf>,
 }
@@ -254,6 +265,8 @@ impl Discovery {
             claude: claude_code::ClaudeSource::new(home.clone()),
             codex: codex::CodexSource::new(home.clone()),
             read_processes: pets::read_table,
+            hosts: BTreeMap::new(),
+            read_host: focus::host_of,
             checkouts: BTreeMap::new(),
             home,
         }
@@ -284,6 +297,8 @@ impl Discovery {
         let mut found = assemble(&self.home, inputs, locate, &self.checkouts);
         found.peer_messages = peer_messages;
         self.checkouts.clone_from(&found.checkouts);
+        self.hosts
+            .retain(|id, _| found.sessions.iter().any(|s| s.id == *id));
         found
     }
 
@@ -292,6 +307,7 @@ impl Discovery {
     pub fn ignore_running_codex(&mut self) {
         self.codex.list_pids = Vec::new;
         self.read_processes = Vec::new;
+        self.read_host = |_, _| focus::Host::Nowhere;
     }
 
     /// Transcripts read from disk so far.
@@ -307,6 +323,20 @@ impl Discovery {
         self.claude
             .pid_of(session_id)
             .or_else(|| self.codex.pid_of(session_id))
+    }
+
+    /// Where the session's process shows itself. None when it has no known process. The walk
+    /// up the process tree is made again only when the session's pid changes.
+    pub fn host_of(&mut self, session_id: &str) -> Option<focus::Host> {
+        let pid = self.pid_of(session_id)?;
+        if let Some((cached, host)) = self.hosts.get(session_id)
+            && *cached == pid
+        {
+            return Some(*host);
+        }
+        let host = (self.read_host)(&self.home, pid);
+        self.hosts.insert(session_id.to_string(), (pid, host));
+        Some(host)
     }
 }
 
@@ -350,6 +380,8 @@ struct SessionInput {
     session_name: Option<String>,
     session_name_source: Option<crate::model::NameSource>,
     skills: Vec<String>,
+    /// What a Codex rollout proves about the current turn's requests. None for Claude Code.
+    evidence: Option<codex::turns::Evidence>,
 }
 
 fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<SessionInput> {
@@ -411,6 +443,7 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
         session_name: f.live.as_ref().and_then(|l| l.name.clone()),
         session_name_source: f.live.as_ref().and_then(|l| l.name_source),
         skills: f.transcript.skills_since_prompt,
+        evidence: None,
     })
 }
 
@@ -429,10 +462,7 @@ fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInpu
         last_activity: f.transcript.last_activity.clone().unwrap_or_default(),
         spend: f.transcript.spend,
         signals,
-        // Codex has no formal question/approval event in the rollouts inspected on this Mac
-        // (checked 2026-09-29): no `approval`- or `input-request`-shaped event exists. A
-        // waiting Codex session always falls back to the plain-prose scorer.
-        formal_question: None,
+        formal_question: f.transcript.asks.first().map(formal_question),
         helpers: Vec::new(),
         helper_places: BTreeMap::new(),
         pets: f
@@ -444,7 +474,22 @@ fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInpu
         session_name: None,
         session_name_source: None,
         skills: Vec::new(),
+        evidence: Some(f.transcript.evidence),
     })
+}
+
+/// The first of a Codex session's open `request_user_input` calls, as a formal question.
+fn formal_question(ask: &codex::turns::Ask) -> FormalQuestionInput {
+    let more = match ask.questions {
+        0 | 1 => String::new(),
+        n => format!(" (and {} more in its terminal)", n - 1),
+    };
+    FormalQuestionInput {
+        id_suffix: ask.call_id.clone(),
+        prompt: format!("{}{more}", ask.prompt),
+        options: ask.options.clone(),
+        asked_at: ask.asked_at.clone(),
+    }
 }
 
 /// What a session with no title of its own is called.
@@ -500,6 +545,7 @@ fn question_for(input: &SessionInput, root: &Path) -> Question {
         asked_at,
         context: String::new(),
         source_file: None,
+        handoff: None,
     }
 }
 
@@ -612,6 +658,7 @@ fn assemble(
     let mut resume_dirs = BTreeMap::new();
     let mut checkouts = BTreeMap::new();
     let mut skills = BTreeMap::new();
+    let mut codex = BTreeMap::new();
 
     for input in inputs {
         let Placement {
@@ -651,6 +698,9 @@ fn assemble(
 
         let title = input.title.clone().unwrap_or_else(|| UNTITLED.to_string());
         skills.insert(input.session_id.clone(), input.skills);
+        if let Some(evidence) = input.evidence {
+            codex.insert(input.session_id.clone(), evidence);
+        }
         sessions.push(Session {
             id: input.session_id,
             tool: input.tool,
@@ -694,6 +744,8 @@ fn assemble(
         checkouts,
         peer_messages: Vec::new(),
         skills,
+        unseen_prompts: Vec::new(),
+        codex,
     }
 }
 

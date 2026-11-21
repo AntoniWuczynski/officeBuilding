@@ -190,6 +190,35 @@ pub fn background_job_of(home: &Path, pid: i32) -> Option<String> {
         .and_then(background_job_id)
 }
 
+/// Where a session's process shows itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Host {
+    /// A terminal app the building knows. `tab`: the session's own tab can be selected.
+    Window { app: &'static str, tab: bool },
+    /// A Claude Code background session: the app docks it with `claude attach`.
+    Background,
+    /// Nothing the building can bring forward.
+    Nowhere,
+}
+
+/// Whether `focus_script` can select the session's own tab: only Terminal and iTerm2 do, and
+/// only for a process with a controlling terminal.
+fn tab_selectable(app: &str, has_tty: bool) -> bool {
+    has_tty && matches!(app, "Terminal" | "iTerm2")
+}
+
+/// Where the process `pid` shows itself.
+#[must_use]
+pub fn host_of(home: &Path, pid: i32) -> Host {
+    if background_job_of(home, pid).is_some() {
+        return Host::Background;
+    }
+    terminal_app_of(pid).map_or(Host::Nowhere, |app| Host::Window {
+        app,
+        tab: tab_selectable(app, tty_of(pid).is_some()),
+    })
+}
+
 /// Bring the terminal window running `pid` to the front.
 pub fn focus_pid(pid: i32) -> Result<(), String> {
     let app = terminal_app_of(pid).ok_or("its terminal app could not be identified")?;
@@ -331,5 +360,33 @@ mod job_tests {
         );
         assert_eq!(super::background_job_of(&home, 8), None);
         std::fs::remove_dir_all(&home).expect("cleanup");
+    }
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::*;
+
+    #[test]
+    fn only_terminal_and_iterm_with_a_tty_select_the_tab() {
+        assert!(tab_selectable("Terminal", true));
+        assert!(tab_selectable("iTerm2", true));
+        assert!(!tab_selectable("Terminal", false));
+        assert!(!tab_selectable("iTerm2", false));
+        assert!(!tab_selectable("Ghostty", true));
+    }
+
+    #[test]
+    fn a_background_job_is_hosted_in_the_background() {
+        let home = std::env::temp_dir().join(format!("ob-host-{}", std::process::id()));
+        let sessions = home.join(".claude/sessions");
+        std::fs::create_dir_all(&sessions).expect("dir");
+        std::fs::write(
+            sessions.join("4242.json"),
+            r#"{"kind":"bg","jobId":"job-1"}"#,
+        )
+        .expect("write");
+        assert_eq!(host_of(&home, 4242), Host::Background);
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

@@ -71,6 +71,7 @@ use std::time::{Duration, SystemTime};
 
 mod process;
 pub mod rollout;
+pub mod turns;
 pub(super) use process::cwd_of;
 use process::{list_codex_pids, probe, resolve_liveness_by_open_files, rolloutless_sessions};
 
@@ -111,6 +112,10 @@ pub struct Transcript {
     pub is_subagent: bool,
     /// The thread that spawned this one, for a sub-agent.
     pub parent_thread_id: Option<String>,
+    /// The `request_user_input` calls still without an answer (section 5.1).
+    pub asks: Vec<turns::Ask>,
+    /// What the rollout proves about the current turn's requests.
+    pub evidence: turns::Evidence,
 }
 
 impl Transcript {
@@ -132,6 +137,8 @@ impl Transcript {
             turn_open: false,
             is_subagent: false,
             parent_thread_id: None,
+            asks: Vec::new(),
+            evidence: turns::Evidence::default(),
         }
     }
 }
@@ -155,7 +162,7 @@ fn message_text(payload: &Value) -> String {
 pub fn parse_transcript(reader: impl BufRead) -> Transcript {
     let mut t = Transcript::blank();
     let mut counted = CodexUsage::default();
-    let mut open: HashSet<String> = HashSet::new();
+    let mut turns = turns::Turns::default();
     // A sub-agent or forked rollout's first record is its own `session_meta`; a later record
     // in the same file can be a *copy* of the parent's (source "cli", no subagent wrapper).
     // Identity, cwd and the subagent flag must come from the first one, or a copied parent
@@ -201,14 +208,21 @@ pub fn parse_transcript(reader: impl BufRead) -> Transcript {
                 }
             }
             "event_msg" => match payload.get("type").and_then(Value::as_str) {
-                Some("task_started") => t.turn_open = true,
-                Some("task_complete") => {
-                    t.turn_open = false;
-                    t.api_error = payload.get("error").is_some_and(|e| !e.is_null());
-                }
+                Some("task_started" | "turn_started") => turns.started(turn_id(payload)),
+                Some("task_complete" | "turn_complete") => turns.ended(
+                    turn_id(payload),
+                    payload.get("error").is_some_and(|e| !e.is_null()),
+                ),
                 // Interrupting a turn writes `turn_aborted`, never a `task_complete` (41/41 real
                 // aborts on this Mac). Without this, an interrupted live session shows Running forever.
-                Some("turn_aborted") => t.turn_open = false,
+                Some("turn_aborted") => turns.aborted(turn_id(payload)),
+                Some("user_message") => turns.human(),
+                Some("item_completed")
+                    if payload.pointer("/item/type").and_then(Value::as_str)
+                        == Some("UserMessage") =>
+                {
+                    turns.human();
+                }
                 // Totals are cumulative and the same total is often re-sent (rate-limit
                 // updates), so only the growth since the last one counted is priced.
                 Some("token_count") => {
@@ -237,30 +251,35 @@ pub fn parse_transcript(reader: impl BufRead) -> Transcript {
                         .unwrap_or_default();
                     let text = message_text(payload);
                     if role == "user" {
-                        t.human_spoke_last = true;
-                        t.reply_to_human.clear();
+                        turns.human();
                     } else if role == "assistant" {
-                        t.human_spoke_last = false;
-                        t.last_block = LastBlock::Text;
-                        if !t.reply_to_human.is_empty() {
-                            t.reply_to_human.push('\n');
-                        }
-                        t.reply_to_human.push_str(&text);
+                        turns.assistant(
+                            &text,
+                            payload.get("phase").and_then(Value::as_str) == Some("commentary"),
+                        );
                         if let Some(first) = super::first_sentence(&text, super::REPLY_CHARS) {
                             t.last_reply = Some(first);
                         }
                     }
                 }
-                Some("reasoning") => t.last_block = LastBlock::Thinking,
-                Some("function_call" | "custom_tool_call") => {
-                    t.last_block = LastBlock::ToolUse;
-                    if let Some(id) = payload.get("call_id").and_then(Value::as_str) {
-                        open.insert(id.to_string());
-                    }
-                }
+                Some("reasoning") => turns.reasoning(),
+                Some("function_call" | "custom_tool_call") => turns.call(
+                    payload.get("call_id").and_then(Value::as_str),
+                    payload
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    payload
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    rec.get("timestamp")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                ),
                 Some("function_call_output" | "custom_tool_call_output") => {
                     if let Some(id) = payload.get("call_id").and_then(Value::as_str) {
-                        open.remove(id);
+                        turns.output(id);
                     }
                 }
                 _ => {}
@@ -268,8 +287,19 @@ pub fn parse_transcript(reader: impl BufRead) -> Transcript {
             _ => {}
         }
     }
-    t.open_tools = open.len();
+    t.turn_open = turns.turn_open();
+    t.open_tools = turns.open_tools();
+    t.api_error = turns.api_error();
+    t.human_spoke_last = turns.human_spoke_last();
+    t.last_block = turns.last_block();
+    t.reply_to_human = turns.reply().to_string();
+    t.asks = turns.asks();
+    t.evidence = turns.evidence();
     t
+}
+
+fn turn_id(payload: &Value) -> Option<&str> {
+    payload.get("turn_id").and_then(Value::as_str)
 }
 
 /// Turn a transcript plus liveness into the state rules' inputs.
@@ -278,7 +308,7 @@ pub fn signals(t: &Transcript, live_pid: Option<i32>) -> Signals {
     Signals {
         live: live_pid.is_some(),
         busy: t.turn_open,
-        question_waiting: false,
+        question_waiting: !t.asks.is_empty(),
         pending_tool: t.open_tools > 0,
         human_spoke_last: t.human_spoke_last,
         api_error: t.api_error,
@@ -577,37 +607,6 @@ mod tests {
     }
 
     #[test]
-    fn turn_in_progress_until_task_complete() {
-        let started = r#"{"timestamp":"2026-09-29T10:00:03.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#;
-        let t = parse(&[META, USER, started]);
-        assert!(t.turn_open);
-
-        let complete = r#"{"timestamp":"2026-09-29T10:00:06.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"t1"}}"#;
-        let done = parse(&[META, USER, started, complete]);
-        assert!(!done.turn_open);
-        assert!(!done.api_error);
-    }
-
-    #[test]
-    fn task_complete_error_is_flagged() {
-        let complete = r#"{"timestamp":"2026-09-29T10:00:06.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","error":{"message":"usage limit","codex_error_info":"usage_limit_exceeded"}}}"#;
-        let t = parse(&[META, USER, complete]);
-        assert!(t.api_error);
-    }
-
-    #[test]
-    fn open_function_call_counts_as_pending() {
-        let call = r#"{"timestamp":"2026-09-29T10:00:03.000Z","type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"shell","arguments":"{}"}}"#;
-        let t = parse(&[META, USER, call]);
-        assert_eq!(t.open_tools, 1);
-        assert_eq!(t.last_block, LastBlock::ToolUse);
-
-        let output = r#"{"timestamp":"2026-09-29T10:00:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}}"#;
-        let closed = parse(&[META, USER, call, output]);
-        assert_eq!(closed.open_tools, 0);
-    }
-
-    #[test]
     fn a_trailing_prose_question_scores_as_a_soft_block() {
         let reply = r#"{"timestamp":"2026-09-29T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed it.\n\nShould I also bump the version?"}]}}"#;
         let t = parse(&[META, USER, reply]);
@@ -825,19 +824,6 @@ mod tests {
             Some("deadbeef-0000-4000-8000-000000000000".to_string())
         );
         assert_eq!(session_uuid("not-a-uuid"), None);
-    }
-
-    // VERIFIER (failing on purpose): Codex writes `turn_aborted` (no `task_complete`) when the
-    // user interrupts a turn. 41/41 aborts in real rollouts on this Mac had no later task_complete.
-    #[test]
-    fn verifier_turn_aborted_closes_the_turn() {
-        let started = r#"{"timestamp":"2026-09-29T10:00:03.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#;
-        let aborted = r#"{"timestamp":"2026-09-29T10:00:09.000Z","type":"event_msg","payload":{"type":"turn_aborted","turn_id":"t1","reason":"interrupted"}}"#;
-        let t = parse(&[META, USER, started, aborted]);
-        assert!(
-            !t.turn_open,
-            "an interrupted turn is over; live session would show Running forever"
-        );
     }
 
     // VERIFIER (failing on purpose): a sub-agent/forked rollout carries its own session_meta first

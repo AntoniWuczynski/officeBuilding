@@ -209,6 +209,19 @@ fn has_choice_word(low: &str) -> bool {
         .any(|w| CHOICE_WORDS.contains(&w))
 }
 
+/// Whether the question mark that ends `text` closes its own sentence, not a quoted one
+/// (`... asks "is it done?"`, a closing backtick or a `>` blockquote line).
+fn ends_on_own_question(text: &str) -> bool {
+    let stripped = text.trim_end().trim_end_matches([')', '*', '_']).trim_end();
+    let quoted = stripped.ends_with(['"', '\'', '`', '\u{201d}', '\u{2019}', '\u{00bb}'])
+        || text
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .is_some_and(|l| l.trim_start().starts_with('>'));
+    !quoted && stripped.ends_with('?')
+}
+
 /// Score how strongly a trailing assistant message is waiting on a human (≥ 3 is a hit).
 pub fn score_soft_block(text: &str) -> SoftBlock {
     let prose = text.trim();
@@ -222,11 +235,7 @@ pub fn score_soft_block(text: &str) -> SoftBlock {
     let low = tail.to_lowercase();
     let mut score = 0;
 
-    let stripped = tail
-        .trim_end()
-        .trim_end_matches([')', '*', '_', '`', '"', '\'', '>'])
-        .trim_end();
-    if stripped.ends_with('?') {
+    if ends_on_own_question(tail) {
         score += 3;
     } else if tail_chars(tail, 400).contains('?') {
         score += 1;
@@ -386,5 +395,31 @@ mod tests {
     fn tail_is_char_safe() {
         assert_eq!(tail_chars("żółw", 2), "łw");
         assert_eq!(tail_chars("ab", 5), "ab");
+    }
+    #[test]
+    fn a_reply_ending_on_a_quoted_question_is_no_ask() {
+        for reply in [
+            "The test asks \"is it done?\"",
+            "The test asks \u{201c}is it done?\u{201d}",
+            "The test asks \u{2018}is it done?\u{2019}",
+            "The check is `done?`",
+            "It said \u{00ab}done?\u{00bb}",
+            "The reviewer wrote:\n\n> is it done?",
+            "The reviewer wrote:\n\n> is it done?\n",
+        ] {
+            let s = score_soft_block(reply);
+            assert!(s.score < 3, "{reply:?} scored {}", s.score);
+        }
+    }
+
+    #[test]
+    fn a_question_that_only_contains_a_quotation_still_asks() {
+        for reply in [
+            "Is it \"done\"?",
+            "**Shall I go on?**",
+            "Fixed it. (Shall I go on?)",
+        ] {
+            assert!(score_soft_block(reply).score >= 3, "{reply:?}");
+        }
     }
 }

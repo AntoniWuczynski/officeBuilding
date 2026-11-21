@@ -33,7 +33,9 @@ enum Loose<T> {
 }
 
 /// `T` when the value has its shape, None when it has any other.
-fn loose<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
+pub(super) fn loose<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<T>, D::Error> {
     Ok(match Loose::<T>::deserialize(d)? {
         Loose::Is(value) => Some(value),
         Loose::Not(_) => None,
