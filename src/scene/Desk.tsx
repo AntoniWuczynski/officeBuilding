@@ -1,5 +1,7 @@
 import type { SessionState } from "../types";
 import { DESK } from "../lib/layout";
+import { deskFaces } from "../lib/woods";
+import type { Wood } from "../lib/woods";
 import { CAMP } from "./Camp";
 import { Billboard, IsoBox } from "./Iso";
 
@@ -16,22 +18,26 @@ interface DeskProps {
   readonly plant?: boolean;
   /** On an island the desk is a crate with its light on the front, and no monitor or keyboard. */
   readonly look?: FloorLook;
+  /** The tool's timber: omitted for a desk that is nobody's. */
+  readonly wood?: Wood;
 }
 
 /** A timber desk with a monitor on its left end (the worker sits beside it, never behind it). */
-export function Desk({ x, y, z, led, plant = false, look = "office" }: DeskProps): React.ReactElement {
+export function Desk({ x, y, z, led, plant = false, look = "office", wood }: DeskProps): React.ReactElement {
+  const faces = wood === undefined ? null : deskFaces(wood);
+  const tag = wood === undefined ? {} : { className: `wood-${wood}` };
   const light = <b className={led === undefined ? "led" : `led led-${led}`} />;
   if (look === "island") {
     return (
       <>
-        <IsoBox x={x} y={y} z={z} w={DESK.w} d={DESK.d} h={DESK.h} top={CAMP.wood} front={CAMP.woodFront} side={CAMP.woodSide} frontContent={light} />
+        <IsoBox x={x} y={y} z={z} w={DESK.w} d={DESK.d} h={DESK.h} top={faces?.top ?? CAMP.wood} front={faces?.front ?? CAMP.woodFront} side={faces?.side ?? CAMP.woodSide} frontContent={light} {...tag} />
         {plant ? <Plant x={x + 15} y={y + 2} z={z + DESK.h} /> : null}
       </>
     );
   }
   return (
     <>
-      <IsoBox x={x} y={y} z={z} w={DESK.w} d={DESK.d} h={DESK.h} top="var(--timber)" front="var(--timber-front)" side="var(--timber-side)" />
+      <IsoBox x={x} y={y} z={z} w={DESK.w} d={DESK.d} h={DESK.h} top={faces?.top ?? "var(--timber)"} front={faces?.front ?? "var(--timber-front)"} side={faces?.side ?? "var(--timber-side)"} {...tag} />
       <IsoBox
         x={x + 3}
         y={y + 3}

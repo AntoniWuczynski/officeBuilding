@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { MockApi } from "./api/mockApi";
+import { makeSeedSnapshot } from "./api/mockData";
 import { placePeople } from "./archipelago/Archipelago";
 import { layoutIslands } from "./archipelago/islands";
 
@@ -54,6 +55,22 @@ describe("seats on an island map", () => {
     const seats = new Map<string, ReadonlyMap<string, number>>([["sunk", new Map([["s9", 0]])]]);
     placePeople([{ spec, floor: { sessions: [], dimmed: false } }], seats);
     expect([...seats.keys()]).toEqual(["p1"]);
+  });
+});
+
+describe("helpers on an island map", () => {
+  it("are drawn by their own model and effort, else their agent's, in their agent's tool", () => {
+    const seed = makeSeedSnapshot();
+    const agent = seed.sessions.find((s) => s.id === "s-2");
+    if (agent === undefined) throw new Error("no s-2");
+    const [spec] = layoutIslands([{ id: "p-shop", name: "shop", path: "/shop", sessionIds: [agent.id] }], "setup");
+    if (spec === undefined) throw new Error("one island");
+    const placed = placePeople([{ spec, floor: { sessions: [agent], dimmed: false } }], new Map());
+    const helpers = placed.filter((p) => p.helper);
+    expect(helpers.map((p) => [p.session.id, p.session.tool, p.session.model, p.session.effort])).toEqual([
+      ["Ada", "codex", "gpt-6-astra", "high"],
+      ["Lin", "codex", "gpt-6-astra", "xhigh"],
+    ]);
   });
 });
 

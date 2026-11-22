@@ -1,9 +1,13 @@
+import { useContext } from "react";
 import { createPortal } from "react-dom";
 import type { DeskHandoverState, QueuedNote, Session } from "../../types";
-import { holdWords, STATE_LABEL, TOOL_LABEL, asksLine, helpersLine, lastReplyLine, modelLine, plural, unseenLine } from "../../state/selectors";
+import { capital, holdWords, STATE_LABEL, TOOL_LABEL, asksLine, helpersLine, helperModelsLine, lastReplyLine, modelLine, plural, ULTRACODE_WORDS, unseenLine } from "../../state/selectors";
 import { cardLine } from "../../lib/handover";
 import { relativeTime } from "../../lib/time";
 import { tagText } from "../building/ProjectField";
+import { isUltracode } from "../../lib/looks";
+import { WorkerFace } from "../../scene/Worker";
+import { UltracodeContext } from "../../state/UltracodeContext";
 import { useProjects } from "../../state/ProjectsContext";
 import "../building/boards.css";
 
@@ -36,16 +40,22 @@ export function WorkerCard({ session, x, y, now, editorHint, managed, waiting, h
   const tag = tagText(useProjects().tags.get(session.id));
   const model = modelLine(session);
   const helpers = helpersLine(session);
+  const helperModels = helperModelsLine(session);
+  const ultracode = isUltracode(useContext(UltracodeContext), session);
   const reply = lastReplyLine(session.lastReply);
   const asks = asksLine(session);
   const unseenNote = unseenLine(session, unseen);
   const handedOver = handover === undefined ? null : cardLine(handover, now);
   return createPortal(
     <div className="worker-card" data-testid="worker-card" role="tooltip" style={{ left: x, top: y }}>
-      <b>{session.title}</b>
+      <b>
+        <WorkerFace of={session} />
+        {session.title}
+      </b>
       <span>{TOOL_LABEL[session.tool]}</span>
       {tag === null ? null : <span data-testid="worker-tag">{tag}</span>}
       {model === null ? null : <span>{model}</span>}
+      {ultracode ? <span data-testid="worker-ultracode">{capital(ULTRACODE_WORDS)}</span> : null}
       <span>
         {STATE_LABEL[session.state]}, active {relativeTime(session.lastActivityAt, now)}
       </span>
@@ -57,6 +67,7 @@ export function WorkerCard({ session, x, y, now, editorHint, managed, waiting, h
         </span>
       )}
       {helpers === null ? null : <span>{helpers}</span>}
+      {helperModels === null ? null : <span data-testid="worker-helper-models">{helperModels}</span>}
       {session.worktree ? <span>{session.branch === null ? "Worktree" : `Worktree on ${session.branch}`}</span> : null}
       {managed ? <span>Managed by the floor&apos;s manager</span> : null}
       {waiting[0] === undefined ? null : (

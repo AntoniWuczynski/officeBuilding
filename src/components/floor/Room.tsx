@@ -1,7 +1,7 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 import type { AgentMessage, DeskHandover, EditorList, Helper, ManagerFloor, Place, QaFloor, Session, TakeOver } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, handoverOf, helpersLine, notesFor, plural, sessionMatches, tripTag } from "../../state/selectors";
+import { STATE_LABEL, TOOL_LABEL, checkoutLine, editorLabel, editorMenuItems, handoverOf, helpersLine, helperModelsLine, modelLine, ULTRACODE_WORDS, notesFor, plural, sessionMatches, tripTag } from "../../state/selectors";
 import { useNewMessages } from "../../state/useNewMessages";
 import { cardLine, tagWord, takeOverLines } from "../../lib/handover";
 import { poseForState } from "../../lib/animation";
@@ -9,8 +9,10 @@ import { headsLeft } from "../../lib/iso";
 import type { PlanPoint } from "../../lib/iso";
 import { DESK, ROOM, doorOf, floorSpotOf, managerSeat, podFor, podSeatOf, qaDeskSlot, roomDeskSlot, seatOf } from "../../lib/layout";
 import type { Seat, Slot } from "../../lib/layout";
-import { MANAGER_LOOK, lookFor } from "../../lib/looks";
-import type { Look } from "../../lib/looks";
+import { MANAGER_LOOK, helperDrawn, isUltracode } from "../../lib/looks";
+import type { Drawn, Look } from "../../lib/looks";
+import { UltracodeContext } from "../../state/UltracodeContext";
+import { woodFor } from "../../lib/woods";
 import { Billboard, CameraContext, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
@@ -18,7 +20,8 @@ import type { FloorLook } from "../../scene/Desk";
 import { Beach, CAMP, Hut, ISLAND_MANAGER_LOOK } from "../../scene/Camp";
 import { materialsFor } from "../../scene/materials";
 import { Duct, Tank, fuseBoxTop, toolboxTop } from "../../scene/PlantFittings";
-import { Person, Walker } from "../../scene/Person";
+import { Walker } from "../../scene/Person";
+import { WalkingWorker, Worker } from "../../scene/Worker";
 import type { Handed } from "../../scene/Person";
 import { BackWall, LeftWall, ManagerOffice, SignOutStand } from "./RoomObjects";
 import type { RoomObjectsModel } from "./RoomObjects";
@@ -45,6 +48,8 @@ interface Walk {
   readonly scale: number;
   /** A note's "sender to recipient", as the island map tags its boats and parrots. */
   readonly tag?: string;
+  /** Who walks, so a leaver keeps its look; null for the manager. */
+  readonly worker: Drawn | null;
 }
 
 /** A session and the desk it sits at: the seated ones in grid order, then the QA reviewer in the corner. */
@@ -128,6 +133,16 @@ function agentsOf(placements: readonly Placement[]): Map<string, string> {
   return new Map(placements.flatMap(({ session: s }) => s.helpers.map((h) => [h.id, s.id] as const)));
 }
 
+/** Who every agent and helper is, by id. */
+function workersOf(placements: readonly Placement[]): Map<string, Drawn> {
+  const workers = new Map<string, Drawn>();
+  for (const { session: s } of placements) {
+    workers.set(s.id, s);
+    for (const h of s.helpers) workers.set(h.id, helperDrawn(s, h));
+  }
+  return workers;
+}
+
 const CARRIES: Record<Walk["kind"], Handed | null> = { note: "note", handin: "folder", arrive: null, leave: null };
 
 /** Agents and their helpers, seated or not. */
@@ -158,6 +173,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
   // Where each agent and helper sat last time, so one that finishes can walk out from there.
   const lastSeats = useRef<Map<string, Seat>>(seatsFor(placements));
   const lastAgents = useRef<Map<string, string>>(agentsOf(placements));
+  const lastWorkers = useRef<Map<string, Drawn>>(workersOf(placements));
   const [walks, setWalks] = useState<readonly Walk[]>([]);
   const [card, setCard] = useState<{ readonly sessionId: string; readonly x: number; readonly y: number } | null>(null);
   const showCard = (sessionId: string, el: HTMLElement): void => {
@@ -166,6 +182,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
   };
   const hideCard = (): void => setCard(null);
   const editors = useContext(EditorContext);
+  const ultracode = useContext(UltracodeContext);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const openMenu = (e: React.MouseEvent<HTMLElement>, place: Place, what: string, at: { readonly worktree: boolean; readonly branch: string | null }, desk?: Session): void => {
     e.preventDefault();
@@ -184,13 +201,15 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
     // The manager walks its notes from its own seat, but takes no part in arrivals and departures.
     const noteSeats = managerId === null ? seats : new Map(seats).set(managerId, { at: managerSeat(), scale: 1 });
     const fresh: Walk[] = [];
+    const workers = workersOf(placements);
+    const workerOf = (id: string): Drawn => workers.get(id) ?? lastWorkers.current.get(id) ?? { id, tool: "unknown", model: null, effort: null };
     const titled = new Map(placements.map(({ session }) => [session.id, session]));
     for (const m of takeNewMessages()) {
       const from = noteSeats.get(m.fromSessionId);
       const to = noteSeats.get(m.toSessionId);
       if (!reduced && from !== undefined && to !== undefined) {
         const [a, b] = [titled.get(m.fromSessionId), titled.get(m.toSessionId)];
-        fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from: from.at, via: null, to: to.at, scale: 1, ...(a === undefined || b === undefined ? {} : { tag: tripTag(a, b) }) });
+        fresh.push({ id: m.id, kind: "note", walkerId: m.fromSessionId, toId: m.toSessionId, from: from.at, via: null, to: to.at, scale: 1, worker: m.fromSessionId === managerId ? null : workerOf(m.fromSessionId), ...(a === undefined || b === undefined ? {} : { tag: tripTag(a, b) }) });
       }
     }
     for (const id of workerIds(placements)) {
@@ -198,7 +217,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
       seenWorkers.current.add(id);
       const seat = seats.get(id);
       if (!reduced && seat !== undefined) {
-        fresh.push({ id: `arrive-${id}`, kind: "arrive", walkerId: id, toId: null, from: doorOf(depth), via: null, to: seat.at, scale: seat.scale });
+        fresh.push({ id: `arrive-${id}`, kind: "arrive", walkerId: id, toId: null, from: doorOf(depth), via: null, to: seat.at, scale: seat.scale, worker: workerOf(id) });
       }
     }
     for (const [id, seat] of lastSeats.current) {
@@ -209,12 +228,13 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
       const at = placements.find(({ session }) => session.id === agent);
       fresh.push(
         agent !== undefined && at !== undefined
-          ? { id: `leave-${id}`, kind: "handin", walkerId: id, toId: agent, from: seat.at, via: { x: seatOf(at.desk).x, y: at.desk.y + DESK.d + 6 }, to: doorOf(depth), scale: seat.scale }
-          : { id: `leave-${id}`, kind: "leave", walkerId: id, toId: null, from: seat.at, via: null, to: doorOf(depth), scale: seat.scale },
+          ? { id: `leave-${id}`, kind: "handin", walkerId: id, toId: agent, from: seat.at, via: { x: seatOf(at.desk).x, y: at.desk.y + DESK.d + 6 }, to: doorOf(depth), scale: seat.scale, worker: workerOf(id) }
+          : { id: `leave-${id}`, kind: "leave", walkerId: id, toId: null, from: seat.at, via: null, to: doorOf(depth), scale: seat.scale, worker: workerOf(id) },
       );
     }
     lastSeats.current = seats;
     lastAgents.current = agentsOf(placements);
+    lastWorkers.current = workers;
     if (fresh.length === 0) return;
     setWalks((current) => {
       const busy = new Set(current.map((w) => w.walkerId));
@@ -264,11 +284,12 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
         const handed = handoverOf(handovers, s.id);
         return (
           <div key={s.id} className={dim ? "group is-dim" : "group"}>
-            <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} look={look} />
+            <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} look={look} wood={woodFor(s.tool)} />
             {look === "island" ? <Hut x={desk.x} y={desk.y} z={ROOM.slab} /> : null}
             <Pod
               desk={desk}
               z={ROOM.slab}
+              agent={s}
               helpers={s.helpers}
               walking={walking}
               onHelperMenu={editors === null ? undefined : (h: Helper, e) => openMenu(e, { kind: "helper", sessionId: s.id, helperId: h.id }, `a helper of \u201c${s.title}\u201d`, h)}
@@ -289,7 +310,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
                   data-testid="worker"
                   data-session={s.id}
                   data-state={s.state}
-                  aria-label={[s.title, TOOL_LABEL[s.tool], STATE_LABEL[s.state], helpersLine(s), (handed === undefined ? null : cardLine(handed.state, now)), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null, managed.has(s.id) ? "managed by the floor's manager" : null, waiting.length === 0 ? null : `${plural(waiting.length, "note", "notes")} from the manager waiting`].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
+                  aria-label={[s.title, TOOL_LABEL[s.tool], modelLine(s), STATE_LABEL[s.state], helpersLine(s), helperModelsLine(s), isUltracode(ultracode, s) ? ULTRACODE_WORDS : null, (handed === undefined ? null : cardLine(handed.state, now)), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null, managed.has(s.id) ? "managed by the floor's manager" : null, waiting.length === 0 ? null : `${plural(waiting.length, "note", "notes")} from the manager waiting`].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
                   aria-keyshortcuts={editors === null ? undefined : "Meta+Shift+O"}
                   onClick={() => onOpenSession(s)}
                   onContextMenu={editors === null ? undefined : (e) => openMenu(e, { kind: "session", sessionId: s.id }, `\u201c${s.title}\u201d`, s, s)}
@@ -298,7 +319,7 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
                   onFocus={(e) => showCard(s.id, e.currentTarget)}
                   onBlur={hideCard}
                 >
-                  <Person look={lookFor(s.id)} pose={poseForState(s.state)} receiving={receiving.get(s.id) ?? null} />
+                  <Worker of={s} pose={poseForState(s.state)} receiving={receiving.get(s.id) ?? null} />
                   <span className={`name-tag state-${s.state}`} aria-hidden>
                     {s.title}
                   </span>
@@ -367,17 +388,17 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
       )}
 
       {walks.map((w) => (
-        <WalkView key={w.id} walk={w} depth={depth} managerId={managerId} managerLook={look === "island" ? ISLAND_MANAGER_LOOK : MANAGER_LOOK} onDone={(id) => setWalks((cur) => cur.filter((x) => x.id !== id))} />
+        <WalkView key={w.id} walk={w} depth={depth} managerLook={look === "island" ? ISLAND_MANAGER_LOOK : MANAGER_LOOK} onDone={(id) => setWalks((cur) => cur.filter((x) => x.id !== id))} />
       ))}
     </>
   );
 }
 
-function WalkView({ walk, depth, managerId, managerLook, onDone }: { readonly walk: Walk; readonly depth: number; readonly managerId: string | null; readonly managerLook: Look; readonly onDone: (id: string) => void }): React.ReactElement {
+function WalkView({ walk, depth, managerLook, onDone }: { readonly walk: Walk; readonly depth: number; readonly managerLook: Look; readonly onDone: (id: string) => void }): React.ReactElement {
   const cam = useContext(CameraContext);
   const first = walk.via ?? walk.to;
   const left = headsLeft(cam, ROOM.width, depth, walk.from, first);
-  const walker = <Walker look={walk.walkerId === managerId ? managerLook : lookFor(walk.walkerId)} carrying={CARRIES[walk.kind]} />;
+  const walker = walk.worker === null ? <Walker look={managerLook} carrying={CARRIES[walk.kind]} /> : <WalkingWorker of={walk.worker} carrying={CARRIES[walk.kind]} />;
   const style: StyleWithVars = {
     "--fx": `${walk.from.x}px`,
     "--fy": `${walk.from.y}px`,

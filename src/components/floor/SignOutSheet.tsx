@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { DeskHandover, EndedDesk, EndedSession } from "../../types";
-import { END_WORDS, TOOL_LABEL, handoverOf, lastReplyLine } from "../../state/selectors";
+import { END_WORDS, TOOL_LABEL, handoverOf, lastReplyLine, modelLine } from "../../state/selectors";
 import { message } from "../../lib/errors";
+import { WorkerFace } from "../../scene/Worker";
 import { OpenInEditor } from "../editor/OpenInEditor";
 import { signOutLine } from "../../lib/handover";
 import { relativeTime } from "../../lib/time";
@@ -56,11 +57,13 @@ function SignOutRow({ ended, handover, byManager, now, onResume }: { readonly en
   // The manager's end is this sign-out only if the session did nothing after it (no resume since).
   const byManagerNow = byManager !== undefined && Date.parse(ended.endedAt) < Date.parse(byManager.at) + END_AT_TRUNCATION_MS ? byManager : undefined;
   const handedOver = handover === undefined ? null : signOutLine(handover.state);
-  const model = ended.model === null ? "" : `, ${ended.model}`;
+  const modelWords = modelLine(ended);
+  const model = modelWords === null ? "" : `, ${modelWords}`;
   const reply = lastReplyLine(ended.lastReply);
   return (
     <li className="signout-row" data-testid="signed-out-row">
       <span className="signout-name" data-testid="signed-out-title">
+        <WorkerFace of={ended} />
         {ended.title}
       </span>
       <span className="signout-meta">

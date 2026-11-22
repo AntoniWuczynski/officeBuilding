@@ -31,6 +31,7 @@ import type {
 } from "../types";
 import { relativeTime } from "../lib/time";
 import { shortName } from "../archipelago/islands";
+import { helperDrawn } from "../lib/looks";
 
 /** Worst→best ordering; higher number = more urgent. */
 export const SESSION_STATE_SEVERITY: Record<SessionState, number> = {
@@ -267,9 +268,26 @@ export function sessionsByUrgency(sessions: readonly Session[]): Session[] {
   return [...sessions].sort((a, b) => SESSION_STATE_SEVERITY[b.state] - SESSION_STATE_SEVERITY[a.state]);
 }
 
-export function modelLine(session: Session): string | null {
+export function modelLine(session: Pick<Session, "model" | "effort">): string | null {
   if (session.model === null) return null;
   return session.effort === null ? session.model : `${session.model}, ${session.effort} effort`;
+}
+
+/** What a desk hired with ultracode on is called in an accessible name. The hover card capitalises it. */
+export const ULTRACODE_WORDS = "hired with ultracode on";
+
+export const capital = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
+
+/** "Helpers on gpt-5.6-terra, medium effort (2)": what helpers run on when it differs from "as its agent", or null. */
+export function helperModelsLine(session: Session): string | null {
+  const counts = new Map<string, number>();
+  for (const h of session.helpers) {
+    if (h.model === null && h.effort === null) continue;
+    const line = modelLine(helperDrawn(session, h));
+    if (line !== null) counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  if (counts.size === 0) return null;
+  return `Helpers on ${[...counts].map(([line, n]) => (n > 1 ? `${line} (${n})` : line)).join(" and ")}`;
 }
 
 export function formatUsd(usd: number): string {

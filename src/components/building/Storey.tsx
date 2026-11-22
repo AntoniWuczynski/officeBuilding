@@ -3,14 +3,16 @@ import type { FloorLight, Project, Session, Verdict } from "../../types";
 import type { Counts } from "../../state/selectors";
 import { poseForState } from "../../lib/animation";
 import { STOREY, floorSpotOf, seatOf, storeyDeskCount, storeyDeskX } from "../../lib/layout";
-import { lookFor, MANAGER_LOOK } from "../../lib/looks";
+import { MANAGER_LOOK } from "../../lib/looks";
+import { woodFor } from "../../lib/woods";
 import { Billboard, IsoBox, Wall } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
 import { Desk } from "../../scene/Desk";
 import { materialsFor } from "../../scene/materials";
 import { Duct, Tank } from "../../scene/PlantFittings";
-import { Person, Walker } from "../../scene/Person";
-import { STATE_LABEL } from "../../state/selectors";
+import { Person } from "../../scene/Person";
+import { WalkingWorker, Worker } from "../../scene/Worker";
+import { STATE_LABEL, TOOL_LABEL, modelLine } from "../../state/selectors";
 import type { Cluster } from "../../state/clusters";
 import { PlaceNameplate } from "./PlaceNameplate";
 import { ExilingContext, PLACE_PANEL_ID } from "./PlacePanel";
@@ -212,7 +214,7 @@ function Leaver({ session, x, onGone }: { readonly session: Session; readonly x:
           if (e.animationName === "storey-leave") onGone(session.id);
         }}
       >
-        <Walker look={lookFor(session.id)} carrying={null} />
+        <WalkingWorker of={session} carrying={null} />
       </span>
     </Billboard>
   );
@@ -224,20 +226,20 @@ function Seat({ session, x, onOpen }: { readonly session: Session; readonly x: n
   const spot = session.state === "error" ? floorSpotOf(desk, STOREY.depth - 3) : seatOf(desk);
   return (
     <>
-      <Desk x={x} y={STOREY.deskY} z={STOREY.slab} led={session.state} plant={session.worktree} />
+      <Desk x={x} y={STOREY.deskY} z={STOREY.slab} led={session.state} plant={session.worktree} wood={woodFor(session.tool)} />
       <Billboard x={spot.x} y={spot.y} z={STOREY.slab}>
         <button
           type="button"
           className={`${session.state === "error" ? "worker is-down" : "worker"}${thrown ? " is-thrown" : ""}`}
           data-testid="storey-seat"
-          aria-label={`${session.title}, ${STATE_LABEL[session.state]}. Open it.`}
+          aria-label={[session.title, TOOL_LABEL[session.tool], modelLine(session), STATE_LABEL[session.state]].filter((p) => p !== null).join(", ") + ". Open it."}
           onClick={(e) => {
             // The storey behind it would otherwise also be entered.
             e.stopPropagation();
             onOpen(session);
           }}
         >
-          <Person look={lookFor(session.id)} pose={poseForState(session.state)} />
+          <Worker of={session} pose={poseForState(session.state)} />
         </button>
       </Billboard>
     </>

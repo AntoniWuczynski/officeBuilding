@@ -103,3 +103,15 @@ describe("the place panel", () => {
     expect(staffRow?.querySelector("[data-testid=place-exile]")).toBeNull();
   });
 });
+
+describe("the place panel's words", () => {
+  it("shows each row's model line and the face of its worker", () => {
+    show();
+    const rows = screen.getAllByTestId("place-row");
+    const audit = rows.find((r) => r.textContent?.includes("audit checkout"));
+    expect(audit).toHaveTextContent("Working · Claude Code · claude-opus-5-5, high effort");
+    expect(within(audit as HTMLElement).getByTestId("worker-face")).toHaveAttribute("data-look", "otto-high");
+    const stuck = rows.find((r) => r.textContent?.includes("map-tiles mirror"));
+    expect(stuck).not.toHaveTextContent("effort");
+  });
+});

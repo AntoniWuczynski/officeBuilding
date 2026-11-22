@@ -1,5 +1,8 @@
 // Low-poly island meshes from plain three primitives. Cheap-looking on purpose.
 import * as THREE from "three";
+import type { ToolKind } from "../types";
+import { WOODS, woodFor } from "../lib/woods";
+import type { Wood } from "../lib/woods";
 import type { IslandSpec, IslandTheme } from "./islands";
 
 function rng(seed: number): () => number {
@@ -13,7 +16,7 @@ function rng(seed: number): () => number {
   };
 }
 
-const mat = (color: number): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 1 });
+const mat = (color: THREE.ColorRepresentation): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 1 });
 const M = {
   rock: mat(0x8a8f99),
   rockDark: mat(0x6b7079),
@@ -27,6 +30,17 @@ const M = {
   white: mat(0xf4f1ea),
   dish: mat(0xdfe6ee),
 };
+
+/** One shared material for each desk wood, made on first use: a hut's counter. Never disposed. */
+const WOOD_MATERIALS = new Map<Wood, THREE.MeshStandardMaterial>();
+function woodMaterial(wood: Wood): THREE.MeshStandardMaterial {
+  let m = WOOD_MATERIALS.get(wood);
+  if (m === undefined) {
+    m = mat(WOODS[wood].top);
+    WOOD_MATERIALS.set(wood, m);
+  }
+  return m;
+}
 
 /** A wobbly closed outline: the island's coastline. */
 function blob(radius: number, rand: () => number, steps = 28): THREE.Shape {
@@ -138,9 +152,9 @@ for (const g of Object.values(STALL)) SHARED.add(g);
  * An agent's hut: a counter to sit behind, a back wall, two posts and a roof, sized for a 7.5-unit person.
  * Origin is the ground in front of the counter. An agent working in a git worktree gets a palm beside it.
  */
-export function buildStall(worktree: boolean, seed: number): THREE.Group {
+export function buildStall(worktree: boolean, seed: number, tool: ToolKind): THREE.Group {
   const g = new THREE.Group();
-  const counter = new THREE.Mesh(STALL.counter, M.wood);
+  const counter = new THREE.Mesh(STALL.counter, woodMaterial(woodFor(tool)));
   counter.position.set(0, COUNTER_H / 2, 0.3);
   const wall = new THREE.Mesh(STALL.wall, M.trunk);
   wall.position.set(0, COUNTER_H + 4.4, -1.7);

@@ -4,8 +4,8 @@ import * as THREE from "three";
 import { MapControls } from "three/examples/jsm/controls/MapControls.js";
 import type { OfficeSnapshot, Session } from "../types";
 import { poseForState } from "../lib/animation";
-import { hashString, lookFor } from "../lib/looks";
-import { Person } from "../scene/Person";
+import { hashString, helperDrawn } from "../lib/looks";
+import { Worker } from "../scene/Worker";
 import { useProjects } from "../state/ProjectsContext";
 import { questionsForProject, tripTag } from "../state/selectors";
 import { useNewMessages } from "../state/useNewMessages";
@@ -127,7 +127,7 @@ export function placePeople(rows: readonly { readonly spec: IslandSpec; readonly
           x: slot.x + (j - 1) * 3.6,
           y: GRASS_Y + COUNTER_H * HELPER_SCALE,
           z: slot.z + 5.2,
-          session: { ...session, id: h.id, state: h.state, helpers: [] },
+          session: { ...session, ...helperDrawn(session, h), state: h.state, helpers: [] },
           owner: session,
           helper: true,
           dimmed: floor.dimmed,
@@ -672,7 +672,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
         // An agent's own hut and its subagents' small huts (keys `<session>/<helper>`) stand round it: they never hide it.
         const family = p.key.split("/")[0] ?? p.key;
         if (hut === undefined) {
-          const group = buildStall(worktree, hashString(p.key));
+          const group = buildStall(worktree, hashString(p.key), p.session.tool);
           if (p.helper) group.scale.setScalar(HELPER_SCALE);
           group.userData["family"] = family;
           scene.add(group);
@@ -890,7 +890,7 @@ export function Archipelago({ snapshot, entries, onGone, animate, onEnter, onOpe
             }}
           >
             <span className={exiling.has(p.session.id) ? "arch-kicked" : undefined}>
-              <Person look={lookFor(p.session.id)} pose={poseForState(p.session.state)} />
+              <Worker of={p.session} pose={poseForState(p.session.state)} />
             </span>
           </div>
         ))}

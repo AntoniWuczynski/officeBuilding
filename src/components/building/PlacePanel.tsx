@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useId, useRef } from "react";
 import type { Question, Session } from "../../types";
-import { STATE_LABEL, TOOL_LABEL, helpersLine, lastReplyLine, sessionsByUrgency } from "../../state/selectors";
+import { STATE_LABEL, TOOL_LABEL, helpersLine, lastReplyLine, modelLine, sessionsByUrgency } from "../../state/selectors";
 import { SeenContext } from "../../state/useSeen";
 import { BoardsContext } from "./BoardsContext";
 import { EditableSign } from "./EditableSign";
@@ -9,6 +9,7 @@ import { ProjectField, ProjectPick, tagText } from "./ProjectField";
 import { useProjects } from "../../state/ProjectsContext";
 import { repoFolder } from "../../state/projectGuess";
 import type { Project } from "../../types";
+import { WorkerFace } from "../../scene/Worker";
 import { useEscapeClose } from "./useEscapeClose";
 import { PLACE } from "../../state/placeWords";
 import "./place.css";
@@ -100,11 +101,13 @@ export function PlacePanel({ id, projectId, project, name, noun, enterLabel, ses
             <li key={s.id} data-state={s.state}>
               <button type="button" className="place-row" data-testid="place-row" onClick={() => onOpenSession(s)}>
                 <b id={`${uid}-${s.id}`}>
+                  <WorkerFace of={s} />
                   {s.title}
                   {isNew(s) ? <i className="new-dot" role="img" aria-label="New since you looked" data-testid="new-dot" /> : null}
                 </b>
                 <span>
                   {STATE_LABEL[s.state]} · {TOOL_LABEL[s.tool]}
+                  {modelLine(s) === null ? "" : ` · ${modelLine(s)}`}
                   {helpersLine(s) === null ? "" : ` · ${helpersLine(s)}`}
                   {s.worktree ? " · in a worktree" : ""}
                 </span>

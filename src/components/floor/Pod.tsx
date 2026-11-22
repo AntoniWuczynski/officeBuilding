@@ -2,16 +2,20 @@ import type { Helper } from "../../types";
 import { POD, podFor, podSeatOf } from "../../lib/layout";
 import type { Slot } from "../../lib/layout";
 import { poseForState } from "../../lib/animation";
-import { lookFor } from "../../lib/looks";
+import { helperDrawn } from "../../lib/looks";
+import type { Drawn } from "../../lib/looks";
+import { deskFaces, woodFor } from "../../lib/woods";
 import { Plant } from "../../scene/Desk";
 import { Billboard, IsoBox } from "../../scene/Iso";
 import type { StyleWithVars } from "../../scene/Iso";
-import { Person } from "../../scene/Person";
+import { Worker } from "../../scene/Worker";
 
 interface Props {
   /** The session's own desk; the pod sits beside it. */
   readonly desk: Slot;
   readonly z: number;
+  /** The session the helpers work for: its tool gives the desks their wood. */
+  readonly agent: Drawn;
   readonly helpers: readonly Helper[];
   /** Helpers on their way in or out: their desks stand empty meanwhile. */
   readonly walking: ReadonlySet<string>;
@@ -24,12 +28,14 @@ interface Props {
  * shrink as the team grows, drop their people once too small to seat one, and
  * past POD.cap the rest show as a count.
  */
-export function Pod({ desk, z, helpers, walking, onHelperMenu }: Props): React.ReactElement | null {
+export function Pod({ desk, z, agent, helpers, walking, onHelperMenu }: Props): React.ReactElement | null {
   if (helpers.length === 0) return null;
   const pod = podFor(desk, helpers.length);
   const w = pod.cell * POD.deskShare;
   const d = pod.cell * 0.5;
   const h = Math.max(1.5, pod.cell * 0.24);
+  const wood = woodFor(agent.tool);
+  const faces = deskFaces(wood);
   const bottom = Math.max(...pod.slots.map((s) => s.y)) + pod.cell;
   return (
     <div className="group pod" data-testid="pod">
@@ -37,7 +43,7 @@ export function Pod({ desk, z, helpers, walking, onHelperMenu }: Props): React.R
         const helper = helpers[i];
         if (helper === undefined) return null;
         const seat = podSeatOf(pod, slot);
-        const figure = <Person look={lookFor(helper.id)} pose={poseForState(helper.state)} />;
+        const figure = <Worker of={helperDrawn(agent, helper)} pose={poseForState(helper.state)} />;
         return (
           <div key={helper.id} className="group">
             <IsoBox
@@ -47,10 +53,10 @@ export function Pod({ desk, z, helpers, walking, onHelperMenu }: Props): React.R
               w={w}
               d={d}
               h={h}
-              top="var(--timber)"
-              front="var(--timber-front)"
-              side="var(--timber-side)"
-              className="pod-desk"
+              top={faces.top}
+              front={faces.front}
+              side={faces.side}
+              className={`pod-desk wood-${wood}`}
               topContent={<b className={`pod-led led-${helper.state}`} data-testid="pod-desk" />}
             />
             {seat !== null && helper.worktree ? <Plant x={slot.x + w * 0.12} y={slot.y + d * 0.1} z={z + h} scale={seat.scale} /> : null}

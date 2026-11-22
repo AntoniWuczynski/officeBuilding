@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { makeSeedSnapshot } from "../../api/mockData";
 import type { EndedDesk } from "../../types";
 import { SignOutSheet } from "./SignOutSheet";
@@ -54,5 +54,14 @@ describe("the sign-out sheet's ended line", () => {
     const line = screen.getByTestId("signed-out-ended");
     expect(line).toHaveTextContent("<b>bold</b> <img src=x>");
     expect(line.querySelector("b, img")).toBeNull();
+  });
+});
+
+describe("the sign-out sheet's words and face", () => {
+  it("shows the model with its effort, and the face of its worker", () => {
+    show(undefined);
+    const row = screen.getAllByTestId("signed-out-row")[0] as HTMLElement;
+    expect(row).toHaveTextContent("Claude Code, claude-sonnet-5-5, medium effort, left 35 min ago");
+    expect(within(row).getByTestId("worker-face")).toHaveAttribute("data-look", "nell-medium");
   });
 });

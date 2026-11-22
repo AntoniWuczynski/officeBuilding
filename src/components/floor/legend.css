@@ -1,0 +1,58 @@
+/* The look legend: a folded list in the Info panel. Paper and ink, no shadow. */
+.look-legend {
+  margin-top: 12px;
+  font: 12px/1.4 var(--font-ui);
+  color: var(--ink-soft);
+}
+.look-legend summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 700;
+}
+.look-legend h4 {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.look-legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.look-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+.look-legend p {
+  margin: 6px 0 0;
+}
+.legend-builds {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.legend-builds li {
+  flex-direction: column;
+}
+.legend-chip {
+  display: inline-block;
+  flex: none;
+  width: 28px;
+  height: 14px;
+  margin-right: 6px;
+  border: 1px solid var(--ink);
+  vertical-align: middle;
+}
+.look-legend li .legend-chip {
+  margin-right: 0;
+}
+.legend-face {
+  height: 28px;
+  width: auto;
+}
+.legend-torso {
+  height: 30px;
+  width: auto;
+}

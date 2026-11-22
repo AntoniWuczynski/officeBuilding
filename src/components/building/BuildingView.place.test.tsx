@@ -76,7 +76,7 @@ describe("an office floor's nameplate", () => {
 describe("a person at a desk on the overview", () => {
   it("opens their session without going into the floor", async () => {
     const { onEnter, onOpenSession, storey } = setup();
-    await userEvent.setup().click(within(storey("p-arcade")).getByRole("button", { name: /netcode prototype, Idle\. Open it\./ }));
+    await userEvent.setup().click(within(storey("p-arcade")).getByRole("button", { name: /netcode prototype, Codex, gpt-5.6-terra, medium effort, Idle\. Open it\./ }));
     expect(onOpenSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s-6" }));
     expect(onEnter).not.toHaveBeenCalled();
   });

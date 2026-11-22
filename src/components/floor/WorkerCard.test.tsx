@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { WorkerCard } from "./WorkerCard";
 import { ProjectsContext } from "../../state/ProjectsContext";
 import { makeSeedSnapshot } from "../../api/mockData";
-import type { QueuedNote } from "../../types";
+import { UltracodeContext } from "../../state/UltracodeContext";
+import type { QueuedNote, Session } from "../../types";
 import type { SessionTag } from "../../state/clusters";
 
 const session = makeSeedSnapshot().sessions[0]!;
@@ -79,5 +80,37 @@ describe("the worker card's attention lines", () => {
     draw({ state: "idle", control: "raise-window" }, true);
     expect(screen.getByTestId("worker-unseen")).toHaveTextContent("started outside the app");
     expect(screen.queryByTestId("worker-asks")).toBeNull();
+  });
+});
+
+describe("the worker card's words and face", () => {
+  const empty = { clusters: [], clusterOf: new Map(), tags: new Map(), unplaced: [], rules: [], rulesError: null, similar: () => [], assignProject: () => Promise.resolve() };
+  const show = (s: Session, ultracode: readonly string[] = []) =>
+    render(
+      <ProjectsContext value={empty}>
+        <UltracodeContext value={new Set(ultracode)}>
+          <WorkerCard session={s} x={0} y={0} now={new Date("2026-09-28T16:00:00Z")} editorHint={null} managed={false} waiting={[]} handover={undefined} />
+        </UltracodeContext>
+      </ProjectsContext>,
+    );
+  it("shows the model line and the face of the worker its model draws", () => {
+    show({ ...session, model: "claude-sonnet-5-5", effort: "high" });
+    expect(screen.getByTestId("worker-card")).toHaveTextContent("claude-sonnet-5-5, high effort");
+    expect(screen.getByTestId("worker-face")).toHaveAttribute("data-look", "nell-high");
+  });
+  it("says ultracode only for a Claude Code desk in the context's set", () => {
+    show(session, [session.id]);
+    expect(screen.getByTestId("worker-ultracode")).toHaveTextContent("Hired with ultracode on");
+  });
+  it("says nothing of ultracode for a desk outside the set or a Codex desk", () => {
+    show(session);
+    expect(screen.queryByTestId("worker-ultracode")).not.toBeInTheDocument();
+    cleanup();
+    show({ ...session, tool: "codex" }, [session.id]);
+    expect(screen.queryByTestId("worker-ultracode")).not.toBeInTheDocument();
+  });
+  it("shows what the helpers run on", () => {
+    show({ ...session, helpers: [{ id: "h", state: "running", worktree: false, branch: null, model: "gpt-5.6-terra", effort: "medium" }] });
+    expect(screen.getByTestId("worker-helper-models")).toHaveTextContent("Helpers on gpt-5.6-terra, medium effort");
   });
 });

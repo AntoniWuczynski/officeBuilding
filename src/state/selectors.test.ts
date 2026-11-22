@@ -19,6 +19,7 @@ import {
   isActive,
   asksLine,
   unseenLine,
+  helperModelsLine,
   helpersLine,
   modelLine,
   matchesQuery,
@@ -444,5 +445,30 @@ describe("asksLine and unseenLine", () => {
     expect(unseenLine(session("idle", { control: "full" }), false)).toBeNull();
     expect(unseenLine(session("idle", { control: "full" }), true)).toBe("The building cannot see approval prompts here until Codex runs its hooks. Trust them once with /hooks.");
     expect(unseenLine(session("idle", { control: "raise-window" }), true)).toBe("The building cannot see approval prompts in this session, because it was started outside the app.");
+  });
+});
+
+describe("modelLine for an ended session", () => {
+  it("takes just a model and an effort", () => {
+    expect(modelLine({ model: "claude-sonnet-5-5", effort: "medium" })).toBe("claude-sonnet-5-5, medium effort");
+    expect(modelLine({ model: null, effort: "high" })).toBeNull();
+  });
+});
+
+describe("helperModelsLine", () => {
+  const helper = (id: string, model: string | null, effort: string | null) => ({ id, state: "running" as const, worktree: false, branch: null, model, effort });
+  it("is null with no helper and with helpers that report nothing", () => {
+    expect(helperModelsLine(session("running"))).toBeNull();
+    expect(helperModelsLine(session("running", { model: "gpt-5.6-terra", helpers: [helper("a", null, null), helper("b", null, null)] }))).toBeNull();
+  });
+  it("names one group", () => {
+    expect(helperModelsLine(session("running", { model: "gpt-6-astra", effort: "xhigh", helpers: [helper("a", "gpt-5.6-terra", "medium"), helper("b", null, null)] }))).toBe("Helpers on gpt-5.6-terra, medium effort");
+  });
+  it("groups equal lines with a count and joins groups in first-seen order", () => {
+    const helpers = [helper("a", "claude-haiku-5-5", "low"), helper("b", "claude-opus-5-5", "high"), helper("c", "claude-haiku-5-5", "low")];
+    expect(helperModelsLine(session("running", { helpers }))).toBe("Helpers on claude-haiku-5-5, low effort (2) and claude-opus-5-5, high effort");
+  });
+  it("falls back to the agent's model for a helper with only an effort", () => {
+    expect(helperModelsLine(session("running", { model: "claude-opus-5-5", effort: "high", helpers: [helper("a", null, "low")] }))).toBe("Helpers on claude-opus-5-5, low effort");
   });
 });

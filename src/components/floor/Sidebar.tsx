@@ -29,6 +29,7 @@ import { DecisionsPanel } from "./DecisionsPanel";
 import { TodoList } from "./TodoList";
 import { SetupPanel } from "./SetupPanel";
 import type { SetupProps } from "./SetupPanel";
+import { LookLegend } from "./LookLegend";
 import { ShellsPanel } from "./ShellsPanel";
 import { SignOutSheet } from "./SignOutSheet";
 import { OpenInEditor } from "../editor/OpenInEditor";
@@ -231,6 +232,7 @@ function InfoBody({ project, sessions, now, connection, qa, onOpenSession }: Inf
         <dt>Last activity</dt>
         <dd>{latest === undefined ? "None yet" : `${latest.title}, ${relativeTime(latest.lastActivityAt, now)}`}</dd>
       </dl>
+      <LookLegend />
     </div>
   );
 }

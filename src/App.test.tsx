@@ -238,11 +238,11 @@ describe("sign-out sheet", () => {
     await user.click(screen.getByTestId("rail-signed-out"));
     const rows = screen.getAllByTestId("signed-out-row");
     expect(rows.map((r) => within(r).getByTestId("signed-out-title").textContent)).toEqual(["refund emails", "price import"]);
-    expect(rows[0]).toHaveTextContent("Claude Code");
+    expect(rows[0]).toHaveTextContent("Claude Code, claude-sonnet-5-5, medium effort, left");
     await user.click(within(screen.getAllByTestId("signed-out-row")[0] ?? document.body).getByRole("button", { name: "Resume refund emails" }));
     // The agent walks back in from the door, then takes its desk.
     fireEvent.animationEnd(await screen.findByTestId("walk"));
-    expect(await screen.findByRole("button", { name: /^refund emails, Claude Code, Thinking/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^refund emails, Claude Code, claude-sonnet-5-5, medium effort, Thinking/ })).toBeInTheDocument();
     expect(screen.getAllByTestId("signed-out-row")).toHaveLength(1);
     expect(screen.getByText(/Resumed “refund emails”/)).toBeInTheDocument();
   });
@@ -307,7 +307,7 @@ describe("floor", () => {
     const pod = secondPod();
     expect(within(pod).getAllByTestId("pod-desk")).toHaveLength(3);
     expect(within(pod).queryByTestId("pod-more")).toBeNull();
-    const worker = screen.getByRole("button", { name: /audit checkout, Claude Code, Working, 3 helpers working/ });
+    const worker = screen.getByRole("button", { name: /audit checkout, Claude Code, claude-opus-5-5, high effort, Working, 3 helpers working/ });
     await user.hover(worker);
     expect(screen.getByTestId("worker-card")).toHaveTextContent("3 helpers working");
 
@@ -324,7 +324,7 @@ describe("floor", () => {
     // One on the worktree session's desk, one on its worktree helper's (mock helpers alternate).
     expect(screen.getAllByTestId("desk-plant")).toHaveLength(2);
     expect(within(secondPod()).getAllByTestId("desk-plant")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /orders ingest fix, Codex, Needs you, 2 helpers working, in a worktree/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /orders ingest fix, Codex, gpt-6-astra, xhigh effort, Needs you, 2 helpers working, Helpers on gpt-6-astra, high effort, in a worktree/ })).toBeInTheDocument();
   });
 
   it("a stuck agent lies on the floor", async () => {
@@ -751,6 +751,7 @@ describe("manager's office", () => {
     expect(screen.getByTestId("terminal-panel")).toBeInTheDocument();
     await user.click(screen.getByTestId("object-info"));
     expect(screen.getByText("~/code/corner_shop")).toBeInTheDocument();
+    expect(within(screen.getByTestId("sidebar")).getByTestId("look-legend")).toBeInTheDocument();
     await user.click(screen.getByTestId("sidebar-close"));
     await waitFor(() => expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument());
   });
