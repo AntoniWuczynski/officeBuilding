@@ -59,24 +59,36 @@ const CHAIR_SCALE = 1.7;
 /** How far above the seat a seated torso is lifted, as a share of its height. */
 const SIT_TALL = 0.42;
 
-export function rig(parts: PersonParts, standing: boolean): Rig {
-  const t = parts.torso;
-  const p = parts.pelvis;
-  const ua = parts["upper-arm-r"];
-  const leg = parts["leg-r"];
+/**
+ * Places a person's pieces. `frame` is the piece set whose sizes place the joints: a tier
+ * worker's medium build, so its six builds share one set of joints and a build changes only
+ * how wide each piece is round its joint. Each piece is still drawn at its own size.
+ */
+export function rig(parts: PersonParts, standing: boolean, frame: PersonParts = parts): Rig {
+  const t = frame.torso;
+  const p = frame.pelvis;
   const pelvisTop = t.h * 0.84;
   // Seated, the desk hides the lap: sitting tall puts the hands at its back edge, on the keyboard.
-  const anchor = standing ? pelvisTop + p.h * 0.72 + leg.h * 0.97 : pelvisTop + p.h * 0.5 + t.h * SIT_TALL;
+  const anchor = standing ? pelvisTop + p.h * 0.72 + frame["leg-r"].h * 0.97 : pelvisTop + p.h * 0.5 + t.h * SIT_TALL;
   const shoulder = t.w * 0.38;
+  // The hips from the centre line: 0.27 and 0.73 of the pelvis's width, measured from its middle.
+  const hip = p.w * 0.23;
+  // The drawn torso's own centre line: its children sit inside its own box.
+  const mid = parts.torso.w / 2;
   const chairW = parts.chair.w * CHAIR_SCALE;
   const chairH = parts.chair.h * CHAIR_SCALE;
+  const forearm = (side: "l" | "r"): Placed => {
+    const arm = parts[`upper-arm-${side}`];
+    // The elbow is 0.9 down the frame's upper arm, from a shoulder pinned 0.12 down the drawn one.
+    return pin(parts[`forearm-${side}`], 0.5, 0.05, arm.w / 2, arm.h * 0.12 + frame[`upper-arm-${side}`].h * 0.78);
+  };
   return {
-    torso: pin(t, 0.5, 0, 0, -anchor),
-    head: pin(parts.head, 0.5, 0.86, t.w / 2, t.h * 0.1),
-    chair: { left: (t.w - chairW) / 2, top: t.h * 0.02, w: chairW, h: chairH, ox: chairW / 2, oy: chairH },
-    pelvis: pin(p, 0.5, 0, t.w / 2, pelvisTop),
-    upperArm: [pin(ua, 0.5, 0.12, t.w / 2 - shoulder, t.h * 0.18), pin(parts["upper-arm-l"], 0.5, 0.12, t.w / 2 + shoulder, t.h * 0.18)],
-    forearm: [pin(parts["forearm-r"], 0.5, 0.05, ua.w / 2, ua.h * 0.9), pin(parts["forearm-l"], 0.5, 0.05, parts["upper-arm-l"].w / 2, parts["upper-arm-l"].h * 0.9)],
-    leg: [pin(leg, 0.5, 0.04, p.w * 0.27, p.h * 0.72), pin(parts["leg-l"], 0.5, 0.04, p.w * 0.73, p.h * 0.72)],
+    torso: pin(parts.torso, 0.5, 0, 0, -anchor),
+    head: pin(parts.head, 0.5, 0.86, mid, t.h * 0.1),
+    chair: { left: mid - chairW / 2, top: t.h * 0.02, w: chairW, h: chairH, ox: chairW / 2, oy: chairH },
+    pelvis: pin(parts.pelvis, 0.5, 0, mid, pelvisTop),
+    upperArm: [pin(parts["upper-arm-r"], 0.5, 0.12, mid - shoulder, t.h * 0.18), pin(parts["upper-arm-l"], 0.5, 0.12, mid + shoulder, t.h * 0.18)],
+    forearm: [forearm("r"), forearm("l")],
+    leg: [pin(parts["leg-r"], 0.5, 0.04, parts.pelvis.w / 2 - hip, p.h * 0.72), pin(parts["leg-l"], 0.5, 0.04, parts.pelvis.w / 2 + hip, p.h * 0.72)],
   };
 }

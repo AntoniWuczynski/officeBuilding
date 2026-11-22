@@ -62,12 +62,12 @@ function Piece({ at, part, className, children }: { readonly at: Placed; readonl
  */
 function Puppet({ look, standing, carrying = null }: { readonly look: Look; readonly standing: boolean; readonly carrying?: Handed | null }): React.ReactElement {
   const p = look.parts;
-  const r = rig(p, standing);
+  const r = rig(p, standing, look.frame ?? p);
   const [armA, armB] = r.upperArm;
   const [foreA, foreB] = r.forearm;
   const [legA, legB] = r.leg;
   return (
-    <span className="puppet" aria-hidden>
+    <span className={look.tint === true ? "puppet is-ultracode" : "puppet"} aria-hidden>
       <span className="pp-rig">
         <Piece at={r.torso} className="pp-torso">
           {standing ? null : <Piece at={r.chair} part={p.chair} className="pp-chair" />}
@@ -111,7 +111,7 @@ interface PersonProps {
 /** An employee at their desk, or flat on the floor when stuck. The pose encodes the session state (DESIGN.md, motion). */
 export function Person({ look, pose, receiving = null }: PersonProps): React.ReactElement {
   return (
-    <span className={`person pose-${pose}`} data-pose={pose}>
+    <span className={`person pose-${pose}`} data-pose={pose} data-look={look.name}>
       <Bubble pose={pose} />
       {receiving === null ? null : <ReceivedBubble handed={receiving} />}
       <Puppet look={look} standing={pose === "stuck"} />
@@ -122,7 +122,7 @@ export function Person({ look, pose, receiving = null }: PersonProps): React.Rea
 /** A standing, walking employee, optionally carrying a note or a folder. */
 export function Walker({ look, carrying }: { readonly look: Look; readonly carrying: Handed | null }): React.ReactElement {
   return (
-    <span className="walker">
+    <span className="walker" data-look={look.name}>
       <span className="w-flip">
         <Puppet look={look} standing carrying={carrying} />
       </span>

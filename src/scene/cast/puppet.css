@@ -68,6 +68,23 @@
   border-bottom: 0;
 }
 
+/* A Claude Code desk hired with ultracode on: a slight purple cast over every piece (the #ultracode-tint filter, Worker.tsx). */
+.puppet.is-ultracode img,
+.worker-face.is-ultracode {
+  filter: url(#ultracode-tint);
+}
+.tint-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.worker-face {
+  height: 22px;
+  width: auto;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
 /* ---- typing: forearms strike the keys in bursts, head and shoulders keep time ---- */
 .pose-typing .pp-arm-a {
   transform: rotate(20deg);

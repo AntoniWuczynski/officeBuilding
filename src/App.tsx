@@ -37,6 +37,8 @@ import { SettingsPanel } from "./components/settings/SettingsPanel";
 import { Toasts } from "./components/Toasts";
 import type { Toast } from "./components/Toasts";
 import { message } from "./lib/errors";
+import { UltracodeContext } from "./state/UltracodeContext";
+import { UltracodeTint } from "./scene/Worker";
 
 interface Props {
   readonly api: DiscoveryApi;
@@ -92,6 +94,7 @@ export function App({ api }: Props): React.ReactElement {
     () => ({ ...grouping, rules: snapshot?.projectRules ?? [], rulesError: snapshot?.projectRulesError ?? null, similar: similarNames, assignProject: (target, choice) => api.assignProject(target, choice) }),
     [grouping, snapshot, api],
   );
+  const ultracode = useMemo<ReadonlySet<string>>(() => new Set(snapshot?.ultracode ?? []), [snapshot?.ultracode]);
   const project = view.kind === "floor" && snapshot !== null ? snapshot.projects.find((p) => p.id === view.projectId) : undefined;
 
   // A hire reported as started can still fail before the agent reaches its desk.
@@ -550,11 +553,14 @@ export function App({ api }: Props): React.ReactElement {
       <SeenContext value={seen}>
       <BoardsContext value={boardLinks}>
       <ProjectsContext value={projects}>
+      <UltracodeContext value={ultracode}>
+        <UltracodeTint />
         <div className={viewMode === "islands" && project === undefined ? "app is-islands" : "app"}>
           {body}
           {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
+      </UltracodeContext>
       </ProjectsContext>
       </BoardsContext>
       </SeenContext>
