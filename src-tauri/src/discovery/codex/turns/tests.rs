@@ -122,7 +122,7 @@ fn an_open_request_user_input_call_is_a_formal_question() {
             asked_at: "2026-11-20T10:00:00.000Z".into(),
         }]
     );
-    assert!(signals(&t, Some(1)).question_waiting);
+    assert!(signals(&t, true).question_waiting);
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn the_ask_outlasts_other_records_until_its_output() {
     lines.push(output("c1"));
     let t = parse(&lines);
     assert!(t.asks.is_empty());
-    assert!(!signals(&t, Some(1)).question_waiting);
+    assert!(!signals(&t, true).question_waiting);
     assert!(t.evidence.done_calls.contains(&"c1".to_string()));
 }
 

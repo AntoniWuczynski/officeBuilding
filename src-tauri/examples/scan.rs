@@ -14,7 +14,7 @@ fn main() {
         eprintln!("the home folder could not be found");
         std::process::exit(1);
     };
-    let found = Discovery::new(home).scan(SystemTime::now());
+    let found = Discovery::new(home).scan(SystemTime::now(), &[]);
     if std::env::args().any(|a| a == "--json") {
         match serde_json::to_string_pretty(&found.sessions) {
             Ok(json) => println!("{json}"),

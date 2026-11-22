@@ -13,7 +13,8 @@ use super::follow::{Fed, Follow, OPEN_TAIL};
 use crate::structured::Entry;
 use limit::Reading;
 use map::Mapper;
-pub(in crate::discovery) use map::{KEPT, Loose, lenient, one_line};
+pub(crate) use map::lenient;
+pub(in crate::discovery) use map::{KEPT, Loose, one_line};
 use std::fs;
 use std::path::{Path, PathBuf};
 /// The longest session id looked for.

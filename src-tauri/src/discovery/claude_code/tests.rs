@@ -114,7 +114,11 @@ fn running_sub_agents_are_the_sessions_helpers() {
     let tool = r#"{"type":"tool_use","id":"b1","name":"Bash","input":{}}"#;
     fs::write(
         helpers.join("agent-b.jsonl"),
-        record(&tree, "\"tool_use\"", tool) + "\n",
+        record(&tree, "\"tool_use\"", tool).replacen(
+            r#""message":{"#,
+            r#""effort":"high","message":{"model":"claude-test","#,
+            1,
+        ) + "\n",
     )
     .expect("write");
     fs::write(
@@ -145,12 +149,16 @@ fn running_sub_agents_are_the_sessions_helpers() {
                 state: SessionState::Thinking,
                 worktree: false,
                 branch: None,
+                model: None,
+                effort: None,
             },
             Helper {
                 id: "agent-b".into(),
                 state: SessionState::Running,
                 worktree: true,
                 branch: Some("agent-b".into()),
+                model: Some("claude-test".into()),
+                effort: Some("high".into()),
             },
         ]
     );

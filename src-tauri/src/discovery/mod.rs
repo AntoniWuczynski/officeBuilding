@@ -13,7 +13,7 @@ use crate::model::{
     QuestionOption, Session, SessionState, Spend, ToolKind,
 };
 use rules::Signals;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
@@ -42,9 +42,15 @@ pub struct Discovered {
     /// The Codex sessions in a terminal whose hooks have not reported: the building cannot see
     /// their approval prompts.
     pub unseen_prompts: Vec<String>,
-    /// What each live Codex session's rollout proves about its requests, by session id.
-    /// Kept here for the backend only.
+    /// What each live Codex session's rollout proves about its requests, by thread id, so a
+    /// worker's own evidence sits beside its session's. Kept here for the backend only.
     pub codex: BTreeMap<String, codex::turns::Evidence>,
+    /// What a request of each Codex helper says about who asked, by [`helper_key`].
+    pub helper_names: BTreeMap<String, String>,
+    /// The workers of each live Codex session whose newest evidence says they are over or
+    /// failed, drawn or not, by the session's id. Such a worker is not at its desk, and
+    /// its open requests are settled.
+    pub codex_gone: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// FNV-1a, 32-bit: the same stable hash the frontend uses for looks.
@@ -110,6 +116,9 @@ pub(crate) fn sent_at(at: &str) -> Option<chrono::DateTime<chrono::FixedOffset>>
 pub(crate) const REPLY_CHARS: usize = 140;
 /// How long an ended session stays on its floor's sign-out sheet.
 pub(crate) const KEEP_FINISHED: std::time::Duration = std::time::Duration::from_hours(12);
+/// A sub-agent silent this long was killed or lost, not left working: tool
+/// calls time out well before it (Bash allows at most 10 minutes).
+pub(crate) const HELPER_SILENCE: std::time::Duration = std::time::Duration::from_mins(10);
 
 /// The first sentence of a reply, at most `max` chars. None when it says nothing.
 /// Blank lines and fenced code come first and are skipped; a heading's `#`s or a list marker
@@ -170,6 +179,28 @@ fn abbreviation(before: &str) -> bool {
 #[must_use]
 pub fn helper_key(session_id: &str, helper_id: &str) -> String {
     format!("{session_id}/{helper_id}")
+}
+
+/// A sub-agent as its tiny desk shows it, and where its folder sits. The plant and the
+/// branch are for a linked worktree only.
+pub(crate) fn helper_in(
+    id: &str,
+    state: SessionState,
+    cwd: Option<&str>,
+    model: Option<String>,
+    effort: Option<String>,
+) -> (Helper, Option<Location>) {
+    let place = cwd.map(|cwd| locate(Path::new(cwd)));
+    let in_tree = place.as_ref().filter(|p| p.worktree);
+    let helper = Helper {
+        id: id.to_string(),
+        state,
+        worktree: in_tree.is_some(),
+        branch: in_tree.and_then(|p| branch_of(&p.checkout)),
+        model,
+        effort,
+    };
+    (helper, place)
 }
 
 /// The branch checked out at the top of a checkout, read from its HEAD file. None when
@@ -272,7 +303,8 @@ impl Discovery {
         }
     }
 
-    pub fn scan(&mut self, now: SystemTime) -> Discovered {
+    /// `owned`: the Codex threads running chat desks own.
+    pub fn scan(&mut self, now: SystemTime, owned: &[String]) -> Discovered {
         let table = (self.read_processes)();
         let claude = self.claude.scan(now);
         let mut peer_messages: Vec<AgentMessage> = claude
@@ -288,7 +320,7 @@ impl Discovery {
             .filter_map(|f| from_claude(f, &table))
             .chain(
                 self.codex
-                    .scan(now)
+                    .scan(now, owned)
                     .into_iter()
                     .filter_map(|f| from_codex(f, &table)),
             )
@@ -371,6 +403,8 @@ struct SessionInput {
     helpers: Vec<Helper>,
     /// Where each helper works now, by helper id.
     helper_places: BTreeMap<String, Location>,
+    /// A Codex session's workers by thread id (empty for Claude Code).
+    kids: BTreeMap<String, codex::children::Kid>,
     pets: Vec<Pet>,
     /// A person started it, so once it ends it can be offered to resume.
     resumable: bool,
@@ -438,6 +472,7 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
             .unwrap_or_default(),
         helpers: f.helpers,
         helper_places: f.helper_places,
+        kids: BTreeMap::new(),
         resumable: !f.transcript.scripted,
         last_reply: f.transcript.last_reply,
         session_name: f.live.as_ref().and_then(|l| l.name.clone()),
@@ -449,22 +484,29 @@ fn from_claude(f: claude_code::Found, table: &[pets::ProcessRow]) -> Option<Sess
 
 fn from_codex(f: codex::Found, table: &[pets::ProcessRow]) -> Option<SessionInput> {
     let cwd = f.transcript.cwd.clone()?;
-    let signals = codex::signals(&f.transcript, f.live_pid);
+    let live = f.live_pid.is_some() || f.owned;
+    let signals = codex::signals(&f.transcript, live);
+    let helper_places = f
+        .kids
+        .iter()
+        .filter_map(|(id, kid)| Some((id.clone(), kid.place.clone()?)))
+        .collect();
     Some(SessionInput {
         session_id: f.session_id,
         tool: ToolKind::Codex,
         latest_cwd: cwd.clone(),
         cwd,
         title: f.title,
-        live: f.live_pid.is_some(),
+        live,
         model: f.transcript.model.clone(),
         effort: f.transcript.effort.clone(),
         last_activity: f.transcript.last_activity.clone().unwrap_or_default(),
         spend: f.transcript.spend,
         signals,
         formal_question: f.transcript.asks.first().map(formal_question),
-        helpers: Vec::new(),
-        helper_places: BTreeMap::new(),
+        helpers: f.helpers,
+        helper_places,
+        kids: f.kids,
         pets: f
             .live_pid
             .map(|pid| pets::pets_of(pid, table, &[]))
@@ -507,6 +549,11 @@ pub(crate) fn is_prose_ask(question_id: &str) -> bool {
         .is_some_and(|(_, suffix)| suffix == PROSE_ASK)
 }
 
+/// The id of `session_id`'s plain-prose ask row, which [`is_prose_ask`] knows.
+pub(crate) fn prose_row_id(session_id: &str) -> String {
+    format!("{session_id}:{PROSE_ASK}")
+}
+
 /// What a waiting session asks the human: its formal question, or the asking
 /// line of a plain-prose ask (soft block), which has no options.
 fn question_for(input: &SessionInput, root: &Path) -> Question {
@@ -546,6 +593,7 @@ fn question_for(input: &SessionInput, root: &Path) -> Question {
         context: String::new(),
         source_file: None,
         handoff: None,
+        asked_by: None,
     }
 }
 
@@ -643,6 +691,40 @@ fn projects_of(floors: BTreeMap<PathBuf, Vec<String>>, home: &Path) -> Vec<Proje
         .collect()
 }
 
+/// What the reconcile reads of the live Codex sessions: evidence by thread id, each worker's
+/// name by [`helper_key`], and the workers the disk knows of each session.
+#[derive(Default)]
+struct CodexNotes {
+    evidence: BTreeMap<String, codex::turns::Evidence>,
+    names: BTreeMap<String, String>,
+    known: BTreeMap<String, BTreeSet<String>>,
+}
+
+impl CodexNotes {
+    fn note(
+        &mut self,
+        session_id: &str,
+        own: Option<codex::turns::Evidence>,
+        kids: BTreeMap<String, codex::children::Kid>,
+    ) {
+        if let Some(own) = own {
+            self.evidence.insert(session_id.to_string(), own);
+        }
+        let gone: BTreeSet<String> = kids
+            .iter()
+            .filter(|(_, kid)| kid.gone)
+            .map(|(id, _)| id.clone())
+            .collect();
+        if !gone.is_empty() {
+            self.known.insert(session_id.to_string(), gone);
+        }
+        for (kid_id, kid) in kids {
+            self.names.insert(helper_key(session_id, &kid_id), kid.name);
+            self.evidence.insert(kid_id, kid.evidence);
+        }
+    }
+}
+
 /// Build floors, desks and questions from every tool's finds. `locate` places a
 /// working directory on its floor (git root in production, identity in tests).
 fn assemble(
@@ -658,7 +740,7 @@ fn assemble(
     let mut resume_dirs = BTreeMap::new();
     let mut checkouts = BTreeMap::new();
     let mut skills = BTreeMap::new();
-    let mut codex = BTreeMap::new();
+    let mut codex = CodexNotes::default();
 
     for input in inputs {
         let Placement {
@@ -698,9 +780,7 @@ fn assemble(
 
         let title = input.title.clone().unwrap_or_else(|| UNTITLED.to_string());
         skills.insert(input.session_id.clone(), input.skills);
-        if let Some(evidence) = input.evidence {
-            codex.insert(input.session_id.clone(), evidence);
-        }
+        codex.note(&input.session_id, input.evidence, input.kids);
         sessions.push(Session {
             id: input.session_id,
             tool: input.tool,
@@ -745,7 +825,9 @@ fn assemble(
         peer_messages: Vec::new(),
         skills,
         unseen_prompts: Vec::new(),
-        codex,
+        codex: codex.evidence,
+        helper_names: codex.names,
+        codex_gone: codex.known,
     }
 }
 
@@ -775,6 +857,8 @@ fn collect_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
 
 #[cfg(test)]
 mod checkout_tests;
+#[cfg(test)]
+mod children_tests;
 
 #[cfg(test)]
 mod tests;

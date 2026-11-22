@@ -335,6 +335,9 @@ fn a_codex_placeholder_is_an_idle_desk_that_is_never_offered_for_resuming() {
         title: Some("New Codex session".to_string()),
         live_pid: Some(7),
         resumable: false,
+        owned: false,
+        helpers: Vec::new(),
+        kids: BTreeMap::new(),
     };
     let input = from_codex(placeholder, &[]).expect("a codex session");
     assert!(!input.resumable);
@@ -361,6 +364,9 @@ fn codex_sessions_join_the_same_floor_with_tool_kind_and_prose_questions() {
         title: Some("Bump check".to_string()),
         live_pid: Some(7),
         resumable: true,
+        owned: false,
+        helpers: Vec::new(),
+        kids: BTreeMap::new(),
     };
     let idle: &str = r#"{"type":"assistant","cwd":"/home/me/code/app","timestamp":"2026-09-29T09:00:00Z","message":{"id":"m","content":[{"type":"text","text":"All good."}]}}"#;
     let home = Path::new("/home/me");
@@ -493,6 +499,9 @@ fn codex_input(id: &str, live: bool, records: &[String]) -> SessionInput {
         title: None,
         live_pid: live.then_some(7),
         resumable: true,
+        owned: false,
+        helpers: Vec::new(),
+        kids: BTreeMap::new(),
     };
     from_codex(found, &[]).expect("a codex session")
 }

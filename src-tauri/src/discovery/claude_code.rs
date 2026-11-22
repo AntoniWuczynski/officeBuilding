@@ -618,23 +618,9 @@ pub struct Found {
 
 /// A working sub-agent, and where its latest folder sits.
 fn helper_at(id: &str, t: &Transcript) -> (Helper, Option<super::Location>) {
-    let place = t
-        .latest_cwd
-        .as_deref()
-        .map(|cwd| super::locate(Path::new(cwd)));
-    let in_tree = place.as_ref().filter(|p| p.worktree);
-    let helper = Helper {
-        id: id.to_string(),
-        state: helper_state(t),
-        worktree: in_tree.is_some(),
-        branch: in_tree.and_then(|p| super::branch_of(&p.checkout)),
-    };
-    (helper, place)
+    let cwd = t.latest_cwd.as_deref();
+    super::helper_in(id, helper_state(t), cwd, t.model.clone(), t.effort.clone())
 }
-
-/// A sub-agent silent this long was killed or lost, not left working: tool
-/// calls time out well before it (Bash allows at most 10 minutes).
-const HELPER_SILENCE: Duration = Duration::from_mins(10);
 
 /// Whether `path` was written within `max` of `now`. A file written after `now`
 /// (during the scan that took it) is as fresh as can be.
@@ -897,7 +883,7 @@ impl ClaudeSource {
                         };
                         transcript.spend = transcript.spend + t.spend;
                         if !t.finished
-                            && written_within(&path, now, HELPER_SILENCE)
+                            && written_within(&path, now, super::HELPER_SILENCE)
                             && let Some(id) = path.file_stem().and_then(|s| s.to_str())
                         {
                             let (helper, place) = helper_at(id, &t);

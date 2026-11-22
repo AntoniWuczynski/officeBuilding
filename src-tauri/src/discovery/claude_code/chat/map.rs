@@ -18,7 +18,7 @@ const NOTICE_MAX: usize = 500;
 
 /// `T` as it reads from the value, or its default when the value has another shape.
 /// The JSON value is only a stepping stone here and never leaves this function.
-pub(in crate::discovery) fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
+pub(crate) fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
     d: D,
 ) -> Result<T, D::Error> {
     let value = serde_json::Value::deserialize(d)?;

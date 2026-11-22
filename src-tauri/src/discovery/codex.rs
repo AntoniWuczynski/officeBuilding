@@ -6,7 +6,7 @@
 //!   `session_meta.source` is the plain string `"cli"`/`"vscode"` for a real
 //!   top-level session; for a sub-agent thread spawned by Codex's multi-agent
 //!   mode it is an object (`{"subagent":{"thread_spawn":{...}}}`) and the
-//!   session also carries a non-null `parent_thread_id`. We drop those as
+//!   parent is named there, at the top level, or both (`children.rs`). We drop those as
 //!   desks, the same way Claude Code's sidechains are dropped: they describe
 //!   helpers, not the session itself. Their spend is added to the top-level
 //!   thread that spawned them. Verified against real rollouts on this Mac
@@ -60,15 +60,16 @@
 use super::collect_jsonl;
 use super::pricing::{self, CodexUsage};
 use super::rules::{LastBlock, Signals};
-use crate::model::Spend;
+use crate::model::{Helper, Spend};
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+pub mod children;
 mod process;
 pub mod rollout;
 pub mod turns;
@@ -85,10 +86,6 @@ struct TokenCountInfo {
 
 /// What one rollout says, reduced to what the office shows.
 #[derive(Debug, Clone, PartialEq)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "independent facts read from the rollout, not a state machine"
-)]
 pub struct Transcript {
     pub cwd: Option<String>,
     /// The root session id (`session_meta.session_id`), for the title index.
@@ -108,10 +105,12 @@ pub struct Transcript {
     pub open_tools: usize,
     /// `task_started` seen with no matching `task_complete` yet.
     pub turn_open: bool,
-    /// `session_meta.source` was not a plain string: a sub-agent thread, not a real session.
-    pub is_subagent: bool,
-    /// The thread that spawned this one, for a sub-agent.
-    pub parent_thread_id: Option<String>,
+    /// What the first `session_meta` says the thread is.
+    pub kin: children::Kin,
+    /// What that record calls it, for a worker.
+    pub called: Option<String>,
+    /// What this rollout records about the workers its thread tree started.
+    pub told: Vec<children::Told>,
     /// The `request_user_input` calls still without an answer (section 5.1).
     pub asks: Vec<turns::Ask>,
     /// What the rollout proves about the current turn's requests.
@@ -135,8 +134,9 @@ impl Transcript {
             api_error: false,
             open_tools: 0,
             turn_open: false,
-            is_subagent: false,
-            parent_thread_id: None,
+            kin: children::Kin::Desk,
+            called: None,
+            told: Vec::new(),
             asks: Vec::new(),
             evidence: turns::Evidence::default(),
         }
@@ -163,9 +163,10 @@ pub fn parse_transcript(reader: impl BufRead) -> Transcript {
     let mut t = Transcript::blank();
     let mut counted = CodexUsage::default();
     let mut turns = turns::Turns::default();
+    let mut tellings = children::Tellings::default();
     // A sub-agent or forked rollout's first record is its own `session_meta`; a later record
     // in the same file can be a *copy* of the parent's (source "cli", no subagent wrapper).
-    // Identity, cwd and the subagent flag must come from the first one, or a copied parent
+    // Identity, cwd and the kin must come from the first one, or a copied parent
     // meta later in the file would relabel a subagent thread as a real top-level session.
     let mut meta_seen = false;
 
@@ -190,11 +191,9 @@ pub fn parse_transcript(reader: impl BufRead) -> Transcript {
                     .get("session_id")
                     .and_then(Value::as_str)
                     .map(str::to_string);
-                t.is_subagent = !matches!(payload.get("source"), Some(Value::String(_)) | None);
-                t.parent_thread_id = payload
-                    .get("parent_thread_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
+                let meta = children::read_meta(payload);
+                t.kin = meta.kin;
+                t.called = meta.called;
             }
             "turn_context" => {
                 if let Some(cwd) = payload.get("cwd").and_then(Value::as_str) {
@@ -217,11 +216,19 @@ pub fn parse_transcript(reader: impl BufRead) -> Transcript {
                 // aborts on this Mac). Without this, an interrupted live session shows Running forever.
                 Some("turn_aborted") => turns.aborted(turn_id(payload)),
                 Some("user_message") => turns.human(),
-                Some("item_completed")
-                    if payload.pointer("/item/type").and_then(Value::as_str)
-                        == Some("UserMessage") =>
-                {
-                    turns.human();
+                Some(kind @ ("item_completed" | "sub_agent_activity")) => {
+                    if kind == "item_completed"
+                        && payload.pointer("/item/type").and_then(Value::as_str)
+                            == Some("UserMessage")
+                    {
+                        turns.human();
+                    }
+                    tellings.read(
+                        payload,
+                        rec.get("timestamp")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                    );
                 }
                 // Totals are cumulative and the same total is often re-sent (rate-limit
                 // updates), so only the growth since the last one counted is priced.
@@ -295,6 +302,7 @@ pub fn parse_transcript(reader: impl BufRead) -> Transcript {
     t.reply_to_human = turns.reply().to_string();
     t.asks = turns.asks();
     t.evidence = turns.evidence();
+    t.told = tellings.finish();
     t
 }
 
@@ -304,9 +312,9 @@ fn turn_id(payload: &Value) -> Option<&str> {
 
 /// Turn a transcript plus liveness into the state rules' inputs.
 #[must_use]
-pub fn signals(t: &Transcript, live_pid: Option<i32>) -> Signals {
+pub fn signals(t: &Transcript, live: bool) -> Signals {
     Signals {
-        live: live_pid.is_some(),
+        live,
         busy: t.turn_open,
         question_waiting: !t.asks.is_empty(),
         pending_tool: t.open_tools > 0,
@@ -354,6 +362,12 @@ pub struct Found {
     /// Whether it can be offered for resuming once it ends: false for a
     /// placeholder, which has no rollout to resume.
     pub resumable: bool,
+    /// A running chat desk owns this thread.
+    pub owned: bool,
+    /// Its workers to draw, in pod order.
+    pub helpers: Vec<Helper>,
+    /// What is kept about each of its workers the disk knows, drawn or not, by thread id.
+    pub kids: BTreeMap<String, children::Kid>,
 }
 
 /// Scans Codex's rollouts, re-reading one only when it changed.
@@ -365,6 +379,8 @@ pub struct CodexSource {
     live_pids: HashMap<String, i32>,
     /// Per top-level thread: its sub-agent threads with a turn open, rebuilt by every scan.
     busy_subagents: HashMap<String, usize>,
+    /// The workers drawn thinking, running or failed, so one that is over is not shown as done.
+    drawn: BTreeSet<String>,
     /// The running `codex` pids; tests swap in none, so a real session on the Mac stays out.
     pub(crate) list_pids: fn() -> Vec<i32>,
 }
@@ -378,6 +394,7 @@ impl CodexSource {
             cache: HashMap::new(),
             live_pids: HashMap::new(),
             busy_subagents: HashMap::new(),
+            drawn: BTreeSet::new(),
             list_pids: list_codex_pids,
         }
     }
@@ -397,13 +414,18 @@ impl CodexSource {
         Some(parsed)
     }
 
-    /// Every live session, plus finished ones written to recently.
-    pub fn scan(&mut self, now: SystemTime) -> Vec<Found> {
-        self.scan_with(now, (self.list_pids)())
+    /// Every live session, plus finished ones written to recently. `owned`: the threads
+    /// running chat desks own, live whatever their files say.
+    pub fn scan(&mut self, now: SystemTime, owned: &[String]) -> Vec<Found> {
+        self.scan_with(now, (self.list_pids)(), owned)
     }
 
     /// `scan`, with the running `codex` pids supplied instead of queried from the OS.
-    pub fn scan_with(&mut self, now: SystemTime, pids: Vec<i32>) -> Vec<Found> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one pass from the rollouts to the finds; its stages share the parsed list"
+    )]
+    pub fn scan_with(&mut self, now: SystemTime, pids: Vec<i32>, owned: &[String]) -> Vec<Found> {
         let codex_home = self.home.join(".codex");
         let title_index = read_title_index(&codex_home.join("session_index.jsonl"));
 
@@ -414,6 +436,8 @@ impl CodexSource {
         let mut parent_of: HashMap<String, String> = HashMap::new();
         // Per sub-agent: its spend, and whether it is busy (a turn open in a recent file).
         let mut subagents: Vec<(String, Spend, bool)> = Vec::new();
+        // Per worker: its id, its parent, when its file was written, and its transcript.
+        let mut workers: Vec<(String, String, SystemTime, Transcript)> = Vec::new();
         for path in paths {
             let Some(session_id) = path
                 .file_stem()
@@ -428,12 +452,19 @@ impl CodexSource {
             let Some(transcript) = self.transcript(&path) else {
                 continue;
             };
-            if transcript.is_subagent {
-                if let Some(parent) = transcript.parent_thread_id {
-                    parent_of.insert(session_id.clone(), parent);
+            if transcript.kin != children::Kin::Desk {
+                if let Some(parent) = transcript.kin.parent() {
+                    parent_of.insert(session_id.clone(), parent.to_string());
                     let recent =
                         now.duration_since(mtime).unwrap_or(Duration::ZERO) <= self.keep_finished;
-                    subagents.push((session_id, transcript.spend, transcript.turn_open && recent));
+                    subagents.push((
+                        session_id.clone(),
+                        transcript.spend,
+                        transcript.turn_open && recent,
+                    ));
+                }
+                if let children::Kin::Worker { parent } = &transcript.kin {
+                    workers.push((session_id, parent.clone(), mtime, transcript));
                 }
                 continue;
             }
@@ -473,18 +504,41 @@ impl CodexSource {
                     title: Some("New Codex session".to_string()),
                     live_pid: Some(pid),
                     resumable: false,
+                    owned: false,
+                    helpers: Vec::new(),
+                    kids: BTreeMap::new(),
                 }
             })
             .collect();
 
+        let is_owned = |id: &str| owned.iter().any(|o| o == id);
+        parsed.retain(|(_, id, mtime, _)| {
+            self.live_pids.contains_key(id)
+                || is_owned(id)
+                || now
+                    .duration_since(*mtime)
+                    .is_ok_and(|age| age <= self.keep_finished)
+        });
+        let roots: Vec<children::Root<'_>> = parsed
+            .iter()
+            .map(|(_, id, _, transcript)| children::Root {
+                id,
+                live: self.live_pids.contains_key(id) || is_owned(id),
+                transcript,
+            })
+            .collect();
+        let seen: Vec<children::Seen<'_>> = workers
+            .iter()
+            .map(|(id, parent, written, transcript)| children::Seen {
+                id,
+                parent,
+                transcript,
+                written: *written,
+            })
+            .collect();
+        let mut teams = children::teams(&roots, &seen, now, &mut self.drawn);
         parsed
             .into_iter()
-            .filter(|(_, id, mtime, _)| {
-                self.live_pids.contains_key(id)
-                    || now
-                        .duration_since(*mtime)
-                        .is_ok_and(|age| age <= self.keep_finished)
-            })
             .map(|(_, session_id, _, transcript)| {
                 let title = transcript
                     .root_session_id
@@ -492,12 +546,16 @@ impl CodexSource {
                     .and_then(|id| title_index.get(id))
                     .cloned();
                 let live_pid = self.live_pids.get(&session_id).copied();
+                let team = teams.remove(&session_id).unwrap_or_default();
                 Found {
+                    owned: is_owned(&session_id),
                     session_id,
                     transcript,
                     title,
                     live_pid,
                     resumable: true,
+                    helpers: team.helpers,
+                    kids: team.kids,
                 }
             })
             .chain(placeholders)
@@ -571,295 +629,4 @@ impl super::Discovery {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
-
-    fn parse(lines: &[&str]) -> Transcript {
-        parse_transcript(Cursor::new(lines.join("\n")))
-    }
-
-    const META: &str = r#"{"timestamp":"2026-09-29T10:00:00.000Z","type":"session_meta","payload":{"id":"s1","session_id":"root1","cwd":"/code/app","source":"cli"}}"#;
-    const TURN_CTX: &str = r#"{"timestamp":"2026-09-29T10:00:01.000Z","type":"turn_context","payload":{"cwd":"/code/app","model":"gpt-5-codex","effort":"high"}}"#;
-    const USER: &str = r#"{"timestamp":"2026-09-29T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the parser"}]}}"#;
-
-    #[test]
-    fn reads_cwd_model_effort_and_reply() {
-        let started = r#"{"timestamp":"2026-09-29T10:00:03.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#;
-        let reasoning = r#"{"timestamp":"2026-09-29T10:00:04.000Z","type":"response_item","payload":{"type":"reasoning","summary":[]}}"#;
-        let reply = r#"{"timestamp":"2026-09-29T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done. Tests pass."}]}}"#;
-        let complete = r#"{"timestamp":"2026-09-29T10:00:06.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","last_agent_message":"Done."}}"#;
-        let tokens = r#"{"timestamp":"2026-09-29T10:00:06.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":40,"cached_input_tokens":10,"output_tokens":2,"total_tokens":42}}}}"#;
-        let t = parse(&[
-            META, TURN_CTX, USER, started, reasoning, reply, complete, tokens,
-        ]);
-        assert_eq!(t.cwd.as_deref(), Some("/code/app"));
-        assert_eq!(t.model.as_deref(), Some("gpt-5-codex"));
-        assert_eq!(t.effort.as_deref(), Some("high"));
-        assert_eq!(t.root_session_id.as_deref(), Some("root1"));
-        assert_eq!(t.reply_to_human, "Done. Tests pass.");
-        assert_eq!(t.spend.tokens, 32);
-        assert!(!t.turn_open);
-        assert!(!t.api_error);
-        assert_eq!(t.last_activity.as_deref(), Some("2026-09-29T10:00:06.000Z"));
-        assert!(!t.human_spoke_last);
-        assert!(!t.is_subagent);
-    }
-
-    #[test]
-    fn a_trailing_prose_question_scores_as_a_soft_block() {
-        let reply = r#"{"timestamp":"2026-09-29T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed it.\n\nShould I also bump the version?"}]}}"#;
-        let t = parse(&[META, USER, reply]);
-        let s = signals(&t, Some(1));
-        assert_eq!(
-            crate::discovery::rules::derive_state(&s),
-            crate::model::SessionState::WaitingHuman
-        );
-        assert_eq!(
-            super::super::rules::score_soft_block(&t.reply_to_human).question,
-            "Should I also bump the version?"
-        );
-    }
-
-    #[test]
-    fn the_last_reply_survives_the_human_speaking_again() {
-        let reply = r#"{"timestamp":"2026-09-29T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Parser fixed. Should I proceed?"}]}}"#;
-        let next_human = r#"{"timestamp":"2026-09-29T10:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"yes"}]}}"#;
-        let t = parse(&[META, USER, reply, next_human]);
-        assert_eq!(t.reply_to_human, "");
-        assert_eq!(t.last_reply.as_deref(), Some("Parser fixed."));
-    }
-
-    #[test]
-    fn subagent_thread_is_flagged_and_dropped() {
-        let sub_meta = r#"{"timestamp":"2026-09-29T10:00:00.000Z","type":"session_meta","payload":{"id":"s2","session_id":"root1","cwd":"/code/app","source":{"subagent":{"thread_spawn":{"parent_thread_id":"root1"}}}}}"#;
-        let t = parse(&[sub_meta]);
-        assert!(t.is_subagent);
-    }
-
-    #[test]
-    fn human_speaking_again_clears_the_prior_reply() {
-        let reply = r#"{"timestamp":"2026-09-29T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Should I proceed?"}]}}"#;
-        let next_human = r#"{"timestamp":"2026-09-29T10:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"yes"}]}}"#;
-        let t = parse(&[META, USER, reply, next_human]);
-        assert!(t.human_spoke_last);
-        assert_eq!(t.reply_to_human, "");
-    }
-
-    #[test]
-    fn title_index_keeps_the_last_line_per_id() {
-        let dir = std::env::temp_dir().join(format!("ob-codex-index-{}", std::process::id()));
-        fs::create_dir_all(&dir).expect("temp dir");
-        let path = dir.join("session_index.jsonl");
-        fs::write(
-            &path,
-            "{\"id\":\"root1\",\"thread_name\":\"Example thread one\",\"updated_at\":\"2000-01-01T00:00:00Z\"}\n\
-             {\"id\":\"root1\",\"thread_name\":\"Example thread renamed\",\"updated_at\":\"2000-01-01T00:05:00Z\"}\n\
-             not json\n",
-        )
-        .expect("write");
-        let index = read_title_index(&path);
-        fs::remove_dir_all(&dir).expect("cleanup");
-        assert_eq!(
-            index.get("root1").map(String::as_str),
-            Some("Example thread renamed")
-        );
-    }
-
-    #[test]
-    fn cache_reuses_a_parsed_transcript_when_the_file_is_unchanged() {
-        let dir = std::env::temp_dir().join(format!("ob-codex-cache-{}", std::process::id()));
-        fs::create_dir_all(dir.join(".codex/sessions/2026/09/29")).expect("temp dir");
-        let path = dir.join(".codex/sessions/2026/09/29/rollout-2026-09-29T10-00-00-deadbeef-0000-4000-8000-000000000000.jsonl");
-        fs::write(&path, format!("{META}\n{TURN_CTX}\n{USER}\n")).expect("write");
-
-        let mut source = CodexSource::new(dir.clone());
-        let first = source.scan_with(SystemTime::now(), Vec::new());
-        assert_eq!(first.len(), 1);
-        assert_eq!(source.cache.len(), 1);
-        let cached_before = source.cache.values().next().cloned();
-
-        let second = source.scan_with(SystemTime::now(), Vec::new());
-        assert_eq!(second.len(), 1);
-        assert_eq!(source.cache.values().next().cloned(), cached_before);
-
-        fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn spend_prices_each_token_count_once_at_the_model_then_in_use() {
-        let ctx = |model: &str| {
-            format!(
-                r#"{{"timestamp":"t","type":"turn_context","payload":{{"cwd":"/code/app","model":"{model}"}}}}"#
-            )
-        };
-        let count = |input: u64, output: u64| {
-            format!(
-                r#"{{"timestamp":"t","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":{input},"cached_input_tokens":0,"output_tokens":{output}}},"last_token_usage":{{"input_tokens":1}}}}}}}}"#
-            )
-        };
-        let astra = ctx("gpt-6-astra");
-        let luna = ctx("gpt-6-luna");
-        let (first, resent, second) = (
-            count(1_000_000, 0),
-            count(1_000_000, 0),
-            count(2_000_000, 1_000_000),
-        );
-        let t = parse(&[META, &astra, &first, &resent, &luna, &second]);
-        // 1M input on astra ($10), then 1M input + 1M output on luna ($0.10 + $0.50).
-        assert!((t.spend.usd - 10.6).abs() < 1e-9, "{}", t.spend.usd);
-        assert_eq!(t.spend.tokens, 3_000_000);
-        assert_eq!(t.spend.unpriced_tokens, 0);
-    }
-
-    #[test]
-    fn a_thread_spends_what_its_sub_agents_spend_at_any_depth() {
-        let dir = std::env::temp_dir().join(format!("ob-codex-subagents-{}", std::process::id()));
-        let day = dir.join(".codex/sessions/2026/09/29");
-        fs::create_dir_all(&day).expect("temp dir");
-        let uuid = |n: u32| format!("deadbeef-0000-4000-8000-{n:012}");
-        let meta = |id: &str, parent: Option<&str>| match parent {
-            None => format!(
-                r#"{{"timestamp":"t","type":"session_meta","payload":{{"id":"{id}","session_id":"{id}","cwd":"/code/app","source":"cli"}}}}"#
-            ),
-            Some(p) => format!(
-                r#"{{"timestamp":"t","type":"session_meta","payload":{{"id":"{id}","session_id":"{id}","parent_thread_id":"{p}","cwd":"/code/app","source":{{"subagent":{{"other":"guardian"}}}}}}}}"#
-            ),
-        };
-        let spent = r#"{"timestamp":"t","type":"turn_context","payload":{"cwd":"/code/app","model":"gpt-6-luna"}}
-{"timestamp":"t","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000000,"output_tokens":0}}}}"#;
-        let (top, child, grandchild) = (uuid(1), uuid(2), uuid(3));
-        for (id, parent) in [
-            (&top, None),
-            (&child, Some(top.as_str())),
-            (&grandchild, Some(child.as_str())),
-        ] {
-            fs::write(
-                day.join(format!("rollout-2026-09-29T10-00-00-{id}.jsonl")),
-                format!("{}\n{spent}\n", meta(id, parent)),
-            )
-            .expect("write");
-        }
-
-        let found = CodexSource::new(dir.clone()).scan_with(SystemTime::now(), Vec::new());
-        assert_eq!(found.len(), 1);
-        // Three threads of 1M input tokens on gpt-6-luna at $0.10 per MTok.
-        assert!(
-            (found[0].transcript.spend.usd - 0.3).abs() < 1e-9,
-            "{}",
-            found[0].transcript.spend.usd
-        );
-        assert_eq!(found[0].transcript.spend.tokens, 3_000_000);
-        fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn busy_subagents_are_counted_per_top_level_thread() {
-        let dir = std::env::temp_dir().join(format!("ob-codex-busy-{}", std::process::id()));
-        let day = dir.join(".codex/sessions/2026/09/29");
-        fs::create_dir_all(&day).expect("temp dir");
-        let uuid = |n: u32| format!("deadbeef-0000-4000-8000-{n:012}");
-        let meta = |id: &str, parent: Option<&str>| match parent {
-            None => format!(
-                r#"{{"timestamp":"t","type":"session_meta","payload":{{"id":"{id}","session_id":"{id}","cwd":"/code/app","source":"cli"}}}}"#
-            ),
-            Some(p) => format!(
-                r#"{{"timestamp":"t","type":"session_meta","payload":{{"id":"{id}","session_id":"{id}","parent_thread_id":"{p}","cwd":"/code/app","source":{{"subagent":{{"other":"guardian"}}}}}}}}"#
-            ),
-        };
-        let open = r#"{"timestamp":"t","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#;
-        let done = r#"{"timestamp":"t","type":"event_msg","payload":{"type":"task_complete","turn_id":"t1"}}"#;
-        let (top, other, a, b, stale, nested, ahead) = (
-            uuid(1),
-            uuid(2),
-            uuid(3),
-            uuid(4),
-            uuid(5),
-            uuid(6),
-            uuid(7),
-        );
-        let now = SystemTime::now();
-        let old = now - Duration::from_hours(13);
-        for (id, parent, last, modified) in [
-            (&top, None, None, now),
-            (&other, None, None, now),
-            (&a, Some(top.as_str()), Some(open), now),
-            (&b, Some(top.as_str()), Some(done), now),
-            (&stale, Some(top.as_str()), Some(open), old),
-            (&nested, Some(a.as_str()), Some(open), now),
-            // written after the scan's clock was read
-            (
-                &ahead,
-                Some(top.as_str()),
-                Some(open),
-                now + Duration::from_secs(1),
-            ),
-        ] {
-            let path = day.join(format!("rollout-2026-09-29T10-00-00-{id}.jsonl"));
-            let text = [Some(meta(id, parent)), last.map(str::to_string)]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join("\n");
-            fs::write(&path, format!("{text}\n")).expect("write");
-            fs::File::options()
-                .write(true)
-                .open(&path)
-                .and_then(|f| f.set_modified(modified))
-                .expect("mtime");
-        }
-
-        let mut discovery = crate::discovery::Discovery::new(dir.clone());
-        discovery.codex.scan_with(now, Vec::new());
-        assert_eq!(discovery.codex_subagents_busy(&top), 3);
-        assert_eq!(discovery.codex_subagents_busy(&other), 0);
-        assert_eq!(discovery.codex_subagents_busy("unknown"), 0);
-        fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn session_uuid_reads_the_filename_tail() {
-        assert_eq!(
-            session_uuid("rollout-2026-09-29T10-00-00-deadbeef-0000-4000-8000-000000000000"),
-            Some("deadbeef-0000-4000-8000-000000000000".to_string())
-        );
-        assert_eq!(session_uuid("not-a-uuid"), None);
-    }
-
-    // VERIFIER (failing on purpose): a sub-agent/forked rollout carries its own session_meta first
-    // and a copy of the parent's (source "cli") later. The first one must decide.
-    #[test]
-    fn verifier_subagent_with_copied_parent_meta_stays_a_subagent() {
-        let sub_meta = r#"{"timestamp":"2026-09-29T10:00:00.000Z","type":"session_meta","payload":{"id":"s2","session_id":"root1","cwd":"/code/app","source":{"subagent":{"thread_spawn":{"parent_thread_id":"root1"}}}}}"#;
-        let parent_meta = r#"{"timestamp":"2026-09-29T10:00:00.500Z","type":"session_meta","payload":{"id":"root1","session_id":"root1","cwd":"/code/app","source":"cli"}}"#;
-        let t = parse(&[sub_meta, parent_meta]);
-        assert!(t.is_subagent);
-    }
-
-    // A running codex with no rollout (here this very test process, standing in for one, as
-    // `lsof` and `ps` really are run on it) gets a placeholder desk that is live but not resumable.
-    #[test]
-    fn a_running_process_with_no_rollout_gets_a_placeholder_session() {
-        let dir = std::env::temp_dir().join(format!("ob-codex-placeholder-{}", std::process::id()));
-        fs::create_dir_all(dir.join(".codex/sessions")).expect("temp dir");
-        let pid = i32::try_from(std::process::id()).expect("pid fits");
-
-        let found = CodexSource::new(dir.clone()).scan_with(SystemTime::now(), vec![pid]);
-        fs::remove_dir_all(&dir).expect("cleanup");
-
-        let [placeholder] = found.as_slice() else {
-            panic!("expected one placeholder, got {found:?}");
-        };
-        assert_eq!(placeholder.session_id, format!("codex-new-{pid}"));
-        assert_eq!(placeholder.title.as_deref(), Some("New Codex session"));
-        assert_eq!(placeholder.live_pid, Some(pid));
-        assert!(!placeholder.resumable);
-        assert_eq!(
-            placeholder.transcript.cwd.as_deref(),
-            std::env::current_dir()
-                .ok()
-                .and_then(|d| d.to_str().map(str::to_string))
-                .as_deref()
-        );
-    }
-}
+mod tests;
