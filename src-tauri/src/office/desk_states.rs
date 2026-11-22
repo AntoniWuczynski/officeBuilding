@@ -142,6 +142,8 @@ mod tests {
             state: SessionState::Running,
             worktree: false,
             branch: None,
+            model: None,
+            effort: None,
         });
         let out = states(&[], vec![parent], |_| false);
         assert_eq!(out.len(), 1);

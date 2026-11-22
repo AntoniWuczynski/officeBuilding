@@ -133,6 +133,12 @@ pub struct Helper {
     pub worktree: bool,
     /// The branch of the worktree it works in. None outside a worktree or on a detached HEAD.
     pub branch: Option<String>,
+    /// The model it runs on, from its own records. None when they do not say.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Its reasoning effort, from its own records. None when they do not say.
+    #[serde(default)]
+    pub effort: Option<String>,
 }
 
 /// Something in the building that has a folder. The webview names it and the backend finds
@@ -224,6 +230,8 @@ pub enum Handoff {
     Elsewhere,
     /// A desk the building only reads.
     ReadOnly,
+    /// A chat desk's conversation, with no request to open: A Human replies there.
+    Conversation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -247,6 +255,9 @@ pub struct Question {
     /// (a decisions-file call, a stored call).
     #[serde(default)]
     pub handoff: Option<Handoff>,
+    /// The helper of `session_id` that raised it, by name. None when the session itself asked.
+    #[serde(default)]
+    pub asked_by: Option<String>,
 }
 
 /// Who decided something, or who is expected to tick a TODO off.
@@ -879,6 +890,7 @@ mod tests {
             ),
             (Handoff::Elsewhere, json!({ "kind": "elsewhere" })),
             (Handoff::ReadOnly, json!({ "kind": "read-only" })),
+            (Handoff::Conversation, json!({ "kind": "conversation" })),
         ];
         for (handoff, wire) in cases {
             assert_eq!(value(&handoff), wire);
@@ -896,6 +908,7 @@ mod tests {
         }))
         .expect("an old question loads");
         assert_eq!(old.handoff, None);
+        assert_eq!(old.asked_by, None);
         assert_eq!(
             value(&OfficeSnapshot::default())["unseenPrompts"],
             json!([])

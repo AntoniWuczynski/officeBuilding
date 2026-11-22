@@ -35,7 +35,7 @@ export const sessionSchema = z.object({
   sessionNameSource: z.enum(["user", "auto", "peer"]).nullable(),
   selfReviewed: z.boolean(),
   spend: z.object({ usd: z.number(), tokens: z.number(), unpricedTokens: z.number() }),
-  helpers: z.array(z.object({ id: z.string(), state: sessionState, worktree: z.boolean(), branch: z.string().nullable() })),
+  helpers: z.array(z.object({ id: z.string(), state: sessionState, worktree: z.boolean(), branch: z.string().nullable(), model: z.string().nullable(), effort: z.string().nullable() })),
   pets: z.array(z.object({ id: z.string(), kind: z.enum(["shell", "monitor", "browser", "process"]), label: z.string() })),
   worktree: z.boolean(),
   branch: z.string().nullable(),
@@ -151,6 +151,7 @@ const qaFloorSchema = z.object({
 
 const handoffSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("chat"), approvalId: z.string() }),
+  z.object({ kind: z.literal("conversation") }),
   z.object({ kind: z.literal("docked") }),
   z.object({ kind: z.literal("window"), app: z.string(), tab: z.boolean() }),
   z.object({ kind: z.literal("elsewhere") }),
@@ -186,6 +187,7 @@ export const snapshotSchema = z.object({
       context: z.string(),
       sourceFile: z.string().nullable(),
       handoff: handoffSchema.nullable(),
+      askedBy: z.string().nullable(),
     }),
   ),
   decisions: z.array(
@@ -280,6 +282,7 @@ const approvalSchema = z.object({
   choices: z.array(z.object({ id: z.string(), label: z.string(), allow: z.boolean() })),
   background: z.boolean(),
   failed: z.string().nullable(),
+  askedBy: z.string().nullable(),
 });
 
 const capabilitiesSchema = z.object({

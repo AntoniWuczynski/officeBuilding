@@ -71,11 +71,14 @@ export interface Question {
   readonly sourceFile: string | null;
   /** How to get to where it is answered; null for a call answered in the app itself. */
   readonly handoff: Handoff | null;
+  /** The helper of the asking session that raised it, by name; null when the session itself asked. */
+  readonly askedBy: string | null;
 }
 
 /** How to get to the place a question is answered (`Handoff` in model.rs). */
 export type Handoff =
   | { readonly kind: "chat"; readonly approvalId: string }
+  | { readonly kind: "conversation" }
   | { readonly kind: "docked" }
   | { readonly kind: "window"; readonly app: string; readonly tab: boolean }
   | { readonly kind: "elsewhere" }
@@ -241,6 +244,10 @@ export interface Helper {
   readonly worktree: boolean;
   /** The worktree's branch; null outside a worktree or on a detached HEAD. */
   readonly branch: string | null;
+  /** The model it runs on, from its own records; null when they do not say. */
+  readonly model: string | null;
+  /** Its reasoning effort, from its own records; null when they do not say. */
+  readonly effort: string | null;
 }
 
 export interface Project {
@@ -344,6 +351,8 @@ export interface Approval {
   readonly background: boolean;
   /** Why the last answer did not reach the agent, or may not have. */
   readonly failed: string | null;
+  /** The helper of the asking session that raised it, by name; null when the session itself asked. */
+  readonly askedBy: string | null;
 }
 
 /** A structured desk as its conversation panel opens on it. */

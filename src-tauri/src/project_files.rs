@@ -405,6 +405,7 @@ pub fn parse_human_decisions(
                 context: truncate(s.body.trim(), 2000),
                 source_file: Some(file.to_string()),
                 handoff: None,
+                asked_by: None,
             }),
             Some(status) => decided.push(Decision {
                 id: key,
@@ -579,6 +580,7 @@ impl Entry<'_> {
             context: truncate(self.body.trim(), 2000),
             source_file: Some(file.to_string()),
             handoff: None,
+            asked_by: None,
         }
     }
 

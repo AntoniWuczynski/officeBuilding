@@ -259,6 +259,8 @@ pub struct Approval {
     pub background: bool,
     /// Why the last answer did not reach the agent, or may not have. It can be sent again.
     pub failed: Option<String>,
+    /// The helper that raised it, by name. None when the desk's own thread asked.
+    pub asked_by: Option<String>,
 }
 
 /// The human's values for an approval's fields, by field id, as typed.
@@ -279,6 +281,9 @@ pub enum Event {
     Approval(Approval),
     /// A request is over: answered, withdrawn by the agent, or retired with its turn.
     Resolved { approval_id: String },
+    /// The workers the driver knows to be at work or asking, in the order it met them.
+    /// It replaces the last list.
+    Helpers(Vec<crate::model::Helper>),
     /// The agent process is gone. `message` says why, when it is not a clean exit.
     Exited {
         code: Option<i32>,

@@ -60,6 +60,7 @@ fn row(session: &str, suffix: &str) -> Question {
         context: String::new(),
         source_file: None,
         handoff: None,
+        asked_by: None,
     }
 }
 

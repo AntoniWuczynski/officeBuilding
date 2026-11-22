@@ -449,6 +449,7 @@ mod tests {
             context: String::new(),
             source_file: None,
             handoff: None,
+            asked_by: None,
         }
     }
 
