@@ -4,7 +4,7 @@
 //! it stays until the hooks or the rollout prove it over. For every other tool the hook feed
 //! is applied as before, and only the handoff wording is added to its terminal rows.
 
-use crate::discovery::{self, Discovered, codex::turns::Evidence};
+use crate::discovery::{self, Discovered, codex::children::name_of, codex::turns::Evidence};
 use crate::feed::{Feed, requests::Asked};
 use crate::focus::Host;
 use crate::model::{AnswerVia, ControlMode, Handoff, Question, Session, SessionState, ToolKind};
@@ -14,8 +14,6 @@ use std::time::SystemTime;
 /// What a permission request's row says about it (C10): the hook proves only that it began.
 const MAY_BE_SETTLED: &str = "The building saw a permission request begin. Codex, a hook or a \
                               reviewer may already have settled it, so look in its terminal.";
-/// Added when a sub-agent asked.
-const BY_A_HELPER: &str = " A helper of this session asked.";
 
 /// Settle each desk's requests before the snapshot's desk state, pending ids and queue
 /// are produced. For Codex: a hand is never raised without a row, and a row never
@@ -30,13 +28,12 @@ pub fn reconcile(
     feed.apply(&mut found.sessions);
     for (session, own) in found.sessions.iter_mut().zip(own) {
         if session.tool == ToolKind::Codex {
-            settle_codex(
-                session,
-                own,
-                &mut found.questions,
-                found.codex.get(&session.id),
-                feed,
-            );
+            let disk = Disk {
+                codex: &found.codex,
+                names: &found.helper_names,
+                kids: found.codex_gone.get(&session.id),
+            };
+            settle_codex(session, own, &mut found.questions, &disk, feed);
         }
     }
     found.unseen_prompts = found
@@ -66,34 +63,53 @@ pub fn reconcile(
     });
 }
 
+/// What the disk read about one Codex session and its workers.
+struct Disk<'a> {
+    /// By thread id: the session's own evidence and each worker's.
+    codex: &'a BTreeMap<String, Evidence>,
+    /// What a request says about who asked, by `helper_key`.
+    names: &'a BTreeMap<String, String>,
+    /// The workers of this session the disk proves over, drawn or not.
+    kids: Option<&'a BTreeSet<String>>,
+}
+
 /// Step 3 for one Codex session: `own` is its state as discovery made it, and its state now
 /// is what the feed gave.
 fn settle_codex(
     s: &mut Session,
     own: SessionState,
     questions: &mut Vec<Question>,
-    evidence: Option<&Evidence>,
+    disk: &Disk<'_>,
     feed: &mut Feed,
 ) {
     let seen = s.state;
-    if let Some(ev) = evidence {
-        let over: Vec<u64> = feed
-            .requests()
-            .open(&s.id)
-            .iter()
-            .filter(|a| proven_over(a, ev))
-            .map(|a| a.seq)
-            .collect();
-        for seq in over {
-            feed.requests_mut().retire(&s.id, seq);
-        }
+    let over: Vec<u64> = feed
+        .requests()
+        .open(&s.id)
+        .iter()
+        .filter(|a| proven_over(a, s, disk))
+        .map(|a| a.seq)
+        .collect();
+    for seq in over {
+        feed.requests_mut().retire(&s.id, seq);
     }
     let rows: Vec<Question> = feed
         .requests()
         .open(&s.id)
         .iter()
-        .map(|a| request_row(s, a))
+        .map(|a| request_row(s, a, disk))
         .collect();
+    // The worker that asked waits at its tiny desk.
+    for asker in feed
+        .requests()
+        .open(&s.id)
+        .iter()
+        .filter_map(|a| a.agent_id.as_deref())
+    {
+        if let Some(h) = s.helpers.iter_mut().find(|h| h.id == asker) {
+            h.state = SessionState::WaitingHuman;
+        }
+    }
     let mine = |q: &Question| q.session_id == s.id;
     let ids = |prose: bool| -> Vec<String> {
         questions
@@ -126,30 +142,45 @@ fn settle_codex(
     }
 }
 
-/// The rollout proves the request over: its root turn ended, or its call has its output.
-fn proven_over(a: &Asked, ev: &Evidence) -> bool {
-    let turn_ended = a.agent_id.is_none()
-        && a.turn_id
+/// The rollout proves the request over: the turn of whoever asked ended, or its call has its
+/// output. A worker's request is also over once the worker has left its session.
+fn proven_over(a: &Asked, s: &Session, disk: &Disk<'_>) -> bool {
+    let ends = |ev: &Evidence| {
+        a.turn_id
             .as_ref()
-            .is_some_and(|t| ev.ended_turns.contains(t));
-    let call_done = a
-        .call_id
-        .as_ref()
-        .is_some_and(|c| ev.done_calls.contains(c));
-    turn_ended || call_done
+            .is_some_and(|t| ev.ended_turns.contains(t))
+    };
+    let call_done = |ev: &Evidence| {
+        a.call_id
+            .as_ref()
+            .is_some_and(|c| ev.done_calls.contains(c))
+    };
+    let root = disk.codex.get(&s.id);
+    match a.agent_id.as_deref() {
+        None => root.is_some_and(|ev| ends(ev) || call_done(ev)),
+        Some(c) => {
+            disk.codex
+                .get(c)
+                .is_some_and(|ev| ends(ev) || call_done(ev))
+                || root.is_some_and(call_done)
+                || (disk.kids.is_some_and(|k| k.contains(c)) && s.helpers.iter().all(|h| h.id != c))
+        }
+    }
 }
 
 /// The queue row of a permission request the hooks saw begin.
-fn request_row(s: &Session, a: &Asked) -> Question {
+fn request_row(s: &Session, a: &Asked, disk: &Disk<'_>) -> Question {
     let prompt = if a.detail.is_empty() {
         format!("Codex may be waiting for your approval to use {}", a.tool)
     } else {
         format!("Codex may be waiting for your approval: {}", a.detail)
     };
-    let mut context = MAY_BE_SETTLED.to_string();
-    if a.agent_id.is_some() {
-        context.push_str(BY_A_HELPER);
-    }
+    let asked_by = a.agent_id.as_deref().map(|c| {
+        disk.names
+            .get(&discovery::helper_key(&s.id, c))
+            .cloned()
+            .unwrap_or_else(|| name_of(None, c))
+    });
     Question {
         id: format!("{}:approval:{}", s.id, a.seq),
         project_id: s.project_id.clone(),
@@ -160,9 +191,10 @@ fn request_row(s: &Session, a: &Asked) -> Question {
         answer_via: AnswerVia::Terminal,
         priority: 0,
         asked_at: crate::structured::desks::iso(a.at),
-        context,
+        context: MAY_BE_SETTLED.to_string(),
         source_file: None,
         handoff: None,
+        asked_by,
     }
 }
 
@@ -205,5 +237,7 @@ fn hand_off(
     }
 }
 
+#[cfg(test)]
+mod child_tests;
 #[cfg(test)]
 mod tests;

@@ -9,12 +9,12 @@ use std::fs::{self, File};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-const S: &str = "00000000-0000-0000-0000-000000000001";
-const T: &str = "00000000-0000-0000-0000-000000000002";
-const P: &str = "p-0001";
-const OLD: &str = "2000-01-01T00:00:00Z";
+pub(super) const S: &str = "00000000-0000-0000-0000-000000000001";
+pub(super) const T: &str = "00000000-0000-0000-0000-000000000002";
+pub(super) const P: &str = "p-0001";
+pub(super) const OLD: &str = "2000-01-01T00:00:00Z";
 
-fn secs(n: u64) -> Duration {
+pub(super) fn secs(n: u64) -> Duration {
     Duration::from_secs(n)
 }
 
@@ -22,15 +22,20 @@ fn base() -> SystemTime {
     SystemTime::UNIX_EPOCH + secs(1_800_000_000)
 }
 
-fn at(n: u64) -> SystemTime {
+pub(super) fn at(n: u64) -> SystemTime {
     base() + secs(n)
 }
 
-fn iso(t: SystemTime) -> String {
+pub(super) fn iso(t: SystemTime) -> String {
     chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
-fn session(id: &str, tool: ToolKind, control: ControlMode, state: SessionState) -> Session {
+pub(super) fn session(
+    id: &str,
+    tool: ToolKind,
+    control: ControlMode,
+    state: SessionState,
+) -> Session {
     Session {
         session_name: None,
         session_name_source: None,
@@ -55,7 +60,7 @@ fn session(id: &str, tool: ToolKind, control: ControlMode, state: SessionState) 
 }
 
 /// A row discovery made for `session`: `suffix` "prose" for a prose ask, else a formal question.
-fn row(session: &str, suffix: &str) -> Question {
+pub(super) fn row(session: &str, suffix: &str) -> Question {
     Question {
         id: format!("{session}:{suffix}"),
         project_id: P.to_string(),
@@ -69,11 +74,12 @@ fn row(session: &str, suffix: &str) -> Question {
         context: String::new(),
         source_file: None,
         handoff: None,
+        asked_by: None,
     }
 }
 
 /// What discovery found: `sessions`, with each one's rows already in its pending ids.
-fn found(sessions: Vec<Session>, rows: Vec<Question>) -> Discovered {
+pub(super) fn found(sessions: Vec<Session>, rows: Vec<Question>) -> Discovered {
     let mut sessions = sessions;
     for s in &mut sessions {
         s.pending_question_ids = rows
@@ -96,19 +102,19 @@ fn found(sessions: Vec<Session>, rows: Vec<Question>) -> Discovered {
 }
 
 /// One Codex desk in an app terminal, as discovery found it.
-fn codex(state: SessionState, rows: Vec<Question>) -> Discovered {
+pub(super) fn codex(state: SessionState, rows: Vec<Question>) -> Discovered {
     found(
         vec![session(S, ToolKind::Codex, ControlMode::Full, state)],
         rows,
     )
 }
 
-fn hooked(session: &str, turn: &str, extra: &str) -> String {
+pub(super) fn hooked(session: &str, turn: &str, extra: &str) -> String {
     format!(r#"{{"session_id":"{session}","turn_id":"{turn}"{extra}}}"#)
 }
 
 /// A tool call's hook input; `call` empty for a `PermissionRequest`, which names none.
-fn call(session: &str, turn: &str, call: &str, cmd: &str) -> String {
+pub(super) fn call(session: &str, turn: &str, call: &str, cmd: &str) -> String {
     let id = if call.is_empty() {
         String::new()
     } else {
@@ -122,13 +128,13 @@ fn call(session: &str, turn: &str, call: &str, cmd: &str) -> String {
 }
 
 /// The feed and what each scan of a walkthrough produced.
-struct Walk {
-    feed: Feed,
-    out: Vec<Discovered>,
+pub(super) struct Walk {
+    pub(super) feed: Feed,
+    pub(super) out: Vec<Discovered>,
 }
 
 impl Walk {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static SEQ: AtomicUsize = AtomicUsize::new(0);
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("ob-attention-{}-{n}", std::process::id()));
@@ -141,7 +147,7 @@ impl Walk {
     }
 
     /// Drop one hook file, dated `when`, as a tool would.
-    fn hook(&self, event: HookEvent, json: &str, when: SystemTime) {
+    pub(super) fn hook(&self, event: HookEvent, json: &str, when: SystemTime) {
         static SEQ: AtomicUsize = AtomicUsize::new(0);
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
         let path = self.feed.dir().join(format!("{}.{n:06}", event.name()));
@@ -167,11 +173,11 @@ impl Walk {
         );
     }
 
-    fn scan(&mut self, before: &Discovered, now: SystemTime) -> Discovered {
+    pub(super) fn scan(&mut self, before: &Discovered, now: SystemTime) -> Discovered {
         self.scan_with(before, now, |_| Some(Host::Nowhere))
     }
 
-    fn scan_with(
+    pub(super) fn scan_with(
         &mut self,
         before: &Discovered,
         now: SystemTime,
@@ -186,7 +192,7 @@ impl Walk {
 }
 
 /// What A Human sees of `session`: its state, its pending ids and the ids of its rows.
-fn seen(found: &Discovered, session: &str) -> (SessionState, Vec<String>, Vec<String>) {
+pub(super) fn seen(found: &Discovered, session: &str) -> (SessionState, Vec<String>, Vec<String>) {
     let s = found
         .sessions
         .iter()
@@ -199,7 +205,7 @@ fn seen(found: &Discovered, session: &str) -> (SessionState, Vec<String>, Vec<St
     )
 }
 
-fn rows_of(found: &Discovered, session: &str) -> Vec<String> {
+pub(super) fn rows_of(found: &Discovered, session: &str) -> Vec<String> {
     found
         .questions
         .iter()
@@ -615,7 +621,7 @@ fn outside_session_with_a_question() -> Vec<Discovered> {
     w.out
 }
 
-type Case = (&'static str, fn() -> Vec<Discovered>);
+pub(super) type Case = (&'static str, fn() -> Vec<Discovered>);
 
 const CASES: [Case; 14] = [
     ("8.2 1-4a", request_answered_in_the_terminal),
@@ -643,33 +649,35 @@ fn every_walkthrough_holds() {
 
 // 8.2 row 12: for every Codex session, the hand is up exactly when it has pending ids, and
 // each pending id is exactly one row of that session and floor.
+pub(super) fn assert_hand_matches_rows(name: &str, found: &Discovered) {
+    for s in found.sessions.iter().filter(|s| s.tool == ToolKind::Codex) {
+        assert_eq!(
+            s.state == SessionState::WaitingHuman,
+            !s.pending_question_ids.is_empty(),
+            "{name}: {}",
+            s.id
+        );
+        for id in &s.pending_question_ids {
+            let rows = found
+                .questions
+                .iter()
+                .filter(|q| &q.id == id && q.session_id == s.id && q.project_id == s.project_id)
+                .count();
+            assert_eq!(rows, 1, "{name}: {id}");
+        }
+        assert_eq!(
+            rows_of(found, &s.id).len(),
+            s.pending_question_ids.len(),
+            "{name}: no row outlives the hand"
+        );
+    }
+}
+
 #[test]
 fn a_codex_hand_is_up_exactly_while_it_has_rows() {
     for (name, case) in CASES {
         for found in case() {
-            for s in found.sessions.iter().filter(|s| s.tool == ToolKind::Codex) {
-                assert_eq!(
-                    s.state == SessionState::WaitingHuman,
-                    !s.pending_question_ids.is_empty(),
-                    "{name}: {}",
-                    s.id
-                );
-                for id in &s.pending_question_ids {
-                    let rows = found
-                        .questions
-                        .iter()
-                        .filter(|q| {
-                            &q.id == id && q.session_id == s.id && q.project_id == s.project_id
-                        })
-                        .count();
-                    assert_eq!(rows, 1, "{name}: {id}");
-                }
-                assert_eq!(
-                    rows_of(&found, &s.id).len(),
-                    s.pending_question_ids.len(),
-                    "{name}: no row outlives the hand"
-                );
-            }
+            assert_hand_matches_rows(name, &found);
         }
     }
 }
