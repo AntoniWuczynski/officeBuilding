@@ -1068,6 +1068,52 @@ here.
           running chat desk owns counts as running. The handover's busy count
           also counts a nested sub-agent. Say which you veto.
 
+- [ ] OB-404 — Check the look of provider, model and effort (TODO OB-335,
+      GitHub issue #14) in the installed app (`pnpm app:install`). The calls
+      the build made are in HUMAN_DECISIONS OB-335. None of this was seen in a
+      window. It was tested with fixtures only, and no agent may start the app.
+      Checks 1 to 9 are in the app, and check 10 is in a terminal.
+      1. The woods. Hire a Claude Code desk and a Codex desk on one floor. The
+         first should be pale maple and the second wenge, and you should tell
+         them apart at a glance. Look on the floor, in the building cutaway,
+         on the Islands (the colour of the hut's counter) and inside an island
+         (the crates).
+      2. The grain. It should show on desk tops without being noisy, at the
+         default zoom and zoomed in. Look at the wenge desk and say whether it
+         reads as one black block and should be made lighter (TODO OB-398).
+      3. The workers. A Haiku desk and a Luna desk should show the same
+         person. So should Sonnet and Terra, Opus and Sol, and Fable and
+         Astra, each pair with its own person. A model outside the table, for
+         example `gpt-5.5`, should show one of the six older workers.
+      4. The builds. Hire the same model at low, medium, high and max effort.
+         You should see four builds of one person, from lean to buff, with the
+         same face and with hands on the keyboard in every build. Nothing
+         should come apart while a worker types, thinks, waves, walks or lies
+         stuck.
+      5. A new desk. It should show its tier's worker from the moment it
+         appears, and should not change person after the first reply.
+      6. Ultracode. Hire Claude Code with the Ultracode toggle on. That worker
+         should have a slight purple cast, on the floor and on its face in the
+         hover card, and the card should say "Hired with ultracode on". No
+         other desk should be tinted. If nothing is tinted at all, say so. The
+         colour filter could not be tried in WebKit.
+      7. Helpers on another model. Use a Codex desk whose sub-agents run a
+         smaller model, or a Claude Code workflow with Haiku agents. The tiny
+         desks should show the helpers' own workers and builds, on the agent's
+         wood.
+      8. The legend. In the Info panel, "What the looks mean" should unfold
+         and read well, and its pictures should match the room.
+      9. The faces. The place panel and the sign-out sheet should show each
+         worker's face beside its line.
+      10. The art check. On a clean checkout, `pnpm check:art` should pass. It
+          needs `uv`.
+      11. Four questions for you, not checks. HUMAN_DECISIONS OB-335 asks
+          whether the manager should take an effort build and its tool's
+          wood, whether Codex's `ultra` may be drawn as max, whether the
+          wenge desk should be lighter, and whether 43.2 MB of raw art may
+          stay in plain git. It also lists the other calls the build made
+          while you were away. Say which you veto.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`

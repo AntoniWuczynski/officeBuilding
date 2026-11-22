@@ -835,7 +835,66 @@ A Human on 2026-11-20, from the options offered, on top of the decisions already
 - The art run: "All 24, unattended". Every parts sheet is generated with Codex image generation on A Human's own ChatGPT plan, failures are generated again, with a cap of about 60 images.
 - The woods: "Accept, with grain swatches". Claude Code pale maple, Codex wenge, Cursor oak, opencode walnut, Antigravity cherry and pine for an unknown tool, with one generated seamless grain swatch for each and the flat colour as the fallback.
 
-Still open in the issue: whether the fixed manager also takes its effort build. The build's call until A Human says otherwise is that it does not. Not built yet (TODO OB-335).
+Still open in the issue: whether the fixed manager also takes its effort build. The build's call until A Human says otherwise is that it does not.
+
+A Human's earlier decisions, written in the issue on 2026-11-19, which the two answers above build on:
+
+- The art must be generated with Codex or ChatGPT image generation, in the same way and style as the existing cast.
+- Claude Code and Codex are the two main providers, so their woods must be clearly the most distinct pair.
+- One build for each effort level. Claude Code's ultracode toggle adds a slight purple hue.
+- Sub-agents show their own model and effort.
+- The existing six workers are kept as the fallback for unknown models: "Yes".
+
+Three earlier rulings of A Human's meet this work:
+
+- Workers are realistic cut-outs, a fixed cast in which each agent's id picks one of six workers and the manager is the seventh (A Human, 2026-10-09, TODO OB-049). This issue amends it. A desk whose model is in a tier now shows that tier's worker, and the id picks among the six only for other models and for a model that is not reported. The manager is unchanged.
+- Sub-agents sit at tiny desks beside their session's desk (A Human, 2026-10-01, TODO OB-026). The ruling stands, and a helper is now drawn by its own model and effort.
+- Ultracode is a toggle beside the effort in the Hire sheet (A Human, 2026-10-08, TODO OB-035). The toggle is unchanged. The app now also remembers that a desk was hired with it on, for the tint.
+
+Built on 2026-11-22 as TODO OB-335 and tested with fixtures only. Nothing was seen in the installed app. The checks are HUMAN_TODO OB-404.
+
+Calls the build made while A Human was away. Only the lines above are A Human's. Everything below is a call of the build brief's dispatcher, of the design or of the review. Each stands until A Human says otherwise, and A Human can veto any of them.
+
+From the dispatcher:
+
+- The four tier workers are named kit (Haiku and Luna), nell (Sonnet and Terra), otto (Opus and Sol) and vera (Fable and Astra).
+- Four sheets were generated again, as A Human's answer allows. Eight sheets serve the build next to the one their prompt names, so that each worker's six builds run from lean to buff by measured girth. `art/cast/PROMPTS.md` lists both. No sheet was edited by hand.
+- The manager keeps the fixed look and takes no effort build (TODO OB-392). This is the issue's open question.
+- The raw art, 43.2 MB, is committed plainly, as the eight older sheets are (TODO OB-400).
+- A swatch ships as a small tile and never as its raw file, and the flat colour stays as the fallback.
+
+From the design. The calls most worth A Human's eye come first:
+
+- The app shows a Claude Code or Codex desk's hired model and effort before the tool's own records confirm them. The issue did not ask for this. Without it a new desk shows a worker picked by its id and changes person after the first reply. What the tool reports always wins, the record is dropped when its terminal and the desks that ran in it are gone, and a session the app did not hire gets none (TODO OB-402).
+- The tint means "hired from this app with ultracode on" and nothing more. The app keeps no detector, because nothing tells it a running session's ultracode state. A session started elsewhere, a resumed one, one started by a handover or a take-over, and a change made with `/effort ultracode` inside a session are not shown (TODO OB-393, OB-394).
+- A model is matched on its family word as a whole word of its id, and not on a prefix as the issue words it. Codex puts the version first (`gpt-6.2-sol`), so a prefix table would need a row for each version and a new version would fall off it. The issue's aim, that new versions land on the right worker with no code change, is kept. No model id is invented.
+- Codex's `ultra` effort is drawn as the `max` build (TODO OB-395).
+- A worker whose effort is not reported, or is outside the table, has the medium build, and the hover card then names no effort (TODO OB-396).
+- The head, the closed-eyes head and the chair of every build are the medium sheet's, so the face is the same picture in all six builds. The torso, arms, legs and pelvis are the build's own.
+- Every joint is placed from the medium build's sizes, so a stronger build is wider around the same shoulders and hips.
+- The woods' flat colours are the mean colours of the generated swatches, with the front and the side darkened. Wenge comes out nearly black on all three faces (TODO OB-398). Maple and pine are close in lightness.
+- The grain is on desk tops only (TODO OB-397).
+- A helper's tiny desk takes its agent's wood, because a helper runs in its agent's tool. The issue says "their own provider's wood", which is the same wood. A helper is never tinted.
+- The tint is one colour filter that mixes 18% of a purple, `#8f5bdb`, into each piece. It is not new art.
+- The legend is in a floor's Info panel only (TODO OB-399).
+- The hover card, the place panel's rows and the sign-out sheet show the worker's face. The sign-out sheet's line gains the effort.
+- A helper has no words of its own. Its agent's hover card and accessible name say what the helpers run on (TODO OB-403).
+- `art/cast/cut.py` can now cut only the sheets it is told to, and can check without writing. The stage cut only the four new workers, so the older workers' files were not written again. `pnpm check:art` compares the generated table and each part's size, and does not compare pixels.
+
+From the review, after the design:
+
+- A hire now sends a fresh snapshot at once, so the hired model, effort and ultracode reach the window without waiting for the next scan.
+- A desk that has ended keeps the model and effort it was hired with, on the sign-out sheet too, where the tool recorded none.
+- A hire's record is dropped once its terminal has stopped and no desk that ran in it is left.
+
+**Options.** Four questions are open. Each can be answered alone.
+
+- **The manager's look.** Keep the one fixed look and the plain timber desk (the build's call), or give the manager its effort build, which needs more generated sheets, or its tool's wood, which needs no art.
+- **Codex's `ultra`.** Draw it as max (the build's call), or order a seventh, stronger build, which needs four more generated sheets.
+- **The wenge desk.** Leave it as the swatch's own colour, nearly black (the build's call), or lighten it after seeing it in the app, which brings it closer to walnut.
+- **The raw art.** Keep the 43.2 MB in plain git like the older sheets (the build's call), move the raw files to Git Large File Storage, or keep them outside the repo.
+
+**Recommendation.** Let all four stand until the checks in HUMAN_TODO OB-404 have been run. The first three are easier to judge with the room in front of you. The fourth is best settled before the art is pushed to `main`, because a file once in git's history stays there.
 
 ## OB-336 — Do the calls the build made for Codex questions, approvals and sub-agents stand?
 
