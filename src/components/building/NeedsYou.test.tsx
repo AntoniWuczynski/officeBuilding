@@ -26,6 +26,21 @@ describe("the Needs-you list and a chat desk's request", () => {
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "chat-row", handoff: { kind: "chat", approvalId: "7" } }));
   });
 
+  it("names the helper that asked", async () => {
+    show({ ...makeSeedSnapshot(), questions: [ask("h-row", { askedBy: "Ada" })] });
+    await userEvent.setup().click(screen.getByTestId("needs-you"));
+    expect(screen.getByTestId("needs-you-row")).toHaveTextContent("by its helper Ada");
+  });
+
+  it("opens the desk from Answer on a conversation row and shows no answer form", async () => {
+    const { onOpen } = show({ ...makeSeedSnapshot(), questions: [ask("c-row", { answerVia: "chat", handoff: { kind: "conversation" }, sourceFile: null })] });
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("needs-you"));
+    await user.click(within(screen.getByTestId("needs-you-row")).getByRole("button", { name: "Answer" }));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "c-row" }));
+    expect(screen.queryByText("Other")).toBeNull();
+  });
+
   it("disables Answer on a terminal row with the handoff's hint, and lists each request once", async () => {
     const terminal = ask("term-row", { answerVia: "terminal", handoff: { kind: "docked" } });
     show({ ...makeSeedSnapshot(), questions: [terminal, chat("chat-row", "7")] });

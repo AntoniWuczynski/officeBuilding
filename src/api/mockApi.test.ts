@@ -145,6 +145,7 @@ describe("MockApi", () => {
       choices: [],
       background: false,
       failed: null,
+      askedBy: null,
     }]);
     await api.writeTerminal(desk.id, "1");
     expect((await api.structuredBacklog(desk.id)).approvals).toHaveLength(1);
@@ -173,7 +174,7 @@ describe("MockApi", () => {
       ...seed,
       questions: [
         ...seed.questions,
-        { id: "q-9", projectId: "p-shop", sessionId: "s-2", prompt: "Also bump the version?", options: [], allowOther: true, answerVia: "app", priority: 3, askedAt: "2026-09-28T10:00:00Z", context: "", sourceFile: null, handoff: null },
+        { id: "q-9", projectId: "p-shop", sessionId: "s-2", prompt: "Also bump the version?", options: [], allowOther: true, answerVia: "app", priority: 3, askedAt: "2026-09-28T10:00:00Z", context: "", sourceFile: null, handoff: null, askedBy: null },
       ],
       sessions: seed.sessions.map((s) => (s.id === "s-2" ? { ...s, pendingQuestionIds: ["q-1", "q-9"] } : s)),
     });

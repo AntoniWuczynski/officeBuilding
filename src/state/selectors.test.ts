@@ -4,6 +4,7 @@ import {
   STATE_LABEL,
   connectionFor,
   connectionLine,
+  helperSuffix,
   fileSources,
   linkSummary,
   sourceBadge,
@@ -72,8 +73,15 @@ function session(state: SessionState, over: Partial<Session> = {}): Session {
 }
 
 function question(id: string, priority: number, askedAt: string): Question {
-  return { id, projectId: "p", sessionId: "s-1", prompt: "?", options: [], allowOther: true, answerVia: "app", priority, askedAt, context: "", sourceFile: null, handoff: null };
+  return { id, projectId: "p", sessionId: "s-1", prompt: "?", options: [], allowOther: true, answerVia: "app", priority, askedAt, context: "", sourceFile: null, handoff: null, askedBy: null };
 }
+
+describe("helperSuffix", () => {
+  it("names the helper, and says nothing when the session itself asked", () => {
+    expect(helperSuffix("Ada")).toBe(", by its helper Ada");
+    expect(helperSuffix(null)).toBe("");
+  });
+});
 
 describe("floorLight", () => {
   it("is off for an empty floor and for a floor where nobody is working", () => {
@@ -189,8 +197,8 @@ describe("per-floor manager data", () => {
 describe("helpersLine", () => {
   it("counts a session's working helpers, and says nothing when it has none", () => {
     expect(helpersLine(session("running"))).toBeNull();
-    expect(helpersLine(session("running", { helpers: [{ id: "a", state: "running", worktree: false, branch: null }] }))).toBe("1 helper working");
-    expect(helpersLine(session("idle", { helpers: [{ id: "a", state: "running", worktree: false, branch: null }, { id: "b", state: "thinking", worktree: false, branch: null }] }))).toBe("2 helpers working");
+    expect(helpersLine(session("running", { helpers: [{ id: "a", state: "running", worktree: false, branch: null, model: null, effort: null }] }))).toBe("1 helper working");
+    expect(helpersLine(session("idle", { helpers: [{ id: "a", state: "running", worktree: false, branch: null, model: null, effort: null }, { id: "b", state: "thinking", worktree: false, branch: null, model: null, effort: null }] }))).toBe("2 helpers working");
   });
 });
 

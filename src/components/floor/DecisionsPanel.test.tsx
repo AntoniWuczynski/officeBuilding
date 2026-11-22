@@ -22,6 +22,7 @@ const row = (over: Partial<Question>): Question => ({
   context: "",
   sourceFile: null,
   handoff: null,
+  askedBy: null,
   ...over,
 });
 
@@ -49,6 +50,25 @@ describe("Decisions rows answered in a chat desk", () => {
     await userEvent.setup().click(screen.getByTestId("question-row"));
     expect(screen.getByText("Its desk is no longer here.")).toBeInTheDocument();
     expect(screen.queryByTestId("question-raise")).toBeNull();
+  });
+});
+
+describe("Decisions rows raised by a helper or answered in the conversation", () => {
+  it("names the helper in the list and in the detail", async () => {
+    show(row({ askedBy: "Ada" }));
+    expect(screen.getByTestId("question-row")).toHaveTextContent("by its helper Ada");
+    await userEvent.setup().click(screen.getByTestId("question-row"));
+    expect(screen.getByTestId("question-detail")).toHaveTextContent("by its helper Ada");
+  });
+
+  it("opens a conversation row's detail with the words and a button that opens the desk", async () => {
+    const user = userEvent.setup();
+    const { onOpenSession } = show(row({ answerVia: "chat", handoff: { kind: "conversation" } }));
+    await user.click(screen.getByTestId("question-row"));
+    expect(screen.getByText("Reply in its conversation.")).toBeInTheDocument();
+    await user.click(screen.getByTestId("question-raise"));
+    expect(onOpenSession).toHaveBeenCalledWith(asker);
+    expect(screen.queryByTestId("question-other-submit")).toBeNull();
   });
 });
 

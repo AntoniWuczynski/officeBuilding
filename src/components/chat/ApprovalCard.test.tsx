@@ -14,7 +14,7 @@ const base: Approval = {
     { id: "no", label: "Decline", allow: false },
   ],
   background: false,
-  failed: null,
+  failed: null, askedBy: null,
 };
 
 function show(approval: Approval, onAnswer = vi.fn(() => Promise.resolve()), extra: { focused?: boolean } = {}): ReturnType<typeof vi.fn> {
@@ -24,6 +24,16 @@ function show(approval: Approval, onAnswer = vi.fn(() => Promise.resolve()), ext
 const button = (name: string): HTMLElement => screen.getByRole("button", { name });
 
 describe("ApprovalCard", () => {
+  it("says which helper asked, and nothing more when the session itself did", () => {
+    const { unmount } = render(<ApprovalCard approval={{ ...base, askedBy: "Ada" }} mode="inline" onAnswer={vi.fn(() => Promise.resolve())} />);
+    expect(screen.getByText("Asked by its helper Ada.")).toBeInTheDocument();
+    expect(screen.getByRole("group")).toHaveAccessibleName(/asked by its helper Ada/);
+    unmount();
+    show(base);
+    expect(screen.queryByText(/Asked by its helper/)).toBeNull();
+    expect(screen.getByRole("group")).toHaveAccessibleName("The agent asks: TITLE-ONE");
+  });
+
   it("closes every choice at a click and leaves them closed once the answer was sent", async () => {
     const answer = show(base);
     await userEvent.setup().click(button("Allow once"));

@@ -18,6 +18,7 @@ const table: readonly (readonly [string, Handoff | null, string, string | null])
     "This agent runs in TERM-APP, outside the app. Answer it there. The app can bring TERM-APP to the front, but cannot pick the tab.",
     "Bring TERM-APP to the front",
   ],
+  ["conversation", { kind: "conversation" }, "Reply in its conversation.", "Open its conversation"],
   ["elsewhere", { kind: "elsewhere" }, ELSEWHERE, null],
   ["read-only", { kind: "read-only" }, "The building only reads this session. Answer it where it runs.", null],
   ["chat", { kind: "chat", approvalId: "7" }, "Answer it in its conversation.", "Open the request"],

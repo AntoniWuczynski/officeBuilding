@@ -232,6 +232,11 @@ export function totalSpend(sessions: readonly Session[]): Spend {
   );
 }
 
+/** ", by its helper Ada", or "" when the session itself asked. */
+export function helperSuffix(askedBy: string | null): string {
+  return askedBy === null ? "" : `, by its helper ${askedBy}`;
+}
+
 /** The approval id of a request answered in its desk's conversation, or null for any other row. */
 export function chatRequestOf(q: Question): string | null {
   return q.handoff?.kind === "chat" ? q.handoff.approvalId : null;

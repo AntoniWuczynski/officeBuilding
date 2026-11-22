@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
 import type { OfficeSnapshot, Question } from "../../types";
-import { chatRequestOf, isSessionAsk, needsYouQueue, sessionById } from "../../state/selectors";
+import { helperSuffix, isSessionAsk, needsYouQueue, sessionById } from "../../state/selectors";
 import { useNow } from "../../state/useNow";
 import { relativeTime } from "../../lib/time";
 import { handoffWords } from "../../lib/handoff";
@@ -26,7 +26,7 @@ interface Props {
 function whoAsked(snapshot: OfficeSnapshot, q: Question, now: Date): string {
   const place = snapshot.projects.find((p) => p.id === q.projectId)?.name ?? "";
   const who = q.sourceFile !== null ? `From ${q.sourceFile}` : (sessionById(snapshot, q.sessionId)?.title ?? "Unknown agent");
-  return `${place === "" ? "" : `${place}: `}${who}${q.askedAt === "" ? "" : `, asked ${relativeTime(q.askedAt, now)}`}`;
+  return `${place === "" ? "" : `${place}: `}${who}${q.askedAt === "" ? "" : `, asked ${relativeTime(q.askedAt, now)}`}${helperSuffix(q.askedBy)}`;
 }
 
 function Row({ snapshot, q, now, onOpen, onAnswer }: { readonly snapshot: OfficeSnapshot; readonly q: Question; readonly now: Date } & Pick<Props, "onOpen" | "onAnswer">): React.ReactElement {
@@ -35,7 +35,7 @@ function Row({ snapshot, q, now, onOpen, onAnswer }: { readonly snapshot: Office
   const [error, setError] = useState<string | null>(null);
   // A request in a terminal can only be answered there. A chat desk's is answered in its conversation, which Open also goes to.
   const external = q.answerVia === "terminal";
-  const inChat = chatRequestOf(q) !== null;
+  const inChat = q.answerVia === "chat";
   const send = (a: QuestionAnswer): void => {
     setError(null);
     onAnswer(q.id, a).catch((err: unknown) => setError(message(err)));

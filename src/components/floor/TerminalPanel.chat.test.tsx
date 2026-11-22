@@ -108,7 +108,7 @@ describe("TerminalPanel flipping", () => {
     const user = userEvent.setup();
     next = backlog({
       state: "waiting-human",
-      approvals: [{ id: "terminal-prompt", title: "Claude Code is waiting for your answer", detail: "", fields: [], choices: [], background: false, failed: null }],
+      approvals: [{ id: "terminal-prompt", title: "Claude Code is waiting for your answer", detail: "", fields: [], choices: [], background: false, failed: null, askedBy: null }],
     });
     show(claude("flip-6"), { chat: true });
     await user.click(await screen.findByRole("button", { name: "Answer in the terminal" }));

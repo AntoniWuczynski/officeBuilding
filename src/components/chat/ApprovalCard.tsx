@@ -38,8 +38,9 @@ export function ApprovalCard({
   };
   const missing = approval.fields.some((f) => f.required && (values[f.id] ?? "").trim() === "");
   return (
-    <section ref={card} tabIndex={-1} className="conversation-approval" data-focused={focused ? "true" : undefined} role="group" aria-label={`The agent asks: ${approval.title}`} data-testid="conversation-approval">
+    <section ref={card} tabIndex={-1} className="conversation-approval" data-focused={focused ? "true" : undefined} role="group" aria-label={`The agent asks: ${approval.title}${approval.askedBy === null ? "" : `, asked by its helper ${approval.askedBy}`}`} data-testid="conversation-approval">
       <b>{approval.title}</b>
+      {approval.askedBy === null ? null : <p className="chat-note">Asked by its helper {approval.askedBy}.</p>}
       {approval.detail === "" ? null : <pre>{approval.detail}</pre>}
       {approval.background ? <p className="chat-note">The agent keeps working while this is open.</p> : null}
       {mode === "none" ? <p className="chat-note">Answer it where the session runs.</p> : null}

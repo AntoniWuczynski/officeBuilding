@@ -266,6 +266,7 @@ describe("TauriApi", () => {
       choices: [{ id: "ok", label: "Send", allow: true }],
       background: true,
       failed: "WHY",
+      askedBy: null,
     });
     const capabilities = { compose: true, stop: true, end: true, approvals: "inline", terminal: false };
 

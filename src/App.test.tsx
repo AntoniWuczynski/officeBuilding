@@ -108,6 +108,13 @@ function storey(projectId: string): HTMLElement {
   return el;
 }
 
+/** The second pod on the floor, the one the mock's helper demo seats at. */
+function secondPod(): HTMLElement {
+  const pod = screen.getAllByTestId("pod")[1];
+  if (pod === undefined) throw new Error("no second pod");
+  return pod;
+}
+
 async function enter(projectId: string): Promise<void> {
   const user = userEvent.setup();
   await user.click(await findStorey(projectId));
@@ -297,7 +304,7 @@ describe("floor", () => {
     const user = userEvent.setup();
     renderApp();
     await enter("p-shop");
-    const pod = screen.getByTestId("pod");
+    const pod = secondPod();
     expect(within(pod).getAllByTestId("pod-desk")).toHaveLength(3);
     expect(within(pod).queryByTestId("pod-more")).toBeNull();
     const worker = screen.getByRole("button", { name: /audit checkout, Claude Code, Working, 3 helpers working/ });
@@ -316,8 +323,8 @@ describe("floor", () => {
     await enter("p-shop");
     // One on the worktree session's desk, one on its worktree helper's (mock helpers alternate).
     expect(screen.getAllByTestId("desk-plant")).toHaveLength(2);
-    expect(within(screen.getByTestId("pod")).getAllByTestId("desk-plant")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /orders ingest fix, Codex, Needs you, in a worktree/ })).toBeInTheDocument();
+    expect(within(secondPod()).getAllByTestId("desk-plant")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /orders ingest fix, Codex, Needs you, 2 helpers working, in a worktree/ })).toBeInTheDocument();
   });
 
   it("a stuck agent lies on the floor", async () => {
@@ -815,13 +822,13 @@ describe("live updates and failures", () => {
       sessions: seed.sessions.map((s) => (s.id === "s-1" ? { ...s, helpers: change(s.helpers) } : s)),
     });
     act(() => {
-      api.push(withHelpers((h) => [...h, { id: "s-1-new", state: "running", worktree: false, branch: null }]));
+      api.push(withHelpers((h) => [...h, { id: "s-1-new", state: "running", worktree: false, branch: null, model: null, effort: null }]));
     });
     const arrive = screen.getByTestId("walk");
     expect(arrive).toHaveClass("walk-arrive");
     expect(within(arrive).getByTestId("pod-helper")).toBeInTheDocument();
     // The helper is on its way, so its desk stands empty: four desks, three seated.
-    const pod = screen.getByTestId("pod");
+    const pod = secondPod();
     expect(within(pod).getAllByTestId("pod-desk")).toHaveLength(4);
     expect(within(pod).getAllByTestId("pod-helper")).toHaveLength(3);
     fireEvent.animationEnd(arrive);

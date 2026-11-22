@@ -65,7 +65,7 @@ export class MockConversations {
     this.push(sessionId, { kind: "user", id: this.id(), text });
     this.setState(sessionId, "thinking");
     if (d.capabilities.approvals === "terminal" && /\b(ask|run)\b/i.test(text)) {
-      d.approvals = [{ id: "terminal-prompt", title: "Claude Code is waiting for your answer", detail: "Claude needs your permission to use Bash", fields: [], choices: [], background: false, failed: null }];
+      d.approvals = [{ id: "terminal-prompt", title: "Claude Code is waiting for your answer", detail: "Claude needs your permission to use Bash", fields: [], choices: [], background: false, failed: null, askedBy: null }];
       this.setState(sessionId, "waiting-human");
     } else if (/\b(ask|run)\b/i.test(text)) {
       const both = /\bask\b/i.test(text) && /\brun\b/i.test(text);
@@ -137,6 +137,7 @@ export class MockConversations {
         context: a.failed ?? "",
         sourceFile: null,
         handoff: { kind: "chat" as const, approvalId: a.id },
+        askedBy: a.askedBy,
       }));
     });
   }
@@ -192,7 +193,7 @@ export class MockConversations {
       fields: [{ id: "db", label: "Database", detail: "", kind: { kind: "pick", options: ["Postgres", "SQLite"], other: true, secret: false }, required: true }],
       choices: [{ id: "send", label: "Send", allow: true }],
       background,
-      failed: null,
+      failed: null, askedBy: null,
     };
   }
 
@@ -207,7 +208,7 @@ export class MockConversations {
         { id: "deny", label: "Decline", allow: false },
       ],
       background: false,
-      failed: null,
+      failed: null, askedBy: null,
     };
   }
 

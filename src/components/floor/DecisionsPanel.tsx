@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Decision, OfficeSnapshot, Question, Session } from "../../types";
 import type { QuestionAnswer } from "../../api/DiscoveryApi";
-import { TOOL_LABEL, chatRequestOf, sessionById } from "../../state/selectors";
+import { TOOL_LABEL, chatRequestOf, helperSuffix, sessionById } from "../../state/selectors";
 import { relativeTime } from "../../lib/time";
 import { handoffWords } from "../../lib/handoff";
 
@@ -58,7 +58,7 @@ export function DecisionsPanel({ snapshot, questions, decisions, now, onAnswer, 
                   <span className="question-rank" aria-label={`Priority ${i + 1}`}>{i + 1}</span>
                   <span className="question-text">
                     <span className="question-prompt">{q.prompt}</span>
-                    <span className="question-meta">{askedBy(q, asker, now)}{asker !== undefined && approvalId !== null ? ", answered in its conversation" : ""}</span>
+                    <span className="question-meta">{askedBy(q, asker, now)}{helperSuffix(q.askedBy)}{asker !== undefined && approvalId !== null ? ", answered in its conversation" : ""}</span>
                   </span>
                 </button>
               </li>
@@ -120,7 +120,7 @@ function QuestionDetail({ snapshot, question, now, onBack, onAnswer, onOpenSessi
       </button>
       <p className="question-full">{question.prompt}</p>
       <p className="question-meta">
-        {asker === undefined ? askedBy(question, asker, now) : `${asker.title} (${TOOL_LABEL[asker.tool]}), asked ${relativeTime(question.askedAt, now)}`}
+        {asker === undefined ? askedBy(question, asker, now) : `${asker.title} (${TOOL_LABEL[asker.tool]}), asked ${relativeTime(question.askedAt, now)}${helperSuffix(question.askedBy)}`}
       </p>
       {question.context === "" ? null : <p className="question-context">{question.context}</p>}
       {question.sourceFile === null || question.answerVia !== "file" ? null : (

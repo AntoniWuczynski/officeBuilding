@@ -18,6 +18,8 @@ export function handoffWords(handoff: Handoff | null): { readonly hint: string; 
       return { hint: "The building only reads this session. Answer it where it runs.", action: null };
     case "chat":
       return { hint: "Answer it in its conversation.", action: "Open the request" };
+    case "conversation":
+      return { hint: "Reply in its conversation.", action: "Open its conversation" };
     case "elsewhere":
     case undefined:
       return { hint: ELSEWHERE, action: null };

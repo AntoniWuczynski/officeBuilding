@@ -56,7 +56,7 @@ function shown(api: FakeApi, onFlip?: () => void): ReturnType<typeof render> {
 }
 
 const MESSAGE_BOX = "Message to the agent";
-const approval = { id: "ap", title: "Run it?", detail: "rm -rf nothing", fields: [], choices: [{ id: "ok", label: "Allow once", allow: true }], background: false, failed: null };
+const approval = { id: "ap", title: "Run it?", detail: "rm -rf nothing", fields: [], choices: [{ id: "ok", label: "Allow once", allow: true }], background: false, failed: null, askedBy: null };
 const message = (n: number): ConversationEntry => ({ kind: "agent", id: `m${n}`, text: `line ${n}` });
 
 /** The conversation of a desk, with the waiting messages the way the floor passes them on. */
