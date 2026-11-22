@@ -395,8 +395,8 @@ impl Office {
 
     fn rescan(&self) -> bool {
         let mut guard = self.lock();
-        let inner = &mut *guard;
-        let mut found = inner.discovery.scan(SystemTime::now());
+        let (inner, owned) = (&mut *guard, self.structured.tool_sessions());
+        let mut found = inner.discovery.scan(SystemTime::now(), &owned);
         let pinned = inner.store.records.pinned_floors.clone();
         // An empty pinned floor can be a move's target, and a sunk floor's drop must see where sessions now sit.
         add_pinned_floors(&mut found, &pinned, &self.home);
@@ -494,7 +494,7 @@ impl Office {
     pub fn snapshot(&self) -> OfficeSnapshot {
         let inner = self.lock();
         let r = &inner.store.records;
-        let questions = structured_desks::queue(&inner, &self.structured);
+        let view = structured_desks::joined(&inner, &self.structured);
         let mut decisions = r.decisions.clone();
         decisions.extend(
             inner
@@ -503,7 +503,7 @@ impl Office {
                 .flat_map(|f| f.decided.iter().flatten().cloned()),
         );
         let todos = self.all_todos(&inner);
-        let (projects, mut sessions, ended) = with_structured(&inner.found, &self.structured);
+        let (projects, mut sessions, ended) = (view.projects, view.sessions, view.ended);
         let rules = self.rules_view();
         for s in &mut sessions {
             s.self_reviewed =
@@ -515,7 +515,7 @@ impl Office {
             projects,
             sessions,
             ended,
-            questions,
+            questions: view.questions,
             decisions,
             todos,
             messages: crate::store::recent_messages(&r.messages, &inner.found.peer_messages),
@@ -531,7 +531,7 @@ impl Office {
             project_rules: rules.rules.iter().map(Into::into).collect(),
             harness_id: rules.harness_id,
             project_rules_error: rules.error,
-            unseen_prompts: inner.found.unseen_prompts.clone(),
+            unseen_prompts: view.unseen_prompts,
         }
     }
 

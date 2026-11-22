@@ -99,8 +99,14 @@ fn structured_desks(app: &tauri::App) -> Arc<structured::desks::Desks> {
     structured::desks::Desks::new(Arc::new(move |update| {
         // A closed webview just means nobody is watching; the desk keeps its transcript.
         let redraw = update.desk_changed;
+        let ended = update.ended.is_some();
         let _ = handle.emit(structured::EVENT, update);
         if redraw && let Some(office) = handle.try_state::<Arc<Office>>() {
+            // A desk that ended no longer owns its thread: read the disk again, or the
+            // thread shows as a live terminal desk until the next watch pass.
+            if ended {
+                office.refresh();
+            }
             let _ = handle.emit(watch::SNAPSHOT_EVENT, office.snapshot());
             // The watch thread's next pass flushes anything this queues, at most a tick late.
             if let Some(alerts) = handle.try_state::<Arc<Alerts>>() {

@@ -4,8 +4,7 @@
 use super::{Inner, Office};
 use crate::discovery::Discovered;
 use crate::model::{
-    ControlMode, EndedSession, HireRequest, ModelOption, Project, Question, Session, SessionState,
-    Spend,
+    ControlMode, EndedSession, HireRequest, ModelOption, Project, Session, SessionState, Spend,
 };
 use crate::structured::desks::{DeskInfo, Desks};
 use crate::structured::{self, Spawn};
@@ -14,69 +13,29 @@ use std::path::Path;
 /// The id that means "the tool's own default": pass no model or effort.
 const DEFAULT: &str = "default";
 
-/// The snapshot's floors and sessions: discovery's, with each running
-/// structured desk added to its floor. A conversation discovery also found in
-/// the tool's session files (Codex writes one for every app-server thread) is
-/// the structured desk's own and gets no desk of its own.
+mod join;
+
+/// The snapshot's floors, sessions and signed-out desks, joined as the snapshot joins them
+/// (spec 7): what discovery read of a chat desk's own conversation is on the desk.
 pub(super) fn with_structured(
     found: &Discovered,
     desks: &Desks,
 ) -> (Vec<Project>, Vec<Session>, Vec<EndedSession>) {
-    let theirs = desks.tool_sessions();
-    let ours = desks.sessions();
-    let mut sessions: Vec<Session> = found
-        .sessions
-        .iter()
-        .filter(|s| !theirs.contains(&s.id))
-        .cloned()
-        .collect();
-    let projects = found
-        .projects
-        .iter()
-        .map(|p| {
-            let mut p = p.clone();
-            p.session_ids.retain(|id| !theirs.contains(id));
-            p.session_ids.extend(
-                ours.iter()
-                    .filter(|s| s.project_id == p.id)
-                    .map(|s| s.id.clone()),
-            );
-            p
-        })
-        .collect();
-    sessions.extend(ours);
-    // An ended desk's conversation is on the sheet once, as the desk: resuming
-    // it there reopens the conversation in a conversation panel.
-    let gone = desks.ended_tool_sessions();
-    let mut ended: Vec<EndedSession> = desks.ended();
-    ended.extend(
-        found
-            .ended
-            .iter()
-            .filter(|e| !gone.contains(&e.id))
-            .cloned(),
-    );
-    ended.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
-    (projects, sessions, ended)
+    let j = join::join(found, desks, Vec::new());
+    (j.projects, j.sessions, j.ended)
 }
 
-/// The snapshot's queue: discovery's questions, each floor's open calls, the stored
-/// calls, and every open request of a running chat desk. A conversation a chat desk
-/// hides (see `with_structured`) brings no rows of its own: they would point at a desk
-/// nobody can see, and list the desk's own requests twice.
-pub(super) fn queue(inner: &Inner, desks: &Desks) -> Vec<Question> {
-    let theirs = desks.tool_sessions();
-    let mut questions: Vec<Question> = inner
-        .found
-        .questions
-        .iter()
-        .filter(|q| !theirs.contains(&q.session_id))
-        .cloned()
+/// The snapshot's view of the building: discovery's finds and the chat desks joined, with
+/// each floor's open calls and the stored calls in the queue between discovery's rows and
+/// the chat desks' requests.
+pub(super) fn joined(inner: &Inner, desks: &Desks) -> join::Joined {
+    let calls = inner
+        .files
+        .values()
+        .flat_map(|f| f.open.iter().cloned())
+        .chain(inner.store.records.calls.iter().cloned())
         .collect();
-    questions.extend(inner.files.values().flat_map(|f| f.open.iter().cloned()));
-    questions.extend(inner.store.records.calls.iter().cloned());
-    questions.extend(desks.questions());
-    questions
+    join::join(&inner.found, desks, calls)
 }
 
 impl Office {

@@ -9,9 +9,11 @@ use std::path::PathBuf;
 impl Office {
     /// The folder `place` stands for, checked to exist now.
     pub fn folder_of(&self, place: &Place) -> Result<PathBuf, String> {
-        let structured_root = match place {
-            Place::Session { session_id } => self.structured.root_of(session_id),
-            _ => None,
+        // A chat desk's helpers are found under its Codex thread (spec 7.5).
+        let (structured_root, thread) = match place {
+            Place::Session { session_id } => (self.structured.root_of(session_id), None),
+            Place::Helper { session_id, .. } => (None, self.structured.thread_of(session_id)),
+            Place::Floor { .. } => (None, None),
         };
         let (folder, floor_root) = {
             let inner = self.lock();
@@ -53,17 +55,18 @@ impl Office {
                     session_id,
                     helper_id,
                 } => {
+                    let key = thread.as_ref().unwrap_or(session_id);
                     let session = found
                         .sessions
                         .iter()
-                        .find(|s| &s.id == session_id)
+                        .find(|s| &s.id == key)
                         .ok_or_else(|| unknown(session_id))?;
                     if !session.helpers.iter().any(|h| &h.id == helper_id) {
                         return Err(format!("unknown helper: {helper_id}"));
                     }
                     let folder = found
                         .checkouts
-                        .get(&helper_key(session_id, helper_id))
+                        .get(&helper_key(key, helper_id))
                         .cloned()
                         .ok_or_else(|| "that helper's folder is not known yet".to_string())?;
                     (folder, root_of(&session.project_id))
@@ -118,6 +121,8 @@ mod tests {
             state: SessionState::Running,
             worktree: true,
             branch: None,
+            model: None,
+            effort: None,
         }
     }
 

@@ -7,22 +7,23 @@ use super::super::deliver::tests::session;
 use super::super::tests::floor_office;
 use super::*;
 use crate::delivery::gate::Hold;
-use crate::model::{AnswerVia, Handoff, ToolKind};
+// `Question` came in through `super::*` until spec 7 replaced `queue` with the join.
+use crate::model::{AnswerVia, Handoff, Question, ToolKind};
 use crate::structured::{Approval, Driver, Event, Values};
 use std::sync::{Arc, Mutex};
 
-const DESK: &str = "structured-1";
+pub(super) const DESK: &str = "structured-1";
 /// The chat desk's own conversation id, as Codex names its thread.
 const THREAD: &str = "00000000-0000-0000-0000-000000000009";
 
 /// A driver that records what it was asked to do.
 #[derive(Default)]
-struct Recorder {
+pub(super) struct Recorder {
     answers: Mutex<Vec<String>>,
     prompts: Mutex<Vec<String>>,
 }
 
-struct Fake(Arc<Recorder>);
+pub(super) struct Fake(pub(super) Arc<Recorder>);
 
 impl Driver for Fake {
     fn prompt(&self, text: &str) -> Result<(), String> {
@@ -40,7 +41,10 @@ impl Driver for Fake {
 }
 
 /// An office with a Codex chat desk seated in `state` on its floor.
-fn seated(tag: &str, state: SessionState) -> (Office, std::path::PathBuf, Project, Arc<Recorder>) {
+pub(super) fn seated(
+    tag: &str,
+    state: SessionState,
+) -> (Office, std::path::PathBuf, Project, Arc<Recorder>) {
     let (office, dir, floor) = floor_office(tag);
     let recorder = Arc::new(Recorder::default());
     let info = DeskInfo {
@@ -230,6 +234,7 @@ fn rows_of_the_conversation_a_chat_desk_hides_are_left_out() {
         context: String::new(),
         source_file: None,
         handoff: None,
+        asked_by: None,
     };
     {
         let mut inner = office.lock();
