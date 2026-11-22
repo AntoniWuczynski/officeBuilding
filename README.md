@@ -251,8 +251,29 @@ sessions as an **office building**:
   Codex session you started outside the app, and the desk's hover card says so.
   A question Codex asks with its own question tool is seen in both. This was
   built against OpenAI's published source and the schema of codex-cli 0.161.0,
-  and has not yet been run against a live Codex session. Codex's helpers are not
-  drawn at their parent's desk yet.
+  and has not yet been run against a live Codex session.
+- **Codex sub-agents at tiny desks.** A Codex session's sub-agents sit at tiny
+  desks beside its desk, like Claude Code's, whether the desk is in a terminal
+  or in the chat view. A sub-agent that starts one of its own gets no desk on
+  the floor. Its sub-agent sits in the same pod, straight after it. Each one
+  leaves by itself when it finishes, and one that came and went between two
+  looks is still shown for a moment. One that fails shows the error light for
+  ten minutes. One in a git worktree has the plant, and "Open in…" opens its own
+  checkout. A request a sub-agent raises shows once, on its parent's desk, and
+  its row in Decisions and Needs you and its card in the conversation say which
+  helper asked. That helper's tiny desk shows the waiting light, and only the
+  parent's desk alerts. In the chat view the parent's conversation has one line
+  for each sub-agent it starts or messages, and not the sub-agent's own
+  messages. A chat desk whose reply ends on a question gets a row that says to
+  reply in its conversation. A helper is never a desk, so it cannot be handed
+  over, taken over, thrown out, moved or ended by a manager. Some things the
+  building cannot see. A `codex` process with more than one session open shows
+  no helpers. A sub-agent that failed or was closed without leaving a record can
+  stay at its tiny desk for up to ten minutes. A request from a thread Codex
+  runs for itself, such as a reviewer's, is named by a short id and gets no tiny
+  desk. Only the default `~/.codex` is read. This too was built against OpenAI's
+  published source and the schema of codex-cli 0.161.0, and has not yet been run
+  against a live Codex session.
 - **A chat view for desks.** A desk's panel can open as a chat in place of a
   terminal. Settings has an Agents group with View, Terminal or Chat, and
   Terminal is the default. The hire dialog's "Chat view" switch starts at that
@@ -432,7 +453,8 @@ sessions as an **office building**:
   nothing over and show nothing. The building knows when the limit resets only
   if Codex recorded a full window, and holds the record for five hours
   otherwise. A goal you cleared still reads as set, so that desk waits for
-  you. Subagents are seen only as a thread with a turn still open. `claude
+  you. For a handover, subagents are seen only as a thread with a turn still
+  open. `claude
   auth status` passes for any sign-in method, an API key included. None of the
   handover has run in the installed app or met a real used-up allowance yet.
   What is known about Codex comes from replaying a refusal to Codex 0.161.0 on
@@ -508,7 +530,7 @@ in [`DESIGN.md`](DESIGN.md). Full design + research + locked decisions live in
   what the same work would cost through the API, not what a subscription bills.
 - **Not yet:** answering a terminal agent's own question from the Decisions
   panel (answer it in the agent's terminal instead, and the row says how to get
-  there), Codex helpers drawn at their parent's desk, the app's own MCP
+  there), the app's own MCP
   server for assistant agents, and in provider routing Sign in with ChatGPT,
   which waits for OpenAI's answer on whether the app may use it.
   In the chat view: Antigravity, a read-only chat

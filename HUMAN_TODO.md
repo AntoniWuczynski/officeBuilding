@@ -995,6 +995,79 @@ here.
           declined in the app. A reply ending on a quoted question no longer
           reads as an ask, for Claude Code too. Say which you veto.
 
+- [ ] OB-391 — Check Codex's sub-agents at their tiny desks (TODO OB-359,
+      Stage M2b of GitHub issue #12) in the installed app
+      (`pnpm app:install`). The calls the build made are in HUMAN_DECISIONS
+      OB-336, D1 to D17. None of this has run anywhere. No Codex session and no
+      app-server conversation was started, and no window was looked at. Every
+      Codex fact the build rests on was read in OpenAI's source at
+      `rust-v0.161.0` and `rust-v0.170.0` and in the schema that codex-cli
+      0.161.0 generates. No agent may start a session or drive the Tauri
+      window. For each check, write down the Codex version
+      (`codex --version`), the launch mode (chat desk, app terminal or outside
+      terminal), whether the hooks were trusted (`/hooks`), the thread's
+      history mode if you know it, the order things happened in and what the
+      window showed. Checks 1 to 7 need a Codex desk in one of the app's
+      terminals, and checks 8 to 10 a Codex desk hired with Chat view.
+      1. Two sub-agents and a nested one. In a Codex terminal desk, ask for
+         two sub-agents and have one of them start a sub-agent of its own.
+         There should be one desk with three tiny desks beside it, the nested
+         one straight after its parent, and no second desk. Have one of them
+         leave a shell command running and count the pets. None should be
+         there twice.
+      2. One finishes. Let one finish while the others go on. It should hand
+         its work in and walk out, and the others should stay. With reduced
+         motion switched on it should simply go.
+      3. Interrupted and given more work. Interrupt one, then give it more
+         work. It should leave, then come back to a tiny desk.
+      4. One fails. Make one fail, with a command that cannot run or a model
+         that is refused. Its tiny desk should show the error light and be
+         gone ten minutes later (TODO OB-386).
+      5. A short one. Ask for a sub-agent whose task takes a second or two. It
+         should still walk in and out.
+      6. A worktree. Put one sub-agent in a git worktree. Its tiny desk should
+         have the plant, and "Open in…" on it should open the worktree's
+         folder.
+      7. A sub-agent's approval. With hooks trusted, have a sub-agent run a
+         command that needs approval. There should be one row in Decisions and
+         one in Needs you, on the parent's desk, saying which helper asked.
+         That helper's tiny desk should show the waiting light. You should get
+         one notification, for the parent.
+      8. The same on a chat desk. Repeat checks 1 to 3 and 7 on a Codex desk
+         hired with Chat view. The tiny desks should appear as soon as the
+         sub-agents start. The conversation should show "Start a helper" and
+         none of the sub-agents' own messages. A sub-agent's approval card
+         should say which helper asked, and one for file changes should show
+         the diff.
+      9. The sign-out sheet. A chat desk that has been idle for a while should
+         not be on the sign-out sheet. End it. Its thread should not turn into
+         a running desk of its own (TODO OB-390). Then resume its conversation
+         with `codex resume` in a terminal. The terminal session should have a
+         desk, and the sheet should not also offer the chat desk.
+      10. A reply that ends on a question. Get a chat desk to end its reply on
+          a question. There should be a row in Decisions that says to reply in
+          its conversation, and it should go when you reply.
+      11. A reviewer. With automatic review on, there should be no tiny desk
+          for the reviewer.
+      12. Islands. Look at the helper count on a Codex desk's hut and in the
+          place panel.
+      13. A fork. Does a session started with `codex fork` get its own desk,
+          and none of its origin's helpers?
+      14. The records your Codex writes. Open a parent's session file in
+          `~/.codex/sessions` by hand. Does it hold activity records for its
+          sub-agents (`sub_agent_activity`, or an `item_completed` whose item
+          is a `SubAgentActivity`), or none? This decides how soon a
+          short-lived sub-agent is seen.
+      15. A question for you, not a check. HUMAN_DECISIONS OB-336 lists the
+          calls D1 to D17 that the build made while you were away. The ones
+          most worth your eye are these. A sub-agent's own messages and tools
+          no longer appear in its parent's conversation. A thread with a
+          parent link never gets a desk of its own. A chat desk's question in
+          plain prose becomes a row in Decisions while the desk is idle. A
+          failed sub-agent shows the error light for ten minutes. A thread a
+          running chat desk owns counts as running. The handover's busy count
+          also counts a nested sub-agent. Say which you veto.
+
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
       comment box in Chrome (nothing posted) and put the `user-attachments`

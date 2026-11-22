@@ -683,7 +683,7 @@ The calls of Stage H2 most worth A Human's eye. None of these is A Human's:
 
 - Only Codex's built-in OpenAI provider counts, and the building does not tell a ChatGPT plan from workspace credits, a spend cap or an API key's quota. Codex writes the same record for all of them and the building does not read the sign-in to find out. All hand the desk over as "Codex's usage limit" (TODO OB-316, OB-318).
 - A Codex desk with a standing goal is only offered and is never handed over by itself. A goal cleared with `/goal clear` leaves no line in the rollout, so it still reads as standing and that desk waits for A Human (TODO OB-314).
-- Subagents are seen only as a thread of the desk with a turn still open in a rollout written in the last 12 hours. A spawn in the parent's rollout, Codex's subagent hooks and the app-server are not read (TODO OB-313).
+- Subagents are seen only as a thread of the desk with a turn still open in a rollout written in the last 12 hours. A spawn in the parent's rollout, Codex's subagent hooks and the app-server are not read (TODO OB-313). Noted on 2026-11-21 by the build of Stage M2b of GitHub issue #12, not by A Human: the parent's rollout and the app-server are now read to draw subagents at tiny desks, and the handover still does not use them. Its count now also includes a subagent whose only parent link is the nested one (OB-336, D6).
 - The reset is usually unknown. It is known only when Codex recorded a full window with the refusal, and the record is otherwise held for five hours. After that a Claude Code desk can be handed once to a Codex that is still used up (TODO OB-315).
 - How Codex is hired is unchanged and `--no-daemon` is not passed. Whether a session the building ended lives on in Codex's shared background server is therefore not settled (TODO OB-312).
 - Claude Code is given leave to read the one brief through an allowed-tools rule on its command, `Read(//<the brief's path>)`. Nothing else is exposed, and `--add-dir` is not used (TODO OB-319).
@@ -837,9 +837,9 @@ A Human on 2026-11-20, from the options offered, on top of the decisions already
 
 Still open in the issue: whether the fixed manager also takes its effort build. The build's call until A Human says otherwise is that it does not. Not built yet (TODO OB-335).
 
-## OB-336 — Do the calls the build made for Codex questions and approvals stand?
+## OB-336 — Do the calls the build made for Codex questions, approvals and sub-agents stand?
 
-Raised by the build of Stage M2a of GitHub issue #12 on 2026-11-20 (TODO OB-336). No ruling of A Human's is new in this stage, and no earlier ruling is amended.
+Raised by the build of Stage M2a of GitHub issue #12 on 2026-11-20 (TODO OB-336), and added to by the build of Stage M2b on 2026-11-21 (TODO OB-359). No ruling of A Human's is new in either stage, and no earlier ruling is amended. A Human answered the build's direction questions on 2026-11-12, and none of those answers is about this issue.
 
 What is A Human's is the issue itself. It asks that Codex's waiting state come from the best explicit events, that a real Codex question appear once in Decisions, and that an answer go to the exact pending request where the protocol takes one safely and to an honest terminal handoff where it does not. It also says "If a state cannot be observed, show that limitation rather than inventing certainty" and "Do not reduce sandbox/approval protections or automatically answer permission prompts to hide the state-detection problem".
 
@@ -847,7 +847,7 @@ Everything below is a call the build made while A Human was away. Each is a call
 
 From the dispatcher:
 
-- The issue is built in two stages. Stage M2a is attention states and questions. Stage M2b is child agents and parent identity, and it is not built (TODO OB-359).
+- The issue is built in two stages. Stage M2a is attention states and questions. Stage M2b is child agents and parent identity. It was built on 2026-11-21 and its calls are further down (TODO OB-359).
 - Re-reading only what was appended to a session file is out of scope, and the delay was not measured (TODO OB-360).
 - Tests use fakes and synthetic fixtures. No real prompt or answer is in a fixture.
 
@@ -882,10 +882,53 @@ From the review, after the design:
 
 One finding of the review is not fixed: a request that was open when its session was ended may come back when the session is resumed (TODO OB-373).
 
+Stage M2b, Codex's sub-agents at tiny desks, was built on 2026-11-21 (TODO OB-359). Everything below is again a call the build made while A Human was away, and none of it is A Human's. It was tested with fakes and synthetic fixtures only. In these lines a worker is a thread that another Codex thread started, and a helper is the tiny desk the building draws for it.
+
+Three earlier rulings of A Human's meet this stage, and each is kept as it was:
+
+- Sub-agents sit at tiny desks beside their session's desk (A Human, 2026-10-01, TODO OB-026). The stage draws Codex's workers the same way and changes nothing in the drawing.
+- A floor's manager may speak to desks and end them (OB-333). A helper is not a desk, so the manager lists none and can end none. A manager's note is still held while a formal request is open, and a question in plain prose still does not hold it.
+- A desk that is not running a workflow is handed over by itself (OB-283). The ruling stands. Call D6 makes the building count one more kind of worker as busy, so a few more Codex desks are offered a handover where they would have been handed over by themselves.
+
+From the dispatcher:
+
+- A helper never becomes a desk that can be handed over, taken over, thrown out, moved or ended by a manager.
+- Each helper carries its model and effort for both tools, so that GitHub issue #14 does not have to open the readers again. Nothing is drawn from them yet (TODO OB-382).
+- The stage changes no drawing, reads only the default Codex home (TODO OB-377) and leaves the limits of the process probe as they were (TODO OB-380).
+
+From the design, numbered as in the build's specification. The calls most worth A Human's eye are D2, D5, D8, D9 and D13:
+
+- **D1.** A helper's id is the worker's Codex thread id. It stays the same for the worker's whole life, in the session files and on the app-server.
+- **D2.** A thread gets a desk only when the first record of its session file gives a plain source, or none, and no parent link. A thread with a plain source and a parent link used to get a desk and no longer does.
+- **D3.** A worker is a thread Codex marks as spawned by another thread, or one with a plain source and a parent link that is not marked as a review or memory thread. Every other thread Codex runs for itself is internal, and is never a desk and never a helper. A fork A Human made is a desk of its own.
+- **D4.** The pod stays flat. A desk's helpers are all its workers at any depth, each worker followed by its own. Which worker started which stays in the backend.
+- **D5.** A worker is drawn only while the session at the top of its chain is live. Its state is the newest evidence, from its own session file or from what its parent's file records about it. An open turn older than 12 hours is not drawn. A worker known only from a parent's record is drawn for 10 minutes. A failed worker shows the error light for 10 minutes. A worker that was over before the building ever drew it is drawn as done for 8 seconds, so that it is seen to arrive and leave.
+- **D6.** The handover's busy count keeps its own rule, a turn open in a session file written in the last 12 hours. It now also counts a worker whose only parent link is the nested one. It does not use D5, because the handover has to fail safe (TODO OB-313).
+- **D7.** For a chat desk, the session files decide about a worker they have been read for. The app-server adds the workers the files have not shown yet, and whether a worker is asking.
+- **D8.** A thread that a running chat desk owns counts as live in discovery, on the app's own knowledge of the process it started. This keeps it off the sign-out sheet.
+- **D9.** A worker's own messages, tools, plans and errors are no longer drawn in its parent's conversation and no longer count as the parent's running tools. A collaboration call of the desk's own thread is one tool line, such as "Start a helper" (TODO OB-383).
+- **D10.** On a chat desk a thread becomes a helper only when a collaboration item or an activity item named it. A turn of any other thread, a reviewer's or a compaction's, makes no helper (TODO OB-387).
+- **D11.** A request names the worker that asked with its nickname, else its role, else the last part of its agent path, else "helper" and the first eight characters of its thread id. That worker's tiny desk shows the waiting light.
+- **D12.** A failed worker's error light comes from the session files only. The app-server's side drops a failed worker, and the next scan shows the light.
+- **D13.** For a thread a chat desk owns, a formal question read from the session file is a second sight of a request the app-server already holds or once held, and is dropped. A question in plain prose is moved onto the desk as a row that says "Reply in its conversation.", and only while the desk is idle.
+- **D14.** An ended chat desk whose thread runs on in a terminal is left off the sign-out sheet, because resuming it a second time would open one conversation twice.
+- **D15.** The join moves helpers, pets and the plain-prose ask onto a chat desk. It does not move spend, model, last reply or the worktree badge (TODO OB-384).
+- **D16.** A Codex helper's model and effort come from the records of its own turns, then from what the spawn recorded, which only codex-cli 0.170.0 writes, and are otherwise empty. A Claude Code helper's come from its own transcript.
+- **D17.** No hook is added. Codex has hooks for a sub-agent's start and stop, but registering one changes what a hire installs and what A Human has to trust (TODO OB-381).
+
+From the review, after the design:
+
+- A worker counts as over only when its newest evidence says it finished or failed. One that has merely stopped being drawn does not, so neither its open request nor its tiny desk at a chat desk is dropped on that ground.
+- A turn still open in a worker's own session file decides over a newer word of its parent's that it is working, and the 10-minute limit of D5 does not apply to it.
+- A worker's request to approve file changes still shows the diff. The building records the diff from the worker's thread for that card and draws nothing else of the worker.
+- When a chat desk ends, the session files are read again at once, so its thread does not show as a running terminal desk. This fix has no automated test (TODO OB-390).
+
+One finding of the review of Stage M2b is not fixed: the rule for what a collaboration call says about a worker is written twice, once for session files and once for the app-server (TODO OB-389).
+
 **Options.**
 
-- **Let them stand (recommended)** — keep every call above, and say after the checks in HUMAN_TODO OB-375 whether any should change.
-- **Veto some** — name the calls to change. The two most likely are the hand at a terminal desk for a question that does not block, and the "may be waiting" row for an approval a reviewer may settle by itself.
+- **Let them stand (recommended)** — keep every call above, and say after the checks in HUMAN_TODO OB-375 and OB-391 whether any should change.
+- **Veto some** — name the calls to change. The two most likely are the hand at a terminal desk for a question that does not block, and the "may be waiting" row for an approval a reviewer may settle by itself. In Stage M2b they are D9, which takes a sub-agent's own messages out of its parent's conversation, and D13, which turns a chat desk's question in plain prose into a row.
 
 **Recommendation.** Let them stand until the checks have been run with a real Codex session. Each call can be changed alone.
 
