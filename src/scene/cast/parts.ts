@@ -61,6 +61,75 @@ export const FERN = {
   "upper-arm-r": { src: new URL("../../assets/cast/fern/upper-arm-r.png", import.meta.url).href, w: 31, h: 78 },
 } as const;
 
+export const KIT_HIGH = {
+  "forearm-l": { src: new URL("../../assets/cast/kit-high/forearm-l.png", import.meta.url).href, w: 37, h: 112 },
+  "forearm-r": { src: new URL("../../assets/cast/kit-high/forearm-r.png", import.meta.url).href, w: 40, h: 113 },
+  "leg-l": { src: new URL("../../assets/cast/kit-high/leg-l.png", import.meta.url).href, w: 37, h: 122 },
+  "leg-r": { src: new URL("../../assets/cast/kit-high/leg-r.png", import.meta.url).href, w: 36, h: 122 },
+  "pelvis": { src: new URL("../../assets/cast/kit-high/pelvis.png", import.meta.url).href, w: 80, h: 61 },
+  "torso": { src: new URL("../../assets/cast/kit-high/torso.png", import.meta.url).href, w: 70, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/kit-high/upper-arm-l.png", import.meta.url).href, w: 47, h: 105 },
+  "upper-arm-r": { src: new URL("../../assets/cast/kit-high/upper-arm-r.png", import.meta.url).href, w: 47, h: 106 },
+} as const;
+
+export const KIT_LOW = {
+  "forearm-l": { src: new URL("../../assets/cast/kit-low/forearm-l.png", import.meta.url).href, w: 31, h: 112 },
+  "forearm-r": { src: new URL("../../assets/cast/kit-low/forearm-r.png", import.meta.url).href, w: 33, h: 112 },
+  "leg-l": { src: new URL("../../assets/cast/kit-low/leg-l.png", import.meta.url).href, w: 28, h: 121 },
+  "leg-r": { src: new URL("../../assets/cast/kit-low/leg-r.png", import.meta.url).href, w: 27, h: 122 },
+  "pelvis": { src: new URL("../../assets/cast/kit-low/pelvis.png", import.meta.url).href, w: 61, h: 58 },
+  "torso": { src: new URL("../../assets/cast/kit-low/torso.png", import.meta.url).href, w: 58, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/kit-low/upper-arm-l.png", import.meta.url).href, w: 34, h: 104 },
+  "upper-arm-r": { src: new URL("../../assets/cast/kit-low/upper-arm-r.png", import.meta.url).href, w: 35, h: 104 },
+} as const;
+
+export const KIT_MAX = {
+  "forearm-l": { src: new URL("../../assets/cast/kit-max/forearm-l.png", import.meta.url).href, w: 46, h: 118 },
+  "forearm-r": { src: new URL("../../assets/cast/kit-max/forearm-r.png", import.meta.url).href, w: 44, h: 119 },
+  "leg-l": { src: new URL("../../assets/cast/kit-max/leg-l.png", import.meta.url).href, w: 44, h: 125 },
+  "leg-r": { src: new URL("../../assets/cast/kit-max/leg-r.png", import.meta.url).href, w: 44, h: 125 },
+  "pelvis": { src: new URL("../../assets/cast/kit-max/pelvis.png", import.meta.url).href, w: 87, h: 63 },
+  "torso": { src: new URL("../../assets/cast/kit-max/torso.png", import.meta.url).href, w: 74, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/kit-max/upper-arm-l.png", import.meta.url).href, w: 61, h: 109 },
+  "upper-arm-r": { src: new URL("../../assets/cast/kit-max/upper-arm-r.png", import.meta.url).href, w: 62, h: 108 },
+} as const;
+
+export const KIT_MEDIUM = {
+  "chair": { src: new URL("../../assets/cast/kit-medium/chair.png", import.meta.url).href, w: 71, h: 80 },
+  "forearm-l": { src: new URL("../../assets/cast/kit-medium/forearm-l.png", import.meta.url).href, w: 35, h: 112 },
+  "forearm-r": { src: new URL("../../assets/cast/kit-medium/forearm-r.png", import.meta.url).href, w: 36, h: 112 },
+  "head": { src: new URL("../../assets/cast/kit-medium/head.png", import.meta.url).href, w: 60, h: 98 },
+  "head-closed": { src: new URL("../../assets/cast/kit-medium/head-closed.png", import.meta.url).href, w: 60, h: 98 },
+  "leg-l": { src: new URL("../../assets/cast/kit-medium/leg-l.png", import.meta.url).href, w: 31, h: 121 },
+  "leg-r": { src: new URL("../../assets/cast/kit-medium/leg-r.png", import.meta.url).href, w: 28, h: 121 },
+  "pelvis": { src: new URL("../../assets/cast/kit-medium/pelvis.png", import.meta.url).href, w: 71, h: 59 },
+  "torso": { src: new URL("../../assets/cast/kit-medium/torso.png", import.meta.url).href, w: 67, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/kit-medium/upper-arm-l.png", import.meta.url).href, w: 39, h: 104 },
+  "upper-arm-r": { src: new URL("../../assets/cast/kit-medium/upper-arm-r.png", import.meta.url).href, w: 39, h: 103 },
+} as const;
+
+export const KIT_MINIMAL = {
+  "forearm-l": { src: new URL("../../assets/cast/kit-minimal/forearm-l.png", import.meta.url).href, w: 29, h: 112 },
+  "forearm-r": { src: new URL("../../assets/cast/kit-minimal/forearm-r.png", import.meta.url).href, w: 31, h: 112 },
+  "leg-l": { src: new URL("../../assets/cast/kit-minimal/leg-l.png", import.meta.url).href, w: 25, h: 121 },
+  "leg-r": { src: new URL("../../assets/cast/kit-minimal/leg-r.png", import.meta.url).href, w: 24, h: 122 },
+  "pelvis": { src: new URL("../../assets/cast/kit-minimal/pelvis.png", import.meta.url).href, w: 55, h: 57 },
+  "torso": { src: new URL("../../assets/cast/kit-minimal/torso.png", import.meta.url).href, w: 55, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/kit-minimal/upper-arm-l.png", import.meta.url).href, w: 28, h: 103 },
+  "upper-arm-r": { src: new URL("../../assets/cast/kit-minimal/upper-arm-r.png", import.meta.url).href, w: 27, h: 104 },
+} as const;
+
+export const KIT_XHIGH = {
+  "forearm-l": { src: new URL("../../assets/cast/kit-xhigh/forearm-l.png", import.meta.url).href, w: 41, h: 114 },
+  "forearm-r": { src: new URL("../../assets/cast/kit-xhigh/forearm-r.png", import.meta.url).href, w: 43, h: 115 },
+  "leg-l": { src: new URL("../../assets/cast/kit-xhigh/leg-l.png", import.meta.url).href, w: 41, h: 121 },
+  "leg-r": { src: new URL("../../assets/cast/kit-xhigh/leg-r.png", import.meta.url).href, w: 41, h: 121 },
+  "pelvis": { src: new URL("../../assets/cast/kit-xhigh/pelvis.png", import.meta.url).href, w: 85, h: 61 },
+  "torso": { src: new URL("../../assets/cast/kit-xhigh/torso.png", import.meta.url).href, w: 71, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/kit-xhigh/upper-arm-l.png", import.meta.url).href, w: 50, h: 108 },
+  "upper-arm-r": { src: new URL("../../assets/cast/kit-xhigh/upper-arm-r.png", import.meta.url).href, w: 50, h: 108 },
+} as const;
+
 export const MARA = {
   "chair": { src: new URL("../../assets/cast/mara/chair.png", import.meta.url).href, w: 103, h: 92 },
   "forearm-l": { src: new URL("../../assets/cast/mara/forearm-l.png", import.meta.url).href, w: 31, h: 103 },
@@ -73,6 +142,144 @@ export const MARA = {
   "torso": { src: new URL("../../assets/cast/mara/torso.png", import.meta.url).href, w: 87, h: 96 },
   "upper-arm-l": { src: new URL("../../assets/cast/mara/upper-arm-l.png", import.meta.url).href, w: 36, h: 85 },
   "upper-arm-r": { src: new URL("../../assets/cast/mara/upper-arm-r.png", import.meta.url).href, w: 36, h: 85 },
+} as const;
+
+export const NELL_HIGH = {
+  "forearm-l": { src: new URL("../../assets/cast/nell-high/forearm-l.png", import.meta.url).href, w: 38, h: 113 },
+  "forearm-r": { src: new URL("../../assets/cast/nell-high/forearm-r.png", import.meta.url).href, w: 37, h: 114 },
+  "leg-l": { src: new URL("../../assets/cast/nell-high/leg-l.png", import.meta.url).href, w: 36, h: 117 },
+  "leg-r": { src: new URL("../../assets/cast/nell-high/leg-r.png", import.meta.url).href, w: 34, h: 117 },
+  "pelvis": { src: new URL("../../assets/cast/nell-high/pelvis.png", import.meta.url).href, w: 82, h: 58 },
+  "torso": { src: new URL("../../assets/cast/nell-high/torso.png", import.meta.url).href, w: 71, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/nell-high/upper-arm-l.png", import.meta.url).href, w: 47, h: 101 },
+  "upper-arm-r": { src: new URL("../../assets/cast/nell-high/upper-arm-r.png", import.meta.url).href, w: 47, h: 100 },
+} as const;
+
+export const NELL_LOW = {
+  "forearm-l": { src: new URL("../../assets/cast/nell-low/forearm-l.png", import.meta.url).href, w: 33, h: 108 },
+  "forearm-r": { src: new URL("../../assets/cast/nell-low/forearm-r.png", import.meta.url).href, w: 32, h: 108 },
+  "leg-l": { src: new URL("../../assets/cast/nell-low/leg-l.png", import.meta.url).href, w: 23, h: 115 },
+  "leg-r": { src: new URL("../../assets/cast/nell-low/leg-r.png", import.meta.url).href, w: 23, h: 115 },
+  "pelvis": { src: new URL("../../assets/cast/nell-low/pelvis.png", import.meta.url).href, w: 67, h: 55 },
+  "torso": { src: new URL("../../assets/cast/nell-low/torso.png", import.meta.url).href, w: 64, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/nell-low/upper-arm-l.png", import.meta.url).href, w: 37, h: 96 },
+  "upper-arm-r": { src: new URL("../../assets/cast/nell-low/upper-arm-r.png", import.meta.url).href, w: 36, h: 95 },
+} as const;
+
+export const NELL_MAX = {
+  "forearm-l": { src: new URL("../../assets/cast/nell-max/forearm-l.png", import.meta.url).href, w: 46, h: 115 },
+  "forearm-r": { src: new URL("../../assets/cast/nell-max/forearm-r.png", import.meta.url).href, w: 45, h: 115 },
+  "leg-l": { src: new URL("../../assets/cast/nell-max/leg-l.png", import.meta.url).href, w: 44, h: 118 },
+  "leg-r": { src: new URL("../../assets/cast/nell-max/leg-r.png", import.meta.url).href, w: 44, h: 118 },
+  "pelvis": { src: new URL("../../assets/cast/nell-max/pelvis.png", import.meta.url).href, w: 90, h: 60 },
+  "torso": { src: new URL("../../assets/cast/nell-max/torso.png", import.meta.url).href, w: 83, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/nell-max/upper-arm-l.png", import.meta.url).href, w: 64, h: 103 },
+  "upper-arm-r": { src: new URL("../../assets/cast/nell-max/upper-arm-r.png", import.meta.url).href, w: 64, h: 103 },
+} as const;
+
+export const NELL_MEDIUM = {
+  "chair": { src: new URL("../../assets/cast/nell-medium/chair.png", import.meta.url).href, w: 78, h: 87 },
+  "forearm-l": { src: new URL("../../assets/cast/nell-medium/forearm-l.png", import.meta.url).href, w: 35, h: 111 },
+  "forearm-r": { src: new URL("../../assets/cast/nell-medium/forearm-r.png", import.meta.url).href, w: 34, h: 110 },
+  "head": { src: new URL("../../assets/cast/nell-medium/head.png", import.meta.url).href, w: 70, h: 109 },
+  "head-closed": { src: new URL("../../assets/cast/nell-medium/head-closed.png", import.meta.url).href, w: 70, h: 109 },
+  "leg-l": { src: new URL("../../assets/cast/nell-medium/leg-l.png", import.meta.url).href, w: 30, h: 115 },
+  "leg-r": { src: new URL("../../assets/cast/nell-medium/leg-r.png", import.meta.url).href, w: 32, h: 115 },
+  "pelvis": { src: new URL("../../assets/cast/nell-medium/pelvis.png", import.meta.url).href, w: 76, h: 57 },
+  "torso": { src: new URL("../../assets/cast/nell-medium/torso.png", import.meta.url).href, w: 68, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/nell-medium/upper-arm-l.png", import.meta.url).href, w: 42, h: 98 },
+  "upper-arm-r": { src: new URL("../../assets/cast/nell-medium/upper-arm-r.png", import.meta.url).href, w: 42, h: 98 },
+} as const;
+
+export const NELL_MINIMAL = {
+  "forearm-l": { src: new URL("../../assets/cast/nell-minimal/forearm-l.png", import.meta.url).href, w: 29, h: 108 },
+  "forearm-r": { src: new URL("../../assets/cast/nell-minimal/forearm-r.png", import.meta.url).href, w: 29, h: 108 },
+  "leg-l": { src: new URL("../../assets/cast/nell-minimal/leg-l.png", import.meta.url).href, w: 23, h: 115 },
+  "leg-r": { src: new URL("../../assets/cast/nell-minimal/leg-r.png", import.meta.url).href, w: 25, h: 115 },
+  "pelvis": { src: new URL("../../assets/cast/nell-minimal/pelvis.png", import.meta.url).href, w: 60, h: 56 },
+  "torso": { src: new URL("../../assets/cast/nell-minimal/torso.png", import.meta.url).href, w: 57, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/nell-minimal/upper-arm-l.png", import.meta.url).href, w: 34, h: 96 },
+  "upper-arm-r": { src: new URL("../../assets/cast/nell-minimal/upper-arm-r.png", import.meta.url).href, w: 33, h: 96 },
+} as const;
+
+export const NELL_XHIGH = {
+  "forearm-l": { src: new URL("../../assets/cast/nell-xhigh/forearm-l.png", import.meta.url).href, w: 40, h: 112 },
+  "forearm-r": { src: new URL("../../assets/cast/nell-xhigh/forearm-r.png", import.meta.url).href, w: 39, h: 111 },
+  "leg-l": { src: new URL("../../assets/cast/nell-xhigh/leg-l.png", import.meta.url).href, w: 39, h: 113 },
+  "leg-r": { src: new URL("../../assets/cast/nell-xhigh/leg-r.png", import.meta.url).href, w: 39, h: 113 },
+  "pelvis": { src: new URL("../../assets/cast/nell-xhigh/pelvis.png", import.meta.url).href, w: 86, h: 57 },
+  "torso": { src: new URL("../../assets/cast/nell-xhigh/torso.png", import.meta.url).href, w: 78, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/nell-xhigh/upper-arm-l.png", import.meta.url).href, w: 51, h: 98 },
+  "upper-arm-r": { src: new URL("../../assets/cast/nell-xhigh/upper-arm-r.png", import.meta.url).href, w: 51, h: 98 },
+} as const;
+
+export const OTTO_HIGH = {
+  "forearm-l": { src: new URL("../../assets/cast/otto-high/forearm-l.png", import.meta.url).href, w: 39, h: 96 },
+  "forearm-r": { src: new URL("../../assets/cast/otto-high/forearm-r.png", import.meta.url).href, w: 38, h: 96 },
+  "leg-l": { src: new URL("../../assets/cast/otto-high/leg-l.png", import.meta.url).href, w: 33, h: 100 },
+  "leg-r": { src: new URL("../../assets/cast/otto-high/leg-r.png", import.meta.url).href, w: 33, h: 100 },
+  "pelvis": { src: new URL("../../assets/cast/otto-high/pelvis.png", import.meta.url).href, w: 84, h: 63 },
+  "torso": { src: new URL("../../assets/cast/otto-high/torso.png", import.meta.url).href, w: 73, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/otto-high/upper-arm-l.png", import.meta.url).href, w: 44, h: 92 },
+  "upper-arm-r": { src: new URL("../../assets/cast/otto-high/upper-arm-r.png", import.meta.url).href, w: 44, h: 91 },
+} as const;
+
+export const OTTO_LOW = {
+  "forearm-l": { src: new URL("../../assets/cast/otto-low/forearm-l.png", import.meta.url).href, w: 31, h: 94 },
+  "forearm-r": { src: new URL("../../assets/cast/otto-low/forearm-r.png", import.meta.url).href, w: 31, h: 95 },
+  "leg-l": { src: new URL("../../assets/cast/otto-low/leg-l.png", import.meta.url).href, w: 23, h: 97 },
+  "leg-r": { src: new URL("../../assets/cast/otto-low/leg-r.png", import.meta.url).href, w: 23, h: 97 },
+  "pelvis": { src: new URL("../../assets/cast/otto-low/pelvis.png", import.meta.url).href, w: 70, h: 58 },
+  "torso": { src: new URL("../../assets/cast/otto-low/torso.png", import.meta.url).href, w: 59, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/otto-low/upper-arm-l.png", import.meta.url).href, w: 33, h: 88 },
+  "upper-arm-r": { src: new URL("../../assets/cast/otto-low/upper-arm-r.png", import.meta.url).href, w: 32, h: 88 },
+} as const;
+
+export const OTTO_MAX = {
+  "forearm-l": { src: new URL("../../assets/cast/otto-max/forearm-l.png", import.meta.url).href, w: 43, h: 97 },
+  "forearm-r": { src: new URL("../../assets/cast/otto-max/forearm-r.png", import.meta.url).href, w: 44, h: 97 },
+  "leg-l": { src: new URL("../../assets/cast/otto-max/leg-l.png", import.meta.url).href, w: 42, h: 104 },
+  "leg-r": { src: new URL("../../assets/cast/otto-max/leg-r.png", import.meta.url).href, w: 42, h: 104 },
+  "pelvis": { src: new URL("../../assets/cast/otto-max/pelvis.png", import.meta.url).href, w: 94, h: 65 },
+  "torso": { src: new URL("../../assets/cast/otto-max/torso.png", import.meta.url).href, w: 82, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/otto-max/upper-arm-l.png", import.meta.url).href, w: 53, h: 95 },
+  "upper-arm-r": { src: new URL("../../assets/cast/otto-max/upper-arm-r.png", import.meta.url).href, w: 54, h: 95 },
+} as const;
+
+export const OTTO_MEDIUM = {
+  "chair": { src: new URL("../../assets/cast/otto-medium/chair.png", import.meta.url).href, w: 78, h: 80 },
+  "forearm-l": { src: new URL("../../assets/cast/otto-medium/forearm-l.png", import.meta.url).href, w: 37, h: 94 },
+  "forearm-r": { src: new URL("../../assets/cast/otto-medium/forearm-r.png", import.meta.url).href, w: 36, h: 95 },
+  "head": { src: new URL("../../assets/cast/otto-medium/head.png", import.meta.url).href, w: 52, h: 92 },
+  "head-closed": { src: new URL("../../assets/cast/otto-medium/head-closed.png", import.meta.url).href, w: 51, h: 92 },
+  "leg-l": { src: new URL("../../assets/cast/otto-medium/leg-l.png", import.meta.url).href, w: 29, h: 97 },
+  "leg-r": { src: new URL("../../assets/cast/otto-medium/leg-r.png", import.meta.url).href, w: 28, h: 97 },
+  "pelvis": { src: new URL("../../assets/cast/otto-medium/pelvis.png", import.meta.url).href, w: 80, h: 59 },
+  "torso": { src: new URL("../../assets/cast/otto-medium/torso.png", import.meta.url).href, w: 68, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/otto-medium/upper-arm-l.png", import.meta.url).href, w: 44, h: 90 },
+  "upper-arm-r": { src: new URL("../../assets/cast/otto-medium/upper-arm-r.png", import.meta.url).href, w: 44, h: 90 },
+} as const;
+
+export const OTTO_MINIMAL = {
+  "forearm-l": { src: new URL("../../assets/cast/otto-minimal/forearm-l.png", import.meta.url).href, w: 29, h: 93 },
+  "forearm-r": { src: new URL("../../assets/cast/otto-minimal/forearm-r.png", import.meta.url).href, w: 30, h: 93 },
+  "leg-l": { src: new URL("../../assets/cast/otto-minimal/leg-l.png", import.meta.url).href, w: 22, h: 97 },
+  "leg-r": { src: new URL("../../assets/cast/otto-minimal/leg-r.png", import.meta.url).href, w: 22, h: 97 },
+  "pelvis": { src: new URL("../../assets/cast/otto-minimal/pelvis.png", import.meta.url).href, w: 66, h: 59 },
+  "torso": { src: new URL("../../assets/cast/otto-minimal/torso.png", import.meta.url).href, w: 56, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/otto-minimal/upper-arm-l.png", import.meta.url).href, w: 30, h: 88 },
+  "upper-arm-r": { src: new URL("../../assets/cast/otto-minimal/upper-arm-r.png", import.meta.url).href, w: 29, h: 88 },
+} as const;
+
+export const OTTO_XHIGH = {
+  "forearm-l": { src: new URL("../../assets/cast/otto-xhigh/forearm-l.png", import.meta.url).href, w: 41, h: 96 },
+  "forearm-r": { src: new URL("../../assets/cast/otto-xhigh/forearm-r.png", import.meta.url).href, w: 42, h: 96 },
+  "leg-l": { src: new URL("../../assets/cast/otto-xhigh/leg-l.png", import.meta.url).href, w: 35, h: 98 },
+  "leg-r": { src: new URL("../../assets/cast/otto-xhigh/leg-r.png", import.meta.url).href, w: 35, h: 98 },
+  "pelvis": { src: new URL("../../assets/cast/otto-xhigh/pelvis.png", import.meta.url).href, w: 89, h: 62 },
+  "torso": { src: new URL("../../assets/cast/otto-xhigh/torso.png", import.meta.url).href, w: 78, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/otto-xhigh/upper-arm-l.png", import.meta.url).href, w: 48, h: 91 },
+  "upper-arm-r": { src: new URL("../../assets/cast/otto-xhigh/upper-arm-r.png", import.meta.url).href, w: 47, h: 91 },
 } as const;
 
 export const PETS = {
@@ -101,6 +308,75 @@ export const THEO = {
   "upper-arm-r": { src: new URL("../../assets/cast/theo/upper-arm-r.png", import.meta.url).href, w: 33, h: 75 },
 } as const;
 
+export const VERA_HIGH = {
+  "forearm-l": { src: new URL("../../assets/cast/vera-high/forearm-l.png", import.meta.url).href, w: 33, h: 97 },
+  "forearm-r": { src: new URL("../../assets/cast/vera-high/forearm-r.png", import.meta.url).href, w: 34, h: 96 },
+  "leg-l": { src: new URL("../../assets/cast/vera-high/leg-l.png", import.meta.url).href, w: 29, h: 101 },
+  "leg-r": { src: new URL("../../assets/cast/vera-high/leg-r.png", import.meta.url).href, w: 29, h: 101 },
+  "pelvis": { src: new URL("../../assets/cast/vera-high/pelvis.png", import.meta.url).href, w: 87, h: 75 },
+  "torso": { src: new URL("../../assets/cast/vera-high/torso.png", import.meta.url).href, w: 72, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/vera-high/upper-arm-l.png", import.meta.url).href, w: 40, h: 93 },
+  "upper-arm-r": { src: new URL("../../assets/cast/vera-high/upper-arm-r.png", import.meta.url).href, w: 40, h: 92 },
+} as const;
+
+export const VERA_LOW = {
+  "forearm-l": { src: new URL("../../assets/cast/vera-low/forearm-l.png", import.meta.url).href, w: 29, h: 98 },
+  "forearm-r": { src: new URL("../../assets/cast/vera-low/forearm-r.png", import.meta.url).href, w: 29, h: 97 },
+  "leg-l": { src: new URL("../../assets/cast/vera-low/leg-l.png", import.meta.url).href, w: 23, h: 100 },
+  "leg-r": { src: new URL("../../assets/cast/vera-low/leg-r.png", import.meta.url).href, w: 24, h: 101 },
+  "pelvis": { src: new URL("../../assets/cast/vera-low/pelvis.png", import.meta.url).href, w: 79, h: 74 },
+  "torso": { src: new URL("../../assets/cast/vera-low/torso.png", import.meta.url).href, w: 58, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/vera-low/upper-arm-l.png", import.meta.url).href, w: 33, h: 93 },
+  "upper-arm-r": { src: new URL("../../assets/cast/vera-low/upper-arm-r.png", import.meta.url).href, w: 33, h: 93 },
+} as const;
+
+export const VERA_MAX = {
+  "forearm-l": { src: new URL("../../assets/cast/vera-max/forearm-l.png", import.meta.url).href, w: 40, h: 98 },
+  "forearm-r": { src: new URL("../../assets/cast/vera-max/forearm-r.png", import.meta.url).href, w: 41, h: 98 },
+  "leg-l": { src: new URL("../../assets/cast/vera-max/leg-l.png", import.meta.url).href, w: 40, h: 99 },
+  "leg-r": { src: new URL("../../assets/cast/vera-max/leg-r.png", import.meta.url).href, w: 41, h: 99 },
+  "pelvis": { src: new URL("../../assets/cast/vera-max/pelvis.png", import.meta.url).href, w: 93, h: 75 },
+  "torso": { src: new URL("../../assets/cast/vera-max/torso.png", import.meta.url).href, w: 79, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/vera-max/upper-arm-l.png", import.meta.url).href, w: 49, h: 94 },
+  "upper-arm-r": { src: new URL("../../assets/cast/vera-max/upper-arm-r.png", import.meta.url).href, w: 50, h: 94 },
+} as const;
+
+export const VERA_MEDIUM = {
+  "chair": { src: new URL("../../assets/cast/vera-medium/chair.png", import.meta.url).href, w: 80, h: 82 },
+  "forearm-l": { src: new URL("../../assets/cast/vera-medium/forearm-l.png", import.meta.url).href, w: 32, h: 98 },
+  "forearm-r": { src: new URL("../../assets/cast/vera-medium/forearm-r.png", import.meta.url).href, w: 32, h: 98 },
+  "head": { src: new URL("../../assets/cast/vera-medium/head.png", import.meta.url).href, w: 75, h: 97 },
+  "head-closed": { src: new URL("../../assets/cast/vera-medium/head-closed.png", import.meta.url).href, w: 75, h: 97 },
+  "leg-l": { src: new URL("../../assets/cast/vera-medium/leg-l.png", import.meta.url).href, w: 29, h: 102 },
+  "leg-r": { src: new URL("../../assets/cast/vera-medium/leg-r.png", import.meta.url).href, w: 30, h: 102 },
+  "pelvis": { src: new URL("../../assets/cast/vera-medium/pelvis.png", import.meta.url).href, w: 86, h: 75 },
+  "torso": { src: new URL("../../assets/cast/vera-medium/torso.png", import.meta.url).href, w: 64, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/vera-medium/upper-arm-l.png", import.meta.url).href, w: 40, h: 93 },
+  "upper-arm-r": { src: new URL("../../assets/cast/vera-medium/upper-arm-r.png", import.meta.url).href, w: 40, h: 93 },
+} as const;
+
+export const VERA_MINIMAL = {
+  "forearm-l": { src: new URL("../../assets/cast/vera-minimal/forearm-l.png", import.meta.url).href, w: 28, h: 98 },
+  "forearm-r": { src: new URL("../../assets/cast/vera-minimal/forearm-r.png", import.meta.url).href, w: 28, h: 98 },
+  "leg-l": { src: new URL("../../assets/cast/vera-minimal/leg-l.png", import.meta.url).href, w: 23, h: 101 },
+  "leg-r": { src: new URL("../../assets/cast/vera-minimal/leg-r.png", import.meta.url).href, w: 23, h: 101 },
+  "pelvis": { src: new URL("../../assets/cast/vera-minimal/pelvis.png", import.meta.url).href, w: 80, h: 74 },
+  "torso": { src: new URL("../../assets/cast/vera-minimal/torso.png", import.meta.url).href, w: 57, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/vera-minimal/upper-arm-l.png", import.meta.url).href, w: 34, h: 94 },
+  "upper-arm-r": { src: new URL("../../assets/cast/vera-minimal/upper-arm-r.png", import.meta.url).href, w: 32, h: 93 },
+} as const;
+
+export const VERA_XHIGH = {
+  "forearm-l": { src: new URL("../../assets/cast/vera-xhigh/forearm-l.png", import.meta.url).href, w: 40, h: 98 },
+  "forearm-r": { src: new URL("../../assets/cast/vera-xhigh/forearm-r.png", import.meta.url).href, w: 40, h: 98 },
+  "leg-l": { src: new URL("../../assets/cast/vera-xhigh/leg-l.png", import.meta.url).href, w: 34, h: 99 },
+  "leg-r": { src: new URL("../../assets/cast/vera-xhigh/leg-r.png", import.meta.url).href, w: 35, h: 99 },
+  "pelvis": { src: new URL("../../assets/cast/vera-xhigh/pelvis.png", import.meta.url).href, w: 97, h: 77 },
+  "torso": { src: new URL("../../assets/cast/vera-xhigh/torso.png", import.meta.url).href, w: 72, h: 96 },
+  "upper-arm-l": { src: new URL("../../assets/cast/vera-xhigh/upper-arm-l.png", import.meta.url).href, w: 52, h: 95 },
+  "upper-arm-r": { src: new URL("../../assets/cast/vera-xhigh/upper-arm-r.png", import.meta.url).href, w: 52, h: 95 },
+} as const;
+
 export const WALT = {
   "chair": { src: new URL("../../assets/cast/walt/chair.png", import.meta.url).href, w: 81, h: 79 },
   "forearm-l": { src: new URL("../../assets/cast/walt/forearm-l.png", import.meta.url).href, w: 32, h: 84 },
@@ -113,4 +389,11 @@ export const WALT = {
   "torso": { src: new URL("../../assets/cast/walt/torso.png", import.meta.url).href, w: 89, h: 96 },
   "upper-arm-l": { src: new URL("../../assets/cast/walt/upper-arm-l.png", import.meta.url).href, w: 33, h: 75 },
   "upper-arm-r": { src: new URL("../../assets/cast/walt/upper-arm-r.png", import.meta.url).href, w: 33, h: 75 },
+} as const;
+
+export const TIER_BUILDS = {
+  "kit": { "minimal": KIT_MINIMAL, "low": KIT_LOW, "medium": KIT_MEDIUM, "high": KIT_HIGH, "xhigh": KIT_XHIGH, "max": KIT_MAX },
+  "nell": { "minimal": NELL_MINIMAL, "low": NELL_LOW, "medium": NELL_MEDIUM, "high": NELL_HIGH, "xhigh": NELL_XHIGH, "max": NELL_MAX },
+  "otto": { "minimal": OTTO_MINIMAL, "low": OTTO_LOW, "medium": OTTO_MEDIUM, "high": OTTO_HIGH, "xhigh": OTTO_XHIGH, "max": OTTO_MAX },
+  "vera": { "minimal": VERA_MINIMAL, "low": VERA_LOW, "medium": VERA_MEDIUM, "high": VERA_HIGH, "xhigh": VERA_XHIGH, "max": VERA_MAX },
 } as const;

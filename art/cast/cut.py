@@ -11,11 +11,17 @@ and scaled so every character's torso has the same height. Writes the parts
 to src/assets/cast/<sheet>/<part>.png and their sizes to
 src/scene/cast/parts.ts.
 
-Run: uv run --script art/cast/cut.py
+A sheet named <worker>-<build> drops its head, closed-eyes head and chair
+unless the build is medium: the app takes those from the medium sheet.
+
+Run: uv run --script art/cast/cut.py              (writes every sheet's parts)
+     uv run --script art/cast/cut.py kit nell     (writes only these sheets' parts)
+     uv run --script art/cast/cut.py --check      (writes nothing, exits 1 on a difference)
 """
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +43,9 @@ PETS: list[list[str | None]] = [
     ["dog-body", "dog-head", "dog-tail"],
     ["owl-body", "owl-head", "shell"],
 ]
+# Effort builds of a tier worker, lean to buff; non-medium builds take these from medium.
+BUILDS = ("minimal", "low", "medium", "high", "xhigh", "max")
+FROM_MEDIUM = ("head", "head-closed", "chair")
 # Every person's torso is scaled to this height; the pets share one scale.
 TORSO_PX = 96
 PETS_SCALE = 0.25
@@ -140,8 +149,21 @@ def scaled(parts: dict[str, Image.Image], factor: float) -> dict[str, Image.Imag
     }
 
 
+def build_of(cast: str) -> tuple[str, str] | None:
+    worker, _, build = cast.rpartition("-")
+    return (worker, build) if worker and build in BUILDS else None
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Cut the puppet sheets into parts.")
+    parser.add_argument("names", nargs="*", help="write parts only for these sheets or workers")
+    parser.add_argument("--check", action="store_true", help="write nothing, exit 1 on a difference")
+    args = parser.parse_args()
+    names: list[str] = args.names
+    check: bool = args.check
+
     sizes: dict[str, dict[str, tuple[int, int]]] = {}
+    tiers: dict[str, list[str]] = {}
     for sheet in sorted(RAW.glob("*-sheet.png")):
         cast = sheet.name.removesuffix("-sheet.png")
         if cast == "pets":
@@ -149,11 +171,18 @@ def main() -> None:
         else:
             raw = cut(sheet, PEOPLE)
             parts = scaled(raw, TORSO_PX / raw["torso"].height)
+        tier = build_of(cast)
+        if tier is not None:
+            tiers.setdefault(tier[0], []).append(tier[1])
+            if tier[1] != "medium":
+                parts = {n: p for n, p in parts.items() if n not in FROM_MEDIUM}
+        sizes[cast] = {n: p.size for n, p in sorted(parts.items())}
+        if check or (names and not any(cast == n or cast.startswith(f"{n}-") for n in names)):
+            continue
         folder = OUT / cast
         folder.mkdir(parents=True, exist_ok=True)
         for name, part in parts.items():
             part.save(folder / f"{name}.png", optimize=True)
-        sizes[cast] = {n: p.size for n, p in sorted(parts.items())}
         print(f"{cast}: {len(parts)} parts")
 
     lines = [
@@ -174,8 +203,39 @@ def main() -> None:
             )
         lines.append("} as const;")
         lines.append("")
+    if tiers:
+        lines.append("export const TIER_BUILDS = {")
+        for worker in sorted(tiers):
+            ordered = sorted(tiers[worker], key=BUILDS.index)
+            entries = ", ".join(f'"{b}": {worker.upper()}_{b.upper()}' for b in ordered)
+            lines.append(f'  "{worker}": {{ {entries} }},')
+        lines.append("} as const;")
+        lines.append("")
+    text = "\n".join(lines)
+    if check:
+        raise SystemExit(difference(text, sizes))
     MANIFEST.parent.mkdir(parents=True, exist_ok=True)
-    MANIFEST.write_text("\n".join(lines))
+    MANIFEST.write_text(text)
+
+
+def difference(text: str, sizes: dict[str, dict[str, tuple[int, int]]]) -> str | None:
+    """The first way the committed manifest and parts differ from a fresh cut, or None."""
+    if not MANIFEST.exists() or MANIFEST.read_text() != text:
+        return f"{MANIFEST.relative_to(ROOT)} differs from a fresh cut"
+    for cast, cast_sizes in sizes.items():
+        for name, size in cast_sizes.items():
+            path = OUT / cast / f"{name}.png"
+            if not path.exists():
+                return f"{path.relative_to(ROOT)} is missing"
+            with Image.open(path) as img:
+                if img.size != size:
+                    return f"{path.relative_to(ROOT)} is {img.size}, the cut gives {size}"
+        tier = build_of(cast)
+        if tier is not None and tier[1] != "medium":
+            for name in FROM_MEDIUM:
+                if (OUT / cast / f"{name}.png").exists():
+                    return f"{cast}/{name}.png should not exist: it comes from the medium sheet"
+    return None
 
 
 if __name__ == "__main__":

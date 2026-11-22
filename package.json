@@ -22,7 +22,8 @@
     "tauri:build": "tauri build",
     "app:install": "tauri build --bundles app && rm -rf \"$HOME/Applications/Office Building.app\" && mkdir -p \"$HOME/Applications\" && cp -R \"src-tauri/target/release/bundle/macos/Office Building.app\" \"$HOME/Applications/\"",
     "prepare": "git config core.hooksPath .githooks",
-    "check:sensitive": "node --no-warnings scripts/check-sensitive.ts --all"
+    "check:sensitive": "node --no-warnings scripts/check-sensitive.ts --all",
+    "check:art": "uv run --script art/cast/cut.py --check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
