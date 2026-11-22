@@ -3,6 +3,7 @@
 //! the tests can replay recorded sessions.
 
 use super::ask::{self, Ask};
+use super::children::Children;
 use super::requests::{Flags, Gone, Requests};
 use super::views::{mcp_text, patch_view, plan_text, user_text};
 use super::wire::{
@@ -86,10 +87,14 @@ pub(super) struct Mapper {
     texts: HashMap<String, String>,
     thoughts: HashMap<String, Vec<String>>,
     tools: HashMap<String, ToolView>,
+    /// File changes of other threads' items, kept only so their approval card can show
+    /// the diff. Nothing is drawn for them (D9).
+    other_patches: HashMap<String, Vec<FileDiff>>,
     requests: Requests,
     flags: Flags,
     /// The last turns of the desk's own thread that ended, oldest first.
     ended: VecDeque<String>,
+    children: Children,
 }
 
 impl Mapper {
@@ -115,9 +120,11 @@ impl Mapper {
             texts: HashMap::new(),
             thoughts: HashMap::new(),
             tools: HashMap::new(),
+            other_patches: HashMap::new(),
             requests: Requests::default(),
             flags: Flags::default(),
             ended: VecDeque::new(),
+            children: Children::default(),
         }
     }
 
@@ -223,6 +230,7 @@ impl Mapper {
             }
         }
         out.push(self.state());
+        out.extend(self.helpers());
         (out, result)
     }
 
@@ -262,6 +270,7 @@ impl Mapper {
                 None => out.extend(cards),
             }
         }
+        out.extend(self.helpers());
         out
     }
 
@@ -355,6 +364,7 @@ impl Mapper {
                         out.extend(self.item(item));
                     }
                     out.extend(self.sweep_tools());
+                    self.children.settle();
                     if let Some(first) = self.queued.pop_front() {
                         out.extend(self.start_turn(first));
                     }
@@ -431,6 +441,30 @@ impl Mapper {
     // ---- Notifications --------------------------------------------------
 
     fn notification(&mut self, method: &str, params: &str) -> Vec<Out> {
+        // D9: another thread's items, plans and errors are not the desk's conversation.
+        let owner: Owner = serde_json::from_str(params).unwrap_or_default();
+        if self.other(owner.thread_id.as_deref()).is_some()
+            && (method.starts_with("item/") || matches!(method, "turn/plan/updated" | "error"))
+        {
+            match method {
+                "item/started" | "item/completed" => {
+                    if let Ok(n) = serde_json::from_str::<ItemNote>(params) {
+                        if let ThreadItem::FileChange { id, changes, .. } = &n.item {
+                            self.other_patches.insert(id.clone(), patch_view(changes).1);
+                        }
+                        self.children.item(&n.item);
+                    }
+                }
+                "item/fileChange/patchUpdated" => {
+                    if let Ok(n) = serde_json::from_str::<PatchUpdatedNote>(params) {
+                        self.other_patches
+                            .insert(n.item_id, patch_view(&n.changes).1);
+                    }
+                }
+                _ => {}
+            }
+            return Vec::new();
+        }
         match method {
             "turn/started" => parse(params, |n: TurnNote| self.turn_started(&n)),
             "turn/completed" => parse(params, |n: TurnNote| self.turn_ended(&n)),
@@ -511,7 +545,8 @@ impl Mapper {
     fn turn_started(&mut self, n: &TurnNote) -> Vec<Out> {
         let thread = self.other(n.thread_id.as_deref());
         let mut out = retired(self.requests.retire_older(thread, &n.turn.id));
-        if thread.is_some() {
+        if let Some(thread) = thread {
+            self.children.turn(thread, true);
             out.push(self.state());
             return out;
         }
@@ -532,7 +567,9 @@ impl Mapper {
             return Vec::new();
         }
         let mut out = retired(self.requests.retire_turn(thread, id));
-        if thread.is_none() {
+        if let Some(thread) = thread {
+            self.children.turn(thread, false);
+        } else {
             if self.ended.len() == ENDED_KEPT {
                 self.ended.pop_front();
             }
@@ -576,6 +613,9 @@ impl Mapper {
     }
 
     fn item(&mut self, item: ThreadItem) -> Vec<Out> {
+        if let Some((id, title, status)) = self.children.item(&item) {
+            return self.tool(&id, title, status, String::new());
+        }
         let entry = match item {
             ThreadItem::UserMessage {
                 id,
@@ -669,7 +709,9 @@ impl Mapper {
                 id,
                 text: "Codex compacted the conversation to fit its context window.".to_string(),
             },
-            ThreadItem::Other => return Vec::new(),
+            ThreadItem::CollabAgentToolCall { .. }
+            | ThreadItem::SubAgentActivity { .. }
+            | ThreadItem::Other => return Vec::new(),
         };
         vec![Out::Event(Event::Entry(entry))]
     }
@@ -756,10 +798,13 @@ impl Mapper {
                 typed(params).map(|p| Some(ask::command_approval(p, &self.cwd)))
             }
             "item/fileChange/requestApproval" => typed(params).map(|p: FileApprovalParams| {
-                let files = self
-                    .tools
-                    .get(&p.item_id)
-                    .map(|t| difftext::joined(&t.diffs));
+                let files = match self.tools.get(&p.item_id) {
+                    Some(t) => Some(difftext::joined(&t.diffs)),
+                    None => self
+                        .other_patches
+                        .get(&p.item_id)
+                        .map(|d| difftext::joined(d)),
+                };
                 Some(ask::file_approval(p, files))
             }),
             "item/permissions/requestApproval" => {
@@ -813,7 +858,8 @@ impl Mapper {
             self.flags.explain(ask.class);
         }
         let item = ask.item.clone();
-        let view = self.requests.open(request, thread, turn, ask);
+        let asked_by = thread.as_deref().map(|t| self.children.name(t));
+        let view = self.requests.open(request, thread, turn, ask, asked_by);
         let mut out = vec![Out::Event(Event::Approval(view))];
         if let Some(item) = item {
             out.extend(self.set_tool_status(&item, ToolStatus::Pending));
@@ -837,6 +883,13 @@ impl Mapper {
                 SessionState::Thinking
             },
         ))
+    }
+
+    /// The workers to draw, when the list changed since the desk was last told.
+    fn helpers(&mut self) -> Option<Out> {
+        let requests = &self.requests;
+        let fresh = self.children.fresh(|id| requests.asking(id));
+        fresh.map(|h| Out::Event(Event::Helpers(h)))
     }
 
     /// None for the desk's own thread (named, or not named at all), else the other id.

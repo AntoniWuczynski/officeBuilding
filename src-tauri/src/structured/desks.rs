@@ -4,7 +4,8 @@
 
 use super::{Approval, Capabilities, Driver, Entry, Event, Spawn, capabilities, capped, window};
 use crate::model::{
-    AnswerVia, ControlMode, EndedSession, Handoff, Question, Session, SessionState, Spend, ToolKind,
+    AnswerVia, ControlMode, EndedSession, Handoff, Helper, Question, Session, SessionState, Spend,
+    ToolKind,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -40,6 +41,8 @@ struct Live {
     tool_session: Option<String>,
     last: SystemTime,
     ended: Option<String>,
+    /// The workers the driver last reported at work or asking.
+    helpers: Vec<Helper>,
 }
 
 /// Pushed to the conversation panel after every change to a desk.
@@ -144,6 +147,7 @@ impl Live {
             handoff: Some(Handoff::Chat {
                 approval_id: a.id.clone(),
             }),
+            asked_by: a.asked_by.clone(),
         }
     }
 }
@@ -176,6 +180,7 @@ impl Desks {
                 tool_session: None,
                 last: SystemTime::now(),
                 ended: None,
+                helpers: Vec::new(),
             },
         );
         match super::start(spawn, self.sink(&id)) {
@@ -204,6 +209,7 @@ impl Desks {
                 tool_session: None,
                 last: SystemTime::now(),
                 ended: None,
+                helpers: Vec::new(),
             },
         );
         lock(&self.drivers).insert(id.to_string(), driver);
@@ -217,7 +223,15 @@ impl Desks {
             let Some(desk) = live.get_mut(id) else {
                 return;
             };
-            let before = (desk.state, desk.ended.is_some(), desk.requests_shown());
+            let shown = |d: &Live| {
+                (
+                    d.state,
+                    d.ended.is_some(),
+                    d.requests_shown(),
+                    d.helpers.clone(),
+                )
+            };
+            let before = shown(desk);
             let mut entry = None;
             match event {
                 Event::Entry(e) => {
@@ -247,8 +261,10 @@ impl Desks {
                 Event::Resolved { approval_id } => {
                     desk.approvals.retain(|a| a.approval.id != approval_id);
                 }
+                Event::Helpers(helpers) => desk.helpers = helpers,
                 Event::Exited { code, message } => {
                     desk.approvals.clear();
+                    desk.helpers.clear();
                     desk.ended = Some(message.unwrap_or_else(|| match code {
                         Some(0) | None => "The agent has finished.".to_string(),
                         Some(code) => format!("The agent stopped with exit code {code}."),
@@ -263,7 +279,7 @@ impl Desks {
                 approvals: desk.approvals(),
                 ended: desk.ended.clone(),
                 reset: false,
-                desk_changed: before != (desk.state, desk.ended.is_some(), desk.requests_shown()),
+                desk_changed: before != shown(desk),
             }
         };
         (self.notify)(update);
@@ -295,7 +311,7 @@ impl Desks {
                     .map(|a| request_row(id, &a.approval.id))
                     .collect(),
                 spend: Spend::default(),
-                helpers: Vec::new(),
+                helpers: d.helpers.clone(),
                 pets: Vec::new(),
                 worktree: false,
                 branch: None,
@@ -369,6 +385,7 @@ impl Desks {
                 .ok_or_else(|| format!("{id} has not ended, so there is nothing to resume"))?;
             desk.transcript.clear();
             desk.approvals.clear();
+            desk.helpers.clear();
             desk.ended = None;
             desk.state = SessionState::Idle;
             desk.last = SystemTime::now();
@@ -417,11 +434,27 @@ impl Desks {
     /// conversations in the tools' session files, and they must not get a second desk.
     #[must_use]
     pub fn tool_sessions(&self) -> Vec<String> {
+        self.threads().into_iter().map(|(_, t)| t).collect()
+    }
+
+    /// The running desks and Codex's own id for each one's conversation, once the driver
+    /// has reported it.
+    #[must_use]
+    pub fn threads(&self) -> Vec<(String, String)> {
         lock(&self.live)
-            .values()
-            .filter(|d| d.ended.is_none())
-            .filter_map(|d| d.tool_session.clone())
+            .iter()
+            .filter(|(_, d)| d.ended.is_none())
+            .filter_map(|(id, d)| Some((id.clone(), d.tool_session.clone()?)))
             .collect()
+    }
+
+    /// The tool's own id for the conversation of the running desk `id`.
+    #[must_use]
+    pub fn thread_of(&self, id: &str) -> Option<String> {
+        let live = lock(&self.live);
+        live.get(id)
+            .filter(|d| d.ended.is_none())
+            .and_then(|d| d.tool_session.clone())
     }
 
     pub fn backlog(&self, id: &str) -> Result<Backlog, String> {
@@ -520,6 +553,7 @@ mod tests {
                 tool_session: None,
                 last: SystemTime::now(),
                 ended: None,
+                helpers: Vec::new(),
             },
         );
         desks

@@ -19,6 +19,9 @@
 mod ask;
 #[cfg(test)]
 mod ask_tests;
+mod children;
+#[cfg(test)]
+mod children_tests;
 mod mapper;
 #[cfg(test)]
 mod request_tests;

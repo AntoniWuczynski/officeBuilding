@@ -127,6 +127,7 @@ impl Requests {
         thread: Option<String>,
         turn: Option<String>,
         ask: Ask,
+        asked_by: Option<String>,
     ) -> Approval {
         let (choices, replies): (Vec<Choice>, Vec<ReplyBody>) = ask
             .choices
@@ -159,6 +160,7 @@ impl Requests {
             choices,
             background: ask.background,
             failed: None,
+            asked_by,
         };
         let open = Open {
             request: request.clone(),
@@ -271,6 +273,13 @@ impl Requests {
         self.open
             .iter()
             .any(|o| o.thread.is_none() && o.class == class)
+    }
+
+    /// Some open request is owned by the other thread `thread`.
+    pub(super) fn asking(&self, thread: &str) -> bool {
+        self.open
+            .iter()
+            .any(|o| o.thread.as_deref() == Some(thread))
     }
 
     /// Some open request names this item.

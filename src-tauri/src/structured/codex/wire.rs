@@ -3,6 +3,7 @@
 //! wire leaves out JSON-RPC's `"jsonrpc"` field. Fields the driver does not use
 //! are left out (serde skips them), so newer Codex versions still parse.
 
+use crate::discovery::claude_code::chat::lenient;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
@@ -384,6 +385,100 @@ pub(super) enum ThreadItem {
     ContextCompaction {
         id: String,
     },
+    /// A collaboration tool call (`CollabAgentToolCallThreadItem`, schema 0.161.0). Every
+    /// field but the id is defaulted, so a later version's item still parses.
+    #[serde(rename_all = "camelCase")]
+    CollabAgentToolCall {
+        id: String,
+        #[serde(default)]
+        tool: CollabTool,
+        #[serde(default)]
+        status: CollabStatus,
+        #[serde(default)]
+        receiver_thread_ids: Vec<String>,
+        #[serde(default)]
+        agents_states: BTreeMap<String, AgentState>,
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default, deserialize_with = "lenient")]
+        reasoning_effort: Option<String>,
+    },
+    /// A worker's activity (`SubAgentActivityThreadItem`). 0.170.0 adds `model` and
+    /// `reasoningEffort`.
+    #[serde(rename_all = "camelCase")]
+    SubAgentActivity {
+        agent_thread_id: String,
+        #[serde(default)]
+        agent_path: String,
+        #[serde(default)]
+        kind: ActivityKind,
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default, deserialize_with = "lenient")]
+        reasoning_effort: Option<String>,
+    },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum CollabTool {
+    SpawnAgent,
+    SendInput,
+    ResumeAgent,
+    Wait,
+    CloseAgent,
+    SendMessage,
+    FollowupTask,
+    InterruptAgent,
+    ListAgents,
+    #[default]
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum CollabStatus {
+    InProgress,
+    Completed,
+    Failed,
+    Interrupted,
+    #[default]
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct AgentState {
+    #[serde(default)]
+    pub status: AgentStatus,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum AgentStatus {
+    PendingInit,
+    Running,
+    Interrupted,
+    Completed,
+    Errored,
+    Shutdown,
+    NotFound,
+    #[default]
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum ActivityKind {
+    Started,
+    Interacted,
+    Interrupted,
+    Completed,
+    #[default]
     #[serde(other)]
     Other,
 }

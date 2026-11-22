@@ -220,3 +220,49 @@ fn a_long_request_is_cut_in_its_row() {
     );
     assert_eq!(desks.questions()[0].prompt.chars().count(), 400);
 }
+
+/// Build spec M2b, 6.4: the driver's workers ride on the desk's session and redraw it.
+#[test]
+fn the_drivers_helpers_ride_on_the_session_until_the_agent_exits() {
+    let (desks, updates) = seated(SessionState::Running);
+    let helper = crate::model::Helper {
+        id: "0199c0de-0000-4000-8000-000000000002".to_string(),
+        state: SessionState::Running,
+        worktree: false,
+        branch: None,
+        model: Some("model-test".to_string()),
+        effort: None,
+    };
+    let redrew = || lock(&updates).last().map(|u| u.desk_changed);
+    desks.on_event(DESK, Event::Helpers(vec![helper.clone()]));
+    assert_eq!(desks.sessions()[0].helpers, std::slice::from_ref(&helper));
+    assert_eq!(redrew(), Some(true));
+    desks.on_event(DESK, Event::Helpers(vec![helper.clone()]));
+    assert_eq!(redrew(), Some(false), "the same list again");
+    desks.on_event(DESK, Event::SessionId("THREAD-ONE".to_string()));
+    assert_eq!(
+        desks.threads(),
+        [(DESK.to_string(), "THREAD-ONE".to_string())]
+    );
+    assert_eq!(desks.thread_of(DESK).as_deref(), Some("THREAD-ONE"));
+    let exit = Event::Exited {
+        code: Some(0),
+        message: None,
+    };
+    desks.on_event(DESK, exit);
+    assert!(lock(&desks.live)[DESK].helpers.is_empty());
+    assert!(desks.threads().is_empty());
+    assert_eq!(desks.thread_of(DESK), None, "an ended desk runs no thread");
+}
+
+#[test]
+fn a_row_names_the_helper_that_asked() {
+    let (desks, _) = seated(SessionState::WaitingHuman);
+    let mut asked = approval("1", "ASK-ONE", "");
+    asked.asked_by = Some("worker_one".to_string());
+    desks.on_event(DESK, Event::Approval(asked));
+    desks.on_event(DESK, Event::Approval(approval("2", "ASK-TWO", "")));
+    let rows = desks.questions();
+    assert_eq!(rows[0].asked_by.as_deref(), Some("worker_one"));
+    assert_eq!(rows[1].asked_by, None);
+}

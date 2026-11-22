@@ -212,7 +212,8 @@ fn reasoning_summary_becomes_a_thought() {
 }
 
 const EXEC_STARTED: &str = r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"exec-c7c3","command":"/bin/zsh -lc 'touch probe_ok.txt'","cwd":"/w","processId":null,"source":"agent","status":"inProgress","commandActions":[{"type":"unknown","command":"touch probe_ok.txt"}],"aggregatedOutput":null,"exitCode":null,"durationMs":null}}}"#;
-const EXEC_APPROVAL: &str = r#"{"method":"item/commandExecution/requestApproval","id":0,"params":{"kind":"command","threadId":"t","turnId":"u","itemId":"exec-c7c3","startedAtMs":1,"environmentId":"local","command":"/bin/zsh -lc 'touch probe_ok.txt'","cwd":"/w","commandActions":[{"type":"unknown","command":"touch probe_ok.txt"}],"proposedExecpolicyAmendment":["touch","probe_ok.txt"],"availableDecisions":["accept",{"acceptWithExecpolicyAmendment":{"execpolicy_amendment":["touch","probe_ok.txt"]}},"cancel"]}}"#;
+/// The desk's own thread asks (D9: another thread's request names its asker).
+const EXEC_APPROVAL: &str = r#"{"method":"item/commandExecution/requestApproval","id":0,"params":{"kind":"command","threadId":"01a11da6-3c44-7b23-8172-0b098dc14e5f","turnId":"u","itemId":"exec-c7c3","startedAtMs":1,"environmentId":"local","command":"/bin/zsh -lc 'touch probe_ok.txt'","cwd":"/w","commandActions":[{"type":"unknown","command":"touch probe_ok.txt"}],"proposedExecpolicyAmendment":["touch","probe_ok.txt"],"availableDecisions":["accept",{"acceptWithExecpolicyAmendment":{"execpolicy_amendment":["touch","probe_ok.txt"]}},"cancel"]}}"#;
 
 fn exec(status: ToolStatus, detail: &str) -> Event {
     Event::Entry(Entry::Tool {
@@ -363,6 +364,33 @@ fn file_change_approval_shows_the_diff() {
     assert_eq!(
         sends(&out),
         [r#"{"id":5,"result":{"decision":"acceptForSession"}}"#]
+    );
+}
+
+#[test]
+fn a_workers_file_change_approval_still_shows_the_diff() {
+    let mut m = running("edit");
+    let out = feed(
+        &mut m,
+        &[
+            r#"{"method":"item/started","params":{"threadId":"worker","turnId":"w1","item":{"type":"fileChange","id":"call_w","changes":[{"path":"/w/a.txt","kind":{"type":"add"},"diff":"hello\n"}],"status":"inProgress"}}}"#,
+            r#"{"method":"item/fileChange/patchUpdated","params":{"threadId":"worker","turnId":"w1","itemId":"call_w","changes":[{"path":"/w/a.txt","kind":{"type":"add"},"diff":"hello world\n"}]}}"#,
+            r#"{"method":"item/fileChange/requestApproval","id":5,"params":{"threadId":"worker","turnId":"w1","itemId":"call_w","startedAtMs":1,"reason":null,"grantRoot":null}}"#,
+        ],
+    );
+    let ev = events(out);
+    assert!(
+        !ev.iter()
+            .any(|e| matches!(e, Event::Entry(Entry::Tool { .. }))),
+        "a worker's patch is not drawn"
+    );
+    let approval = ev.iter().find_map(|e| match e {
+        Event::Approval(a) => Some(a),
+        _ => None,
+    });
+    assert_eq!(
+        approval.map(|a| a.detail.as_str()),
+        Some("/w/a.txt\nhello world\n")
     );
 }
 
@@ -605,8 +633,9 @@ fn errors_become_notices_and_a_failed_turn_is_an_error() {
     let out = feed(
         &mut m,
         &[
-            r#"{"method":"error","params":{"error":{"message":"Reconnecting","codexErrorInfo":null,"additionalDetails":null},"willRetry":true,"threadId":"t","turnId":"u"}}"#,
-            r#"{"method":"error","params":{"error":{"message":"Usage limit reached","codexErrorInfo":"usageLimitExceeded","additionalDetails":"Try again at 5pm"},"willRetry":false,"threadId":"t","turnId":"u"}}"#,
+            // D9: the desk's own thread, since another thread's errors are not drawn.
+            r#"{"method":"error","params":{"error":{"message":"Reconnecting","codexErrorInfo":null,"additionalDetails":null},"willRetry":true,"threadId":"01a11da6-3c44-7b23-8172-0b098dc14e5f","turnId":"u"}}"#,
+            r#"{"method":"error","params":{"error":{"message":"Usage limit reached","codexErrorInfo":"usageLimitExceeded","additionalDetails":"Try again at 5pm"},"willRetry":false,"threadId":"01a11da6-3c44-7b23-8172-0b098dc14e5f","turnId":"u"}}"#,
             &format!(
                 r#"{{"method":"turn/completed","params":{{"turn":{{"id":"{TURN}","status":"failed","error":{{"message":"Usage limit reached","codexErrorInfo":null,"additionalDetails":null}}}}}}}}"#
             ),
@@ -656,7 +685,8 @@ fn completed_turn_goes_idle_and_plan_updates_show() {
         &mut m,
         &[
             &format!(
-                r#"{{"method":"turn/plan/updated","params":{{"threadId":"t","turnId":"{TURN}","explanation":null,"plan":[{{"step":"Read","status":"completed"}},{{"step":"Write","status":"inProgress"}}]}}}}"#
+                // D9: the desk's own thread, since another thread's plan is not drawn.
+                r#"{{"method":"turn/plan/updated","params":{{"threadId":"{THREAD}","turnId":"{TURN}","explanation":null,"plan":[{{"step":"Read","status":"completed"}},{{"step":"Write","status":"inProgress"}}]}}}}"#
             ),
             &format!(
                 r#"{{"method":"turn/completed","params":{{"threadId":"{THREAD}","turn":{{"id":"{TURN}","items":[],"status":"completed","error":null}}}}}}"#
