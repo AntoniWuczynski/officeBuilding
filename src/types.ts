@@ -437,6 +437,8 @@ export interface OfficeSnapshot {
   readonly projectRulesError: string | null;
   /** Sessions whose approval prompts the building cannot see (Codex in a terminal whose hooks have not reported). */
   readonly unseenPrompts: readonly string[];
+  /** Claude Code sessions the app itself hired with ultracode on, by session id. Their workers carry a purple tint. */
+  readonly ultracode: readonly string[];
 }
 
 /** One grouping rule: a session joins the project when any matcher hits. */

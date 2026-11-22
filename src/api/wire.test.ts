@@ -16,6 +16,13 @@ describe("the wire schemas for a helper and who asked", () => {
     expect(parsed.questions[0]).toMatchObject({ askedBy: "Ada", handoff: { kind: "conversation" } });
   });
 
+  it("parses a snapshot's ultracode list and refuses a snapshot without it", () => {
+    const seed = makeSeedSnapshot();
+    expect(snapshotSchema.parse({ ...seed, ultracode: ["s-1"] }).ultracode).toEqual(["s-1"]);
+    const { ultracode: _ultracode, ...bare } = seed;
+    expect(snapshotSchema.safeParse(bare).success).toBe(false);
+  });
+
   it("refuses a helper without a model", () => {
     const seed = makeSeedSnapshot();
     const [first, ...rest] = seed.sessions;

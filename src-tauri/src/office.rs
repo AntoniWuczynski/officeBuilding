@@ -66,6 +66,8 @@ struct Inner {
     chat: chat::State,
     /// Used-up subscriptions, handovers and what each desk has to say about them.
     handover: handover::State,
+    /// What each Claude Code or Codex terminal was hired as.
+    hired_as: hired_as::State,
 }
 
 pub struct Office {
@@ -359,6 +361,7 @@ impl Office {
                 seats: BTreeMap::new(),
                 chat: chat::State::default(),
                 handover: handover::State::default(),
+                hired_as: hired_as::State::default(),
             }),
             terminals,
             connectors: Arc::new(Hub::new(Vec::new(), Box::new(|| {}))),
@@ -463,6 +466,10 @@ impl Office {
         inner
             .hired
             .retain(|terminal, _| !inner.owned.contains_key(terminal));
+        let Inner {
+            hired_as, ran_in, ..
+        } = &mut *inner;
+        hired_as.keep_needed(&running, ran_in);
         reopen_earlier_sessions(&mut found.sessions, &inner.ran_in);
         inner.settle(&mut found, SystemTime::now());
         let shared = self.settings.as_ref().map(|s| s.get().boards.shared_files);
@@ -503,7 +510,7 @@ impl Office {
                 .flat_map(|f| f.decided.iter().flatten().cloned()),
         );
         let todos = self.all_todos(&inner);
-        let (projects, mut sessions, ended) = (view.projects, view.sessions, view.ended);
+        let (projects, mut sessions, mut ended) = (view.projects, view.sessions, view.ended);
         let rules = self.rules_view();
         for s in &mut sessions {
             s.self_reviewed =
@@ -511,6 +518,8 @@ impl Office {
                     called.iter().any(|name| rules.review_skills.contains(name))
                 });
         }
+        Self::fill_hired(&inner, &mut sessions);
+        Self::fill_hired_ended(&inner, &mut ended);
         OfficeSnapshot {
             projects,
             sessions,
@@ -532,6 +541,7 @@ impl Office {
             harness_id: rules.harness_id,
             project_rules_error: rules.error,
             unseen_prompts: view.unseen_prompts,
+            ultracode: Self::ultracode_desks(&inner),
         }
     }
 
@@ -611,6 +621,7 @@ impl Office {
             })
         };
         let terminal = self.launch_routed(&root, &command, launched, routed)?;
+        self.note_hire(req, &model.id, &terminal);
         // A discovered session's real id arrives with discovery; this is only the receipt.
         let session = Session {
             session_name: None,
@@ -906,6 +917,7 @@ mod folders;
 #[cfg(test)]
 mod guard;
 mod handover;
+mod hired_as;
 pub use handover::{HandoverHost, start_due_handovers};
 mod launch;
 mod manager;

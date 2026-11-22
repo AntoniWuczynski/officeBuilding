@@ -475,6 +475,10 @@ pub struct OfficeSnapshot {
     /// The sessions whose approval prompts the building cannot see: Codex in a terminal
     /// whose hooks have not reported.
     pub unseen_prompts: Vec<String>,
+    /// Claude Code sessions running in a terminal the app started with ultracode on
+    /// (`HireRequest::ultracode`), by session id. What the app asked for at the hire, not
+    /// what the session does now: nothing tells the app that.
+    pub ultracode: Vec<String>,
 }
 
 /// What a floor's QA desk is doing (`QaStatus` in types.ts).

@@ -67,6 +67,7 @@ export function makeSeedSnapshot(): OfficeSnapshot {
     harnessId: null,
     projectRulesError: null,
     unseenPrompts: [],
+    ultracode: ["s-4"],
     sharedBoards: [
       {
         id: "board:~/Desktop/MY-ACTIONS.md",

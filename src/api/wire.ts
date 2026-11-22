@@ -210,6 +210,7 @@ export const snapshotSchema = z.object({
   harnessId: z.string().nullable(),
   projectRulesError: z.string().nullable(),
   unseenPrompts: z.array(z.string()),
+  ultracode: z.array(z.string()),
 }) satisfies z.ZodType<OfficeSnapshot>;
 
 const targetsSchema = z.discriminatedUnion("kind", [

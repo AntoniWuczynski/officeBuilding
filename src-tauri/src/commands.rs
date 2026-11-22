@@ -174,14 +174,21 @@ pub fn structured_stop(office: OfficeState<'_>, session_id: String) -> Result<()
 /// On a blocking thread: it waits for the agent to start, to catch one that fails.
 #[tauri::command]
 pub async fn spawn_session(
+    app: AppHandle,
     office: OfficeState<'_>,
     project_id: String,
     request: HireRequest,
 ) -> Result<Session, String> {
     let office = Arc::clone(&office);
-    tauri::async_runtime::spawn_blocking(move || office.spawn_session(&project_id, &request))
-        .await
-        .map_err(|e| format!("the hire did not finish: {e}"))?
+    let hired = tauri::async_runtime::spawn_blocking({
+        let office = Arc::clone(&office);
+        move || office.spawn_session(&project_id, &request)
+    })
+    .await
+    .map_err(|e| format!("the hire did not finish: {e}"))?;
+    // The hire's model, effort and ultracode are kept after the launch, so discovery may already have pushed the desk without them.
+    push_snapshot(&app, &office);
+    hired
 }
 
 /// On a blocking thread, like a hire: it waits for the agent to start.

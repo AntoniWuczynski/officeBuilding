@@ -85,6 +85,18 @@ describe("MockApi", () => {
     await expect(api.spawnSession("p-arcade", { ...ok, tool: "codex", model: "gpt-5.5", effort: "max" })).rejects.toThrow(/does not support max effort/);
   });
 
+  it("lists a Claude Code hire with ultracode on as tinted, and nothing else", async () => {
+    const api = new MockApi(makeSeedSnapshot(), fixedNow);
+    const claude = { tool: "claude-code", title: "a", model: "claude-opus-5-5", effort: "high", ultracode: true, view: "terminal" } as const;
+    const on = await api.spawnSession("p-arcade", claude);
+    const off = await api.spawnSession("p-arcade", { ...claude, ultracode: false });
+    const codex = await api.spawnSession("p-arcade", { tool: "codex", title: "b", model: "gpt-5.5", effort: "high", ultracode: false, view: "terminal" });
+    const listed = (await api.getSnapshot()).ultracode;
+    expect(listed).toEqual(["s-4", on.id]);
+    expect(listed).not.toContain(off.id);
+    expect(listed).not.toContain(codex.id);
+  });
+
   it("hireOptions follows the Agents setting where chat is available", async () => {
     const api = new MockApi();
     expect((await api.hireOptions()).every((o) => o.view === "terminal")).toBe(true);

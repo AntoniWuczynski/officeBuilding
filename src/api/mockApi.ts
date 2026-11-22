@@ -339,6 +339,7 @@ export class MockApi implements DiscoveryApi {
       projects,
       sessions: [...this.snapshot.sessions, session],
       chatDesks: chat?.kind === "available" && chat.terminal ? [...this.snapshot.chatDesks, id] : this.snapshot.chatDesks,
+      ultracode: request.tool === "claude-code" && request.ultracode ? [...this.snapshot.ultracode, id] : this.snapshot.ultracode,
     });
     if (chat?.kind === "available") this.conversations.start(id, request.title.trim(), structured ? STRUCTURED : CLAUDE_TERMINAL);
     return Promise.resolve(session);
