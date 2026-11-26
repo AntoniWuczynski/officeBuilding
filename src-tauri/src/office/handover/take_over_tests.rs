@@ -43,7 +43,6 @@ fn seat(terminal: String) -> Seat {
         terminal,
         started_at: String::new(),
         last_call_at: None,
-        hires: Vec::new(),
         sent_to: BTreeSet::new(),
         ending: BTreeSet::new(),
     }

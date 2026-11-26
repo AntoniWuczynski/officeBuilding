@@ -62,6 +62,9 @@ struct Inner {
     mail: deliver::Mail,
     /// Each floor's running manager, by project id.
     seats: BTreeMap<String, manager::Seat>,
+    /// The desks each floor's managers hired, by project id. They outlive a manager's seat,
+    /// because the desks keep running when the manager is restarted.
+    hires: BTreeMap<String, Vec<manager::Hire>>,
     /// Which terminals were hired with the chat view.
     chat: chat::State,
     /// Used-up subscriptions, handovers and what each desk has to say about them.
@@ -359,6 +362,7 @@ impl Office {
                 reviewers: BTreeMap::new(),
                 mail: deliver::Mail::default(),
                 seats: BTreeMap::new(),
+                hires: BTreeMap::new(),
                 chat: chat::State::default(),
                 handover: handover::State::default(),
                 hired_as: hired_as::State::default(),
@@ -467,9 +471,13 @@ impl Office {
             .hired
             .retain(|terminal, _| !inner.owned.contains_key(terminal));
         let Inner {
-            hired_as, ran_in, ..
+            hired_as,
+            hires,
+            ran_in,
+            ..
         } = &mut *inner;
         hired_as.keep_needed(&running, ran_in);
+        manager::keep_needed_hires(hires, &running, ran_in);
         reopen_earlier_sessions(&mut found.sessions, &inner.ran_in);
         inner.settle(&mut found, SystemTime::now());
         let shared = self.settings.as_ref().map(|s| s.get().boards.shared_files);

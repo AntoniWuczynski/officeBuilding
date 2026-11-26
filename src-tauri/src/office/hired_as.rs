@@ -28,10 +28,18 @@ impl State {
         running: &BTreeMap<i32, String>,
         ran_in: &BTreeMap<String, String>,
     ) {
-        self.by_terminal.retain(|terminal, _| {
-            running.values().any(|id| id == terminal) || ran_in.values().any(|t| t == terminal)
-        });
+        self.by_terminal
+            .retain(|terminal, _| terminal_needed(terminal, running, ran_in));
     }
+}
+
+/// A terminal is still needed while it runs or a desk that ran in it is still held.
+pub(super) fn terminal_needed(
+    terminal: &str,
+    running: &BTreeMap<i32, String>,
+    ran_in: &BTreeMap<String, String>,
+) -> bool {
+    running.values().any(|id| id == terminal) || ran_in.values().any(|t| t == terminal)
 }
 
 fn chosen(value: &str, default: &str) -> Option<String> {

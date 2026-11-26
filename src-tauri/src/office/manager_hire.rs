@@ -101,12 +101,16 @@ impl Office {
         tool: ToolKind,
         task: String,
     ) {
-        if let Some(seat) = inner.seats.get_mut(floor) {
-            seat.hires.push(Hire {
-                terminal,
-                usd: 0.0,
-                unpriced: false,
-            });
+        if inner.seats.contains_key(floor) {
+            inner
+                .hires
+                .entry(floor.to_string())
+                .or_default()
+                .push(Hire {
+                    terminal,
+                    usd: 0.0,
+                    unpriced: false,
+                });
         }
         log_event(inner, floor, LogEvent::Hire { tool, task });
         // The desk is running either way; the log is caught up at the next save.
@@ -156,13 +160,13 @@ impl Office {
     /// also once the desk has left. True when a figure changed.
     pub(super) fn follow_hire_spend(inner: &mut Inner) -> bool {
         let Inner {
-            seats,
+            hires,
             owned,
             found,
             ..
         } = inner;
         let mut changed = false;
-        for hire in seats.values_mut().flat_map(|seat| seat.hires.iter_mut()) {
+        for hire in hires.values_mut().flatten() {
             let Some(session) = owned
                 .get(&hire.terminal)
                 .and_then(|id| found.sessions.iter().find(|s| s.id == *id))
@@ -330,11 +334,14 @@ mod tests {
             Some(cap.clone())
         );
 
-        office.lock().seats.get_mut(&floor.id).unwrap().hires = vec![Hire {
-            terminal: "t-gone".to_string(),
-            usd: 20.0,
-            unpriced: false,
-        }];
+        office.lock().hires.insert(
+            floor.id.clone(),
+            vec![Hire {
+                terminal: "t-gone".to_string(),
+                usd: 20.0,
+                unpriced: false,
+            }],
+        );
         let ceiling =
             "the desks you hired have spent $20.00, which reaches the ceiling of $20".to_string();
         assert_eq!(

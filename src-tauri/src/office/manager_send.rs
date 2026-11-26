@@ -537,10 +537,9 @@ mod tests {
         };
         office
             .lock()
-            .seats
-            .get_mut(&floor.id)
-            .unwrap()
             .hires
+            .entry(floor.id.clone())
+            .or_default()
             .push(hire);
         let ceiling =
             "the spend ceiling for desks you hired is reached, so nothing more is sent to them";

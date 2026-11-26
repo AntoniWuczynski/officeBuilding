@@ -13,7 +13,7 @@ use crate::manager::wire::{
 use crate::model::{TerminalExit, ToolKind};
 use crate::secrets::Secret;
 use crate::settings::{ManagerSettings, ManagerTool};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,12 +39,23 @@ pub(super) struct Seat {
     pub(super) terminal: String,
     pub(super) started_at: String,
     pub(super) last_call_at: Option<String>,
-    /// The desks it hired, for the caps (R5 fills it).
-    pub(super) hires: Vec<Hire>,
     /// Sessions it has sent a note to.
     pub(super) sent_to: BTreeSet<String>,
     /// The terminals of the desks it is ending now.
     pub(super) ending: BTreeSet<String>,
+}
+
+/// Keep the hires whose terminal still runs or still holds a desk that ran in it, so a
+/// manager's restart does not forget its desks and a finished desk's spend still counts.
+pub(super) fn keep_needed_hires(
+    hires: &mut BTreeMap<String, Vec<Hire>>,
+    running: &BTreeMap<i32, String>,
+    ran_in: &BTreeMap<String, String>,
+) {
+    for floor in hires.values_mut() {
+        floor.retain(|h| super::hired_as::terminal_needed(&h.terminal, running, ran_in));
+    }
+    hires.retain(|_, floor| !floor.is_empty());
 }
 
 /// A desk the manager hired (`hire_desk` records them).
@@ -235,7 +246,6 @@ impl Office {
                 terminal: terminal.clone(),
                 started_at: now_iso(),
                 last_call_at: None,
-                hires: Vec::new(),
                 sent_to: BTreeSet::new(),
                 ending: BTreeSet::new(),
             },
@@ -317,7 +327,7 @@ impl Office {
     /// The caps of a floor's manager: the limits from settings, and what its hires used.
     pub(super) fn manager_caps(&self, inner: &Inner, floor: &str) -> ManagerCaps {
         let settings = self.manager_settings();
-        let hires = inner.seats.get(floor).map_or(&[][..], |seat| &seat.hires);
+        let hires = inner.hires.get(floor).map_or(&[][..], Vec::as_slice);
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
         ManagerCaps {
             max_desks: settings.max_desks,
@@ -336,10 +346,10 @@ impl Office {
     /// The sessions bound to the terminals of the desks a floor's manager hired.
     pub(super) fn hired_sessions(inner: &Inner, floor: &str) -> Vec<String> {
         inner
-            .seats
+            .hires
             .get(floor)
             .into_iter()
-            .flat_map(|seat| seat.hires.iter())
+            .flatten()
             .filter_map(|h| inner.owned.get(&h.terminal).cloned())
             .collect()
     }
@@ -689,6 +699,63 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn hired_desks_outlast_a_manager_restart_and_stay_on_their_floor() {
+        let (office, dir, floor, registry, _) = manager_office("mgr-restart-hires");
+        let (first, _) = seat(&office, &dir, &floor, &registry, "/bin/cat");
+        let cwd = dir.join("home/code/app");
+        let hired = office
+            .terminals
+            .spawn(CommandBuilder::new("/bin/cat"), &cwd)
+            .unwrap();
+        bind(&office, &hired, "s-hired", &floor.id);
+        Office::record_hire(
+            &mut office.lock(),
+            &floor.id,
+            hired.clone(),
+            ToolKind::Codex,
+            "go".to_string(),
+        );
+        // A hire of another floor never shows here.
+        office.lock().hires.insert(
+            "p-other".to_string(),
+            vec![Hire {
+                terminal: "t-other".to_string(),
+                usd: 9.0,
+                unpriced: false,
+            }],
+        );
+        let exit = TerminalExit {
+            terminal_id: first,
+            exit_code: Some(0),
+        };
+        assert!(office.manager_left(&exit));
+        let after_exit = entry(&office, &floor.id);
+        assert_eq!(after_exit.status, ManagerStatus::Absent);
+        assert_eq!(after_exit.hired, vec!["s-hired"]);
+        assert_eq!(after_exit.managed, vec!["s-hired"]);
+        assert_eq!(after_exit.caps.hired_now, 1);
+        assert!(after_exit.caps.spent_usd.abs() < f64::EPSILON);
+
+        seat(&office, &dir, &floor, &registry, "/bin/cat");
+        let reseated = entry(&office, &floor.id);
+        assert_eq!(reseated.hired, vec!["s-hired"]);
+        assert_eq!(reseated.managed, vec!["s-hired"]);
+        assert_eq!(reseated.caps.hired_now, 1);
+
+        // Once no terminal runs and no desk is held, the next pass drops the entry.
+        {
+            let mut inner = office.lock();
+            let gone = BTreeMap::new();
+            inner.ran_in.clear();
+            let ran_in = inner.ran_in.clone();
+            keep_needed_hires(&mut inner.hires, &gone, &ran_in);
+            assert!(!inner.hires.contains_key(&floor.id));
+            assert!(!inner.hires.contains_key("p-other"));
+        }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn the_token_is_in_the_terminals_environment_and_nowhere_else() {
         let (office, dir, floor, registry, _) = manager_office("mgr-token");
         let settings = Arc::new(SettingsStore::open(dir.join("settings.json")));
@@ -877,17 +944,18 @@ pub(super) mod tests {
         bind(&office, &noted, "s-noted", &floor.id);
         {
             let mut inner = office.lock();
-            let seat = inner.seats.get_mut(&floor.id).unwrap();
-            seat.hires.push(Hire {
+            let hires = inner.hires.entry(floor.id.clone()).or_default();
+            hires.push(Hire {
                 terminal: running.clone(),
                 usd: 1.25,
                 unpriced: false,
             });
-            seat.hires.push(Hire {
+            hires.push(Hire {
                 terminal: "t-gone".to_string(),
                 usd: 0.5,
                 unpriced: true,
             });
+            let seat = inner.seats.get_mut(&floor.id).unwrap();
             seat.sent_to.insert("s-hired".to_string());
             seat.sent_to.insert("s-elsewhere".to_string());
             seat.sent_to.insert("s-noted".to_string());
