@@ -54,6 +54,7 @@ const MODES_ON_BY_DEFAULT: &[u16] = &[7, 25];
 pub(crate) const LAUNCHER_IDENTITY: &[&str] = &[
     "CLAUDECODE",
     "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_NOTES_DIR",
     "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_ENTRYPOINT",
     "CLAUDE_CODE_EXECPATH",
@@ -846,6 +847,7 @@ mod tests {
         let mut cmd = command("/usr/bin/env", &[]);
         cmd.env("CLAUDECODE", "1");
         cmd.env("CLAUDE_CODE_SESSION_ID", "abc");
+        cmd.env("CLAUDE_CODE_CHILD_NOTES_DIR", "/tmp/notes");
         cmd.env("TERM_SESSION_ID", "w0t0p0");
         cmd.env_remove("LANG");
         cmd.env("KEEP_ME", "yes");
