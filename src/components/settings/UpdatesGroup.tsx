@@ -1,16 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppInfo } from "../../types";
 import { message } from "../../lib/errors";
-import { checkForUpdate, relaunchApp, type AvailableUpdate, type DownloadProgress } from "../../lib/updater";
-
-type Phase =
-  | { readonly kind: "idle" }
-  | { readonly kind: "checking" }
-  | { readonly kind: "latest" }
-  | { readonly kind: "available"; readonly update: AvailableUpdate }
-  | { readonly kind: "downloading"; readonly update: AvailableUpdate; readonly progress: DownloadProgress | null }
-  | { readonly kind: "installed"; readonly version: string }
-  | { readonly kind: "failed"; readonly text: string; readonly retry: "check" | "install" | "relaunch"; readonly update: AvailableUpdate | null };
+import type { DownloadProgress } from "../../lib/updater";
+import { runCheck, runInstall, runRelaunch, useUpdatePhase } from "../../state/useUpdate";
 
 interface Props {
   readonly loadInfo: () => Promise<AppInfo>;
@@ -32,7 +24,7 @@ function percent(progress: DownloadProgress | null): string {
 export function UpdatesGroup({ loadInfo }: Props): React.ReactElement {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const phase = useUpdatePhase();
 
   useEffect(() => {
     let live = true;
@@ -48,28 +40,6 @@ export function UpdatesGroup({ loadInfo }: Props): React.ReactElement {
       live = false;
     };
   }, [loadInfo]);
-
-  const runCheck = useCallback((): void => {
-    setPhase({ kind: "checking" });
-    checkForUpdate().then(
-      (update) => setPhase(update === null ? { kind: "latest" } : { kind: "available", update }),
-      (err: unknown) => setPhase({ kind: "failed", text: message(err), retry: "check", update: null }),
-    );
-  }, []);
-
-  const runInstall = useCallback((update: AvailableUpdate): void => {
-    setPhase({ kind: "downloading", update, progress: null });
-    update
-      .install((progress) => setPhase({ kind: "downloading", update, progress }))
-      .then(
-        () => setPhase({ kind: "installed", version: update.version }),
-        (err: unknown) => setPhase({ kind: "failed", text: message(err), retry: "install", update }),
-      );
-  }, []);
-
-  const runRelaunch = useCallback((): void => {
-    relaunchApp().catch((err: unknown) => setPhase({ kind: "failed", text: message(err), retry: "relaunch", update: null }));
-  }, []);
 
   const busy = phase.kind === "checking" || phase.kind === "downloading";
 

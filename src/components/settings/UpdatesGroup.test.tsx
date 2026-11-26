@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AppInfo } from "../../types";
 import type { AvailableUpdate, DownloadProgress } from "../../lib/updater";
+import { resetUpdate } from "../../state/useUpdate";
 import { UpdatesGroup } from "./UpdatesGroup";
 
 const mocks = vi.hoisted(() => ({ checkForUpdate: vi.fn(), relaunchApp: vi.fn() }));
@@ -19,6 +20,7 @@ function open(): void {
 }
 
 beforeEach(() => {
+  resetUpdate();
   mocks.checkForUpdate.mockReset();
   mocks.relaunchApp.mockReset();
 });
@@ -104,5 +106,40 @@ describe("UpdatesGroup", () => {
     expect(install).toHaveBeenCalledTimes(2);
     expect(mocks.checkForUpdate).toHaveBeenCalledTimes(1);
     expect(mocks.relaunchApp).not.toHaveBeenCalled();
+  });
+
+  it("keeps the installed update across closing and opening Settings", async () => {
+    const user = userEvent.setup();
+    mocks.checkForUpdate.mockResolvedValue(update(() => Promise.resolve()));
+    const first = render(<UpdatesGroup loadInfo={() => Promise.resolve(INFO)} />);
+    await user.click(await screen.findByRole("button", { name: "Check for updates" }));
+    await user.click(await screen.findByRole("button", { name: "Install" }));
+    await screen.findByRole("button", { name: "Relaunch now" });
+    first.unmount();
+    open();
+    expect(await screen.findByRole("button", { name: "Relaunch now" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeDisabled();
+  });
+
+  it("keeps a download going across closing and opening Settings", async () => {
+    const user = userEvent.setup();
+    let report: (progress: DownloadProgress) => void = () => undefined;
+    let finish: () => void = () => undefined;
+    mocks.checkForUpdate.mockResolvedValue(
+      update((onProgress) => {
+        report = onProgress;
+        return new Promise<void>((resolve) => (finish = resolve));
+      }),
+    );
+    const first = render(<UpdatesGroup loadInfo={() => Promise.resolve(INFO)} />);
+    await user.click(await screen.findByRole("button", { name: "Check for updates" }));
+    await user.click(await screen.findByRole("button", { name: "Install" }));
+    first.unmount();
+    act(() => report({ received: 100, total: 200 }));
+    open();
+    expect(await screen.findByText(/Downloading version 0\.3\.0… 50%/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Install" })).not.toBeInTheDocument();
+    act(() => finish());
+    expect(await screen.findByRole("button", { name: "Relaunch now" })).toBeInTheDocument();
   });
 });

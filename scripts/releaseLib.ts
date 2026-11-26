@@ -100,6 +100,11 @@ export function assetName(version: string, arch: string, extension: "app.tar.gz"
   return `Office-Building_${version}_${arch}.${extension}`;
 }
 
+/** The disk image's name as Tauri builds it, `<productName>_<version>_<arch>.dmg`. Older versions' images stay in the folder, so the build's own is looked up by this exact name. */
+export function builtDmgName(productName: string, version: string, arch: string): string {
+  return `${productName}_${version}_${arch}.dmg`;
+}
+
 /** Where GitHub serves a release asset from. */
 export function assetUrl(repo: string, tag: string, name: string): string {
   return `https://github.com/${repo}/releases/download/${tag}/${name}`;
@@ -110,3 +115,14 @@ export function releaseNotes(subjects: readonly string[]): string {
   const lines = subjects.map((s) => s.trim()).filter((s) => s !== "");
   return lines.length === 0 ? "No changes recorded." : lines.map((s) => `- ${s}`).join("\n");
 }
+
+/** The `gh release create` command that publishes the release by hand, quoted for a shell. */
+export function ghReleaseCommand(repo: string, tag: string, notesFile: string, assets: readonly string[]): string {
+  const quote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
+  return ["gh", "release", "create", tag, "--repo", repo, "--title", tag, "--notes-file", notesFile, ...assets]
+    .map((part) => (/^[\w@%+=:,./-]+$/.test(part) ? part : quote(part)))
+    .join(" ");
+}
+
+/** What to run to put the version files back after a release step failed before the commit was made. */
+export const RESTORE_COMMAND = "git checkout -- package.json src-tauri/Cargo.toml src-tauri/Cargo.lock";

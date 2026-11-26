@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   assetName,
+  builtDmgName,
+  ghReleaseCommand,
+  RESTORE_COMMAND,
   assetUrl,
   buildLatestJson,
   bumpCargoToml,
@@ -113,5 +116,26 @@ describe("releaseNotes", () => {
   });
   it("says so when there are none", () => {
     expect(releaseNotes([])).toBe("No changes recorded.");
+  });
+});
+
+describe("builtDmgName", () => {
+  it("is the exact file Tauri writes for this version and arch, so an older image is never picked", () => {
+    expect(builtDmgName("Office Building", "0.2.0", "aarch64")).toBe("Office Building_0.2.0_aarch64.dmg");
+    expect(builtDmgName("Office Building", "0.2.0", "aarch64")).not.toBe(builtDmgName("Office Building", "0.1.0", "aarch64"));
+  });
+});
+
+describe("ghReleaseCommand", () => {
+  it("prints a command that can be rerun, quoting paths with spaces", () => {
+    expect(ghReleaseCommand("o/r", "v0.2.0", "out/notes.md", ["out/a.tar.gz", "my dir/b's.dmg"])).toBe(
+      "gh release create v0.2.0 --repo o/r --title v0.2.0 --notes-file out/notes.md out/a.tar.gz 'my dir/b'\\''s.dmg'",
+    );
+  });
+});
+
+describe("RESTORE_COMMAND", () => {
+  it("restores the three files the release rewrites", () => {
+    expect(RESTORE_COMMAND).toBe("git checkout -- package.json src-tauri/Cargo.toml src-tauri/Cargo.lock");
   });
 });
