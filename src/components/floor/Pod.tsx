@@ -1,6 +1,6 @@
 import type { Helper } from "../../types";
 import { POD, podFor, podSeatOf } from "../../lib/layout";
-import type { Slot } from "../../lib/layout";
+import type { PodBounds, Slot } from "../../lib/layout";
 import { poseForState } from "../../lib/animation";
 import { helperDrawn } from "../../lib/looks";
 import type { Drawn } from "../../lib/looks";
@@ -19,6 +19,8 @@ interface Props {
   readonly helpers: readonly Helper[];
   /** Helpers on their way in or out: their desks stand empty meanwhile. */
   readonly walking: ReadonlySet<string>;
+  /** Edges the pod must stay inside: set for a desk in the manager's zone. */
+  readonly bounds?: PodBounds | undefined;
   /** Opens the editor menu for a helper in a worktree. Without it no helper is a button. */
   readonly onHelperMenu?: ((helper: Helper, e: React.MouseEvent<HTMLElement>) => void) | undefined;
 }
@@ -28,9 +30,9 @@ interface Props {
  * shrink as the team grows, drop their people once too small to seat one, and
  * past POD.cap the rest show as a count.
  */
-export function Pod({ desk, z, agent, helpers, walking, onHelperMenu }: Props): React.ReactElement | null {
+export function Pod({ desk, z, agent, helpers, walking, bounds, onHelperMenu }: Props): React.ReactElement | null {
   if (helpers.length === 0) return null;
-  const pod = podFor(desk, helpers.length);
+  const pod = podFor(desk, helpers.length, bounds);
   const w = pod.cell * POD.deskShare;
   const d = pod.cell * 0.5;
   const h = Math.max(1.5, pod.cell * 0.24);

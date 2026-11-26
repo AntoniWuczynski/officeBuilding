@@ -13,6 +13,10 @@ import {
   qaDeskSlot,
   roomDepth,
   roomDeskSlot,
+  ZONE,
+  partitionY,
+  zoneBounds,
+  zoneDeskSlot,
   seatOf,
   storeyDeskCount,
   storeyDeskX,
@@ -123,5 +127,83 @@ describe("the manager's desk", () => {
     expect(seat.x).toBeGreaterThan(MANAGER_DESK.x);
     expect(seat.x).toBeLessThan(MANAGER_DESK.x + DESK.w);
     expect(seat.y).toBeLessThanOrEqual(MANAGER_DESK.y);
+  });
+});
+
+interface Box {
+  readonly name: string;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly d: number;
+}
+
+function overlap(a: Box, b: Box): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.d && b.y < a.y + a.d;
+}
+
+const deskBox = (name: string, at: { readonly x: number; readonly y: number }): Box => ({ name, x: at.x, y: at.y, w: DESK.w, d: DESK.d });
+
+describe("the manager's team zone", () => {
+  it("is absent, and the grid unchanged, when the manager hired nothing", () => {
+    expect(partitionY(0)).toBeNull();
+    expect(zoneBounds(0)).toBeUndefined();
+    for (let i = 0; i < 12; i++) expect(roomDeskSlot(i, 0)).toEqual(roomDeskSlot(i));
+    expect(roomDepth(7, true, 0)).toBe(roomDepth(7, true));
+  });
+
+  for (let team = 1; team <= 12; team++) {
+    it(`keeps ${team} zone desk(s) clear of the office, the partition, the human desks, the QA desk and each other, for 0 to 9 human desks`, () => {
+      const line = partitionY(team);
+      if (line === null) throw new Error("no partition");
+      const office: Box = { name: "office", x: ROOM.managerX, y: 0, w: ROOM.width - ROOM.managerX, d: ROOM.managerDepth };
+      const partition: Box = { name: "partition", x: 0, y: line - 1, w: ROOM.width, d: 2 };
+      const zone = Array.from({ length: team }, (_, i) => deskBox(`zone ${i}`, zoneDeskSlot(i)));
+      for (let human = 0; human <= 9; human++) {
+        const depth = roomDepth(human + 1, true, team);
+        const mine = Array.from({ length: human + 1 }, (_, i) => deskBox(i === human ? "hire slot" : `human ${i}`, roomDeskSlot(i, team)));
+        const qa = deskBox("qa", qaDeskSlot(depth));
+        const all: Box[] = [office, partition, qa, ...zone, ...mine];
+        for (let a = 0; a < all.length; a++) {
+          for (let b = a + 1; b < all.length; b++) {
+            const [p, q] = [all[a], all[b]];
+            if (p === undefined || q === undefined) throw new Error("index");
+            expect(overlap(p, q), `${p.name} overlaps ${q.name} with ${team} team and ${human} human desks`).toBe(false);
+          }
+        }
+        // The partition is between the zone and the human grid, the hire slot is in the grid, and everything is inside the room.
+        for (const z of zone) expect(z.y + z.d).toBeLessThan(line);
+        for (const m of mine) expect(m.y).toBeGreaterThan(line);
+        for (const b of [...zone, ...mine, qa]) {
+          expect(b.x + b.w).toBeLessThanOrEqual(ROOM.width);
+          expect(b.y + b.d).toBeLessThanOrEqual(depth);
+        }
+        for (const z of zone) expect(z.x + z.w).toBeLessThanOrEqual(ROOM.managerX);
+      }
+    });
+  }
+
+  it("keeps the manager's front glass clear of the partition", () => {
+    expect(partitionY(1)).toBeGreaterThanOrEqual(ROOM.managerDepth + ZONE.officeGap);
+  });
+
+  it("keeps a zone desk's helpers inside the zone, left of the office and short of the partition", () => {
+    for (let team = 1; team <= 12; team++) {
+      const line = partitionY(team);
+      const bounds = zoneBounds(team);
+      if (line === null || bounds === undefined) throw new Error("no zone");
+      for (let i = 0; i < team; i++) {
+        const desk = zoneDeskSlot(i);
+        const pod = podFor(desk, 9, bounds);
+        for (const slot of pod.slots) {
+          expect(slot.x + pod.cell).toBeLessThanOrEqual(ROOM.managerX - 6 + 1e-9);
+          expect(slot.y + pod.cell).toBeLessThanOrEqual(line - ZONE.podGap + 1e-9);
+        }
+      }
+    }
+  });
+
+  it("grows the room deeper than the same human desks without a zone", () => {
+    expect(roomDepth(10, false, 3)).toBeGreaterThan(roomDepth(10, false, 0));
   });
 });

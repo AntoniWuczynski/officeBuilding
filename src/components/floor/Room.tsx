@@ -7,8 +7,8 @@ import { cardLine, tagWord, takeOverLines } from "../../lib/handover";
 import { poseForState } from "../../lib/animation";
 import { headsLeft } from "../../lib/iso";
 import type { PlanPoint } from "../../lib/iso";
-import { DESK, ROOM, doorOf, floorSpotOf, managerSeat, podFor, podSeatOf, qaDeskSlot, roomDeskSlot, seatOf } from "../../lib/layout";
-import type { Seat, Slot } from "../../lib/layout";
+import { DESK, ROOM, doorOf, floorSpotOf, managerSeat, podFor, podSeatOf, qaDeskSlot, roomDeskSlot, seatOf, zoneBounds, zoneDeskSlot } from "../../lib/layout";
+import type { PodBounds, Seat, Slot } from "../../lib/layout";
 import { MANAGER_LOOK, helperDrawn, isUltracode } from "../../lib/looks";
 import type { Drawn, Look } from "../../lib/looks";
 import { UltracodeContext } from "../../state/UltracodeContext";
@@ -32,6 +32,7 @@ import { EditorMenu } from "../editor/EditorMenu";
 import { Pod, PodScale } from "./Pod";
 import { WorkerCard } from "./WorkerCard";
 import { QaDesk } from "./QaDesk";
+import { TeamZone } from "./TeamZone";
 
 interface Walk {
   readonly id: string;
@@ -56,11 +57,15 @@ interface Walk {
 interface Placement {
   readonly session: Session;
   readonly desk: Slot;
+  /** Where its helpers must stay, for a desk in the manager's zone. */
+  readonly bounds?: PodBounds | undefined;
 }
 
 interface RoomProps {
   /** The sessions at ordinary desks: the QA reviewer is not among them. */
   readonly sessions: readonly Session[];
+  /** The desks the floor's manager hired, fenced off in their own zone at the back. */
+  readonly team?: readonly Session[];
   /** The floor's QA desk, when QA is on for it. */
   readonly qa: QaFloor | null;
   /** The QA reviewer, seated at the corner desk. */
@@ -116,9 +121,9 @@ function editorHint(list: EditorList | null): string | null {
 /** Every agent's seat, and each helper's while its pod is big enough to seat one. */
 function seatsFor(placements: readonly Placement[]): Map<string, Seat> {
   const seats = new Map<string, Seat>();
-  placements.forEach(({ session: s, desk }) => {
+  placements.forEach(({ session: s, desk, bounds }) => {
     seats.set(s.id, { at: seatOf(desk), scale: 1 });
-    const pod = podFor(desk, s.helpers.length);
+    const pod = podFor(desk, s.helpers.length, bounds);
     pod.slots.forEach((slot, j) => {
       const helper = s.helpers[j];
       const seat = podSeatOf(pod, slot);
@@ -161,11 +166,15 @@ const ACTION_WORDS: Record<Session["control"], string> = {
 };
 
 /** The open-plan floor: one desk per session, the hire desk, and the manager's objects. */
-export function Room({ sessions, qa, reviewer, manager, depth, query, now, messages, handovers, takeOvers = [], unseenPrompts = [], mayTakeOver, onTakeOver, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire, look = "office" }: RoomProps): React.ReactElement {
+export function Room({ sessions, team = [], qa, reviewer, manager, depth, query, now, messages, handovers, takeOvers = [], unseenPrompts = [], mayTakeOver, onTakeOver, objects, hiring, onOpenSession, onOpenSection, onOpenSettings, onHire, look = "office" }: RoomProps): React.ReactElement {
   const reduced = useReducedMotion() ?? false;
   const placements = useMemo<readonly Placement[]>(
-    () => [...sessions.map((session, i) => ({ session, desk: roomDeskSlot(i) })), ...(reviewer === undefined ? [] : [{ session: reviewer, desk: qaDeskSlot(depth) }])],
-    [sessions, reviewer, depth],
+    () => [
+      ...sessions.map((session, i) => ({ session, desk: roomDeskSlot(i, team.length) })),
+      ...team.map((session, i) => ({ session, desk: zoneDeskSlot(i), bounds: zoneBounds(team.length) })),
+      ...(reviewer === undefined ? [] : [{ session: reviewer, desk: qaDeskSlot(depth) }]),
+    ],
+    [sessions, team, reviewer, depth],
   );
   const managerId = manager?.status.kind === "hired" ? manager.status.sessionId : null;
   const takeNewMessages = useNewMessages(messages);
@@ -245,9 +254,74 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
   const walking = new Set(walks.map((w) => w.walkerId));
   const managed = new Set(manager?.managed ?? []);
   const receiving = new Map(walks.flatMap((w) => (w.toId === null ? [] : [[w.toId, CARRIES[w.kind] ?? "note"] as const])));
-  const hireSlot = roomDeskSlot(sessions.length);
+  const teamIds = new Set(team.map((t) => t.id));
+  const hireSlot = roomDeskSlot(sessions.length, team.length);
   const toolbox = toolboxTop(TANK.x, depth - TANK.back, TANK.size);
   const fuse = fuseBoxTop(TANK.x, depth - TANK.back, TANK.size);
+
+  const deskView = ({ session: s, desk, bounds }: Placement): React.ReactElement => {
+    const seat = s.state === "error" ? floorSpotOf(desk, depth - 4) : seatOf(desk);
+    const dim = !sessionMatches(s, query);
+    const waiting = notesFor(manager, s.id);
+    const handed = handoverOf(handovers, s.id);
+    return (
+      <div key={s.id} className={dim ? "group is-dim" : "group"}>
+        <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} look={look} wood={woodFor(s.tool)} />
+        {look === "island" ? <Hut x={desk.x} y={desk.y} z={ROOM.slab} /> : null}
+        <Pod
+          desk={desk}
+          bounds={bounds}
+          z={ROOM.slab}
+          agent={s}
+          helpers={s.helpers}
+          walking={walking}
+          onHelperMenu={editors === null ? undefined : (h: Helper, e) => openMenu(e, { kind: "helper", sessionId: s.id, helperId: h.id }, `a helper of \u201c${s.title}\u201d`, h)}
+        />
+        <Pets desk={desk} z={ROOM.slab} pets={s.pets} />
+        {waiting.length === 0 ? null : (
+          <Billboard x={desk.x + DESK.w - 6} y={desk.y + DESK.d} z={ROOM.slab + DESK.h + 2}>
+            <span className="desk-note" data-testid="desk-note">
+              {waiting.length}
+            </span>
+          </Billboard>
+        )}
+        {walking.has(s.id) ? null : (
+          <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
+            <button
+              type="button"
+              className={s.state === "error" ? "worker is-down" : "worker"}
+              data-testid="worker"
+              data-session={s.id}
+              data-state={s.state}
+              aria-label={[s.title, TOOL_LABEL[s.tool], modelLine(s), STATE_LABEL[s.state], helpersLine(s), helperModelsLine(s), isUltracode(ultracode, s) ? ULTRACODE_WORDS : null, (handed === undefined ? null : cardLine(handed.state, now)), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null, managed.has(s.id) ? "managed by the floor's manager" : null, waiting.length === 0 ? null : `${plural(waiting.length, "note", "notes")} from the manager waiting`].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
+              aria-keyshortcuts={editors === null ? undefined : "Meta+Shift+O"}
+              onClick={() => onOpenSession(s)}
+              onContextMenu={editors === null ? undefined : (e) => openMenu(e, { kind: "session", sessionId: s.id }, `\u201c${s.title}\u201d`, s, s)}
+              onMouseEnter={(e) => showCard(s.id, e.currentTarget)}
+              onMouseLeave={hideCard}
+              onFocus={(e) => showCard(s.id, e.currentTarget)}
+              onBlur={hideCard}
+            >
+              <Worker of={s} pose={poseForState(s.state)} receiving={receiving.get(s.id) ?? null} />
+              <span className={`name-tag state-${s.state}`} aria-hidden>
+                {s.title}
+              </span>
+              {managed.has(s.id) ? (
+                <span className="managed-mark" aria-hidden>
+                  managed
+                </span>
+              ) : null}
+              {handed === undefined ? null : (
+                <span className="managed-mark handover-mark" aria-hidden>
+                  {tagWord(handed.state)}
+                </span>
+              )}
+            </button>
+          </Billboard>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -277,68 +351,8 @@ export function Room({ sessions, qa, reviewer, manager, depth, query, now, messa
 
       {qa === null ? null : <QaDesk qa={qa} depth={depth} occupied={reviewer !== undefined} now={now} onOpen={() => onOpenSection("info")} look={look} />}
 
-      {placements.map(({ session: s, desk }) => {
-        const seat = s.state === "error" ? floorSpotOf(desk, depth - 4) : seatOf(desk);
-        const dim = !sessionMatches(s, query);
-        const waiting = notesFor(manager, s.id);
-        const handed = handoverOf(handovers, s.id);
-        return (
-          <div key={s.id} className={dim ? "group is-dim" : "group"}>
-            <Desk x={desk.x} y={desk.y} z={ROOM.slab} led={s.state} plant={s.worktree} look={look} wood={woodFor(s.tool)} />
-            {look === "island" ? <Hut x={desk.x} y={desk.y} z={ROOM.slab} /> : null}
-            <Pod
-              desk={desk}
-              z={ROOM.slab}
-              agent={s}
-              helpers={s.helpers}
-              walking={walking}
-              onHelperMenu={editors === null ? undefined : (h: Helper, e) => openMenu(e, { kind: "helper", sessionId: s.id, helperId: h.id }, `a helper of \u201c${s.title}\u201d`, h)}
-            />
-            <Pets desk={desk} z={ROOM.slab} pets={s.pets} />
-            {waiting.length === 0 ? null : (
-              <Billboard x={desk.x + DESK.w - 6} y={desk.y + DESK.d} z={ROOM.slab + DESK.h + 2}>
-                <span className="desk-note" data-testid="desk-note">
-                  {waiting.length}
-                </span>
-              </Billboard>
-            )}
-            {walking.has(s.id) ? null : (
-              <Billboard x={seat.x} y={seat.y} z={ROOM.slab}>
-                <button
-                  type="button"
-                  className={s.state === "error" ? "worker is-down" : "worker"}
-                  data-testid="worker"
-                  data-session={s.id}
-                  data-state={s.state}
-                  aria-label={[s.title, TOOL_LABEL[s.tool], modelLine(s), STATE_LABEL[s.state], helpersLine(s), helperModelsLine(s), isUltracode(ultracode, s) ? ULTRACODE_WORDS : null, (handed === undefined ? null : cardLine(handed.state, now)), s.worktree ? (s.branch === null ? "in a worktree" : `in a worktree on branch ${s.branch}`) : null, managed.has(s.id) ? "managed by the floor's manager" : null, waiting.length === 0 ? null : `${plural(waiting.length, "note", "notes")} from the manager waiting`].filter((p) => p !== null).join(", ") + `. ${ACTION_WORDS[s.control]}`}
-                  aria-keyshortcuts={editors === null ? undefined : "Meta+Shift+O"}
-                  onClick={() => onOpenSession(s)}
-                  onContextMenu={editors === null ? undefined : (e) => openMenu(e, { kind: "session", sessionId: s.id }, `\u201c${s.title}\u201d`, s, s)}
-                  onMouseEnter={(e) => showCard(s.id, e.currentTarget)}
-                  onMouseLeave={hideCard}
-                  onFocus={(e) => showCard(s.id, e.currentTarget)}
-                  onBlur={hideCard}
-                >
-                  <Worker of={s} pose={poseForState(s.state)} receiving={receiving.get(s.id) ?? null} />
-                  <span className={`name-tag state-${s.state}`} aria-hidden>
-                    {s.title}
-                  </span>
-                  {managed.has(s.id) ? (
-                    <span className="managed-mark" aria-hidden>
-                      managed
-                    </span>
-                  ) : null}
-                  {handed === undefined ? null : (
-                    <span className="managed-mark handover-mark" aria-hidden>
-                      {tagWord(handed.state)}
-                    </span>
-                  )}
-                </button>
-              </Billboard>
-            )}
-          </div>
-        );
-      })}
+      {placements.filter((p) => !teamIds.has(p.session.id)).map(deskView)}
+      {team.length === 0 ? null : <TeamZone count={team.length}>{placements.filter((p) => teamIds.has(p.session.id)).map(deskView)}</TeamZone>}
 
       <IsoBox
         x={hireSlot.x}

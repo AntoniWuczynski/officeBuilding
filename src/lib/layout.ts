@@ -26,11 +26,47 @@ export const ROOM = {
   glassHeight: 64,
 } as const;
 
-/** Top-left corner of desk number `index` (sessions first, then the hire desk). */
-export function roomDeskSlot(index: number): Slot {
+/** The manager's team zone: the desks it hired, fenced off at the back, left of its office. */
+export const ZONE = {
+  /** Desks across: the three columns that fit left of the manager's office. */
+  columns: ROOM.columns,
+  /** From the front edge of the zone's last desk to the partition. */
+  partitionGap: 42,
+  /** From the partition to the back edge of the first row of the human desks. */
+  humanGap: 36,
+  /** Least clearance between the manager's front glass and the partition. */
+  officeGap: 8,
+  /** How far the partition stands from a zone desk's helpers. */
+  podGap: 6,
+  partitionHeight: 22,
+} as const;
+
+/** Top-left corner of zone desk number `index`: the same columns and rows as the grid, in the back strip. */
+export function zoneDeskSlot(index: number): Slot {
+  return { x: ROOM.colX0 + (index % ZONE.columns) * ROOM.colGap, y: ROOM.rowY0 + Math.floor(index / ZONE.columns) * ROOM.rowGap };
+}
+
+/** The line of the low glass partition across the room, or null when the manager hired nothing. */
+export function partitionY(teamDesks: number): number | null {
+  if (teamDesks <= 0) return null;
+  const lastRowY = zoneDeskSlot(teamDesks - 1).y;
+  return Math.max(lastRowY + DESK.d + ZONE.partitionGap, ROOM.managerDepth + ZONE.officeGap);
+}
+
+/** Where the first row of the human desks stands: the back strip, or just beyond the partition. */
+function humanRowY0(teamDesks: number): number {
+  const line = partitionY(teamDesks);
+  return line === null ? ROOM.rowY0 : line + ZONE.humanGap;
+}
+
+/**
+ * Top-left corner of desk number `index` (sessions first, then the hire desk). With `teamDesks` desks in the manager's
+ * zone, the grid starts beyond the partition.
+ */
+export function roomDeskSlot(index: number, teamDesks = 0): Slot {
   const col = index % ROOM.columns;
   const row = Math.floor(index / ROOM.columns);
-  return { x: ROOM.colX0 + col * ROOM.colGap, y: ROOM.rowY0 + row * ROOM.rowGap };
+  return { x: ROOM.colX0 + col * ROOM.colGap, y: humanRowY0(teamDesks) + row * ROOM.rowGap };
 }
 
 /** The manager's desk: its top-left corner, in the glass office. */
@@ -49,10 +85,10 @@ export function qaDeskSlot(depth: number): Slot {
   return { x: QA_DESK.x, y: depth - QA_DESK.back };
 }
 
-/** Room depth that fits `deskCount` desks plus the front walkway, and the corner desk when `corner` is set. */
-export function roomDepth(deskCount: number, corner = false): number {
+/** Room depth that fits `deskCount` desks (and a team zone of `teamDesks`) plus the front walkway, and the corner desk when `corner` is set. */
+export function roomDepth(deskCount: number, corner = false, teamDesks = 0): number {
   const rows = Math.max(1, Math.ceil(deskCount / ROOM.columns));
-  const lastRowY = ROOM.rowY0 + (rows - 1) * ROOM.rowGap;
+  const lastRowY = humanRowY0(teamDesks) + (rows - 1) * ROOM.rowGap;
   return Math.max(ROOM.minDepth, lastRowY + DESK.d + ROOM.frontMargin + (corner ? QA_DESK.extra : 0));
 }
 
@@ -85,18 +121,31 @@ export interface Pod {
   readonly hidden: number;
 }
 
+/** Edges a pod must stay inside, for a desk in the manager's zone. */
+export interface PodBounds {
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/** The pod bounds of a zone desk when the zone holds `teamDesks`: short of the manager's office and the partition. */
+export function zoneBounds(teamDesks: number): PodBounds | undefined {
+  const line = partitionY(teamDesks);
+  return line === null ? undefined : { right: ROOM.managerX - 6, bottom: line - ZONE.podGap };
+}
+
 /** The floor patch beside a desk where its helpers sit, clipped short of the manager's office. */
-function podRegion(desk: Slot): Region {
+function podRegion(desk: Slot, bounds: PodBounds | undefined): Region {
   const x = desk.x + DESK.w + 8;
   const y = desk.y - 22;
-  const h = 92;
-  const right = y < ROOM.managerDepth ? Math.min(desk.x + ROOM.colGap - 6, ROOM.managerX - 6) : desk.x + ROOM.colGap - 6;
+  const natural = y < ROOM.managerDepth ? Math.min(desk.x + ROOM.colGap - 6, ROOM.managerX - 6) : desk.x + ROOM.colGap - 6;
+  const right = bounds === undefined ? natural : Math.min(natural, bounds.right);
+  const h = bounds === undefined ? 92 : Math.min(92, bounds.bottom - y);
   return { x, y, w: right - x, h };
 }
 
-/** Lay out `count` helpers beside `desk` on the most square grid that fits. */
-export function podFor(desk: Slot, count: number): Pod {
-  const region = podRegion(desk);
+/** Lay out `count` helpers beside `desk` on the most square grid that fits (inside `bounds` when given). */
+export function podFor(desk: Slot, count: number, bounds?: PodBounds): Pod {
+  const region = podRegion(desk, bounds);
   const shown = Math.min(count, POD.cap);
   let cols = 1;
   let cell = 0;

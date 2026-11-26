@@ -884,3 +884,8 @@ button.roof-sign:hover {
   text-transform: uppercase;
   color: var(--ink-soft);
 }
+
+/* The manager's team zone: a low glass partition that never takes a click from the desks behind it. */
+.zone-partition {
+  pointer-events: none;
+}

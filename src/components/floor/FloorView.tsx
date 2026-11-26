@@ -34,6 +34,7 @@ import { HandoverContext } from "../handover/HandoverContext";
 import { canTakeOver } from "../../lib/handover";
 import { HireDialog } from "./HireDialog";
 import { Rail } from "./Rail";
+import { splitTeam } from "../../state/team";
 import { Room } from "./Room";
 import type { RoomObjectsModel } from "./RoomObjects";
 import { Sidebar } from "./Sidebar";
@@ -104,7 +105,8 @@ export function FloorView(props: Props): React.ReactElement {
   // The manager sits in its glass office and the reviewer in the corner, never at an ordinary desk.
   const { rest, managerSession } = splitManager(sessions, manager);
   const { seated, reviewer } = splitReviewer(rest, qa);
-  const depth = roomDepth(seated.length + 1, qaDesk);
+  const { own, team } = splitTeam(seated, setupFloor ? undefined : manager);
+  const depth = roomDepth(own.length + 1, qaDesk, team.length);
   const look = props.look ?? "office";
   // On an island the whole beach fits beside the room.
   const side = look === "island" ? Math.max(24, beachSidePad(FLOOR_CAMERA, ROOM.width, depth)) : 24;
@@ -187,7 +189,8 @@ export function FloorView(props: Props): React.ReactElement {
             className="room-stage"
           >
             <Room
-              sessions={seated}
+              sessions={own}
+              team={team}
               qa={qaDesk ? qa : null}
               reviewer={reviewer}
               manager={setupFloor ? undefined : manager}
