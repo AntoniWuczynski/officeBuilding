@@ -298,6 +298,7 @@ export function App({ api }: Props): React.ReactElement {
       }),
     [api, reloadEditors],
   );
+  const loadAppInfo = useCallback(() => api.appInfo(), [api]);
   const testAlert = useCallback(() => api.testAlert(), [api]);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
@@ -557,7 +558,7 @@ export function App({ api }: Props): React.ReactElement {
         <UltracodeTint />
         <div className={viewMode === "islands" && project === undefined ? "app is-islands" : "app"}>
           {body}
-          {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} onTestAlert={testAlert} onClose={closeSettings} /> : null}
+          {settingsOpen ? <SettingsPanel load={loadSettings} save={saveSettings} editors={editors.list} loadHireOptions={loadHireOptions} loadAppInfo={loadAppInfo} onTestAlert={testAlert} onClose={closeSettings} /> : null}
           <Toasts toasts={toasts} onDismiss={dismiss} />
         </div>
       </UltracodeContext>

@@ -21,6 +21,7 @@ function open(
       save={overrides.save ?? ((p) => api.updateSettings(p))}
       editors={overrides.editors === undefined ? LIST : overrides.editors}
       loadHireOptions={() => api.hireOptions()}
+      loadAppInfo={() => api.appInfo()}
       onTestAlert={() => api.testAlert()}
       onClose={onClose}
     />,

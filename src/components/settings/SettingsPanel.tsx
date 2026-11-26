@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { EditorList, Settings, SettingsPatch, ToolOptions } from "../../types";
+import type { AppInfo, EditorList, Settings, SettingsPatch, ToolOptions } from "../../types";
 import { useSettings } from "../../state/useSettings";
 import { EditorGroup } from "./EditorGroup";
 import { AgentsGroup } from "./AgentsGroup";
@@ -10,18 +10,20 @@ import { QaGroup } from "./QaGroup";
 import { RoutingGroup } from "./RoutingGroup";
 import { HandoverGroup } from "./HandoverGroup";
 import { BoardsGroup } from "./BoardsGroup";
+import { UpdatesGroup } from "./UpdatesGroup";
 
 interface Props {
   readonly load: () => Promise<Settings>;
   readonly save: (patch: SettingsPatch) => Promise<Settings>;
   readonly editors: EditorList | null;
   readonly loadHireOptions: () => Promise<readonly ToolOptions[]>;
+  readonly loadAppInfo: () => Promise<AppInfo>;
   readonly onTestAlert: () => Promise<void>;
   readonly onClose: () => void;
 }
 
 /** The app's settings, as a plate over the room. Changes save at once. */
-export function SettingsPanel({ load, save, editors, loadHireOptions, onTestAlert, onClose }: Props): React.ReactElement {
+export function SettingsPanel({ load, save, editors, loadHireOptions, loadAppInfo, onTestAlert, onClose }: Props): React.ReactElement {
   const { state, change, retry } = useSettings(load, save);
   const done = useRef<HTMLButtonElement>(null);
 
@@ -94,6 +96,10 @@ export function SettingsPanel({ load, save, editors, loadHireOptions, onTestAler
             <section className="settings-group">
               <h3>Boards</h3>
               <BoardsGroup value={state.settings.boards} onChange={(boards) => change({ boards })} />
+            </section>
+            <section className="settings-group">
+              <h3>Updates</h3>
+              <UpdatesGroup loadInfo={loadAppInfo} />
             </section>
           </>
         ) : null}
