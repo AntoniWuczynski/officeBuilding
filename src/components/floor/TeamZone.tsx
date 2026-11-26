@@ -18,7 +18,7 @@ export function TeamZone({ count, children }: Props): React.ReactElement | null 
       <IsoBox x={inset} y={inset} z={ROOM.slab} w={ROOM.managerX - 2 * inset} d={line - 2 * inset} h={1} top="var(--plaster)" front="var(--plaster-shade)" side="var(--plaster-shade)" />
       {children}
       <Wall axis="back" x={0} y={line} z={ROOM.slab} length={ROOM.width} height={ZONE.partitionHeight} background="var(--glass)" className="glass zone-partition" />
-      <Billboard x={ROOM.colX0} y={line + 6} z={ROOM.slab + 16}>
+      <Billboard x={ROOM.managerX - 60} y={line + 6} z={ROOM.slab + 16}>
         <span className="memo-tag zone-sign" data-testid="manager-zone">
           Manager&apos;s team
         </span>
