@@ -1144,3 +1144,21 @@ here.
       link at the top of the README. The video stays out of git
       (`brag-output/` ignores itself). A re-cut needs a fresh upload and a new
       link.
+
+- [ ] OB-433 — Try "Review a stack as one" (TODO OB-430, GitHub issue #18) on a
+      real stack. Agents can't post to GitHub from here and the app was not
+      run, so only you can see it work.
+      1. In Settings, Quality assurance, switch "Review a stack as one" on.
+      2. On a floor with QA on, have two or three open pull requests of yours
+         built on one another (each one's base branch is the one below's
+         branch), none a draft or labelled `no-qa`.
+      3. After the newest commit has stood for 3 minutes, one review should
+         appear on the top pull request only. Its first lines should say it
+         covers the whole stack and name every pull request in it, and the
+         findings should be about the combined change. Look for one that is
+         about only the top pull request's own commits.
+      4. Push to a lower pull request of the stack. The top one should be
+         reviewed again after 3 minutes. The Info panel's row says
+         "(stack of 3)".
+      5. Switch the setting off. Each pull request should then be reviewed on
+         its own, as before.

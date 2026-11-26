@@ -1009,6 +1009,19 @@ The issues fixed what is wanted. These are the points they left open, and what t
 - `pnpm app:install` passes a config that switches the updater files off, so it works without the signing key. A plain `pnpm tauri:build` needs the key.
 - The signing key's password is empty, and the key stays at `~/.tauri/office-building.key` outside the repository. Losing it strands installed copies (HUMAN_TODO OB-410, step 1).
 
+## OB-430 — Review a stack as one (GitHub issue #18) — DECIDED 2026-11-26: a setting, off by default, that reviews a stack once on its top pull request, with the build's calls below
+
+A Human's issue #18: "Add option for QA to review the stack instead of every single underlying PR". The setting, its place in Settings and its being off by default are the issue's. The rest are calls of the build, which A Human has not yet seen:
+
+- A stack is a chain of A Human's open pull requests where one's base branch is another's head branch. The review goes on the top pull request and covers the whole chain, with the diff from the bottom pull request's base branch. The diff comes from GitHub's compare endpoint (`gh api repos/<repo>/compare/<base>...<head>`), because the app already reads every diff from GitHub and the compare call needs no extra fetch of the base branch. Its limit is in TODO OB-431.
+- A fork (two pull requests on one parent) is two stacks that share their lower part, each reviewed on its own top. A cycle, a link that is missing or unclear (two pull requests on one head branch) and a pull request from a fork never make a stack, so none of them can loop or hide a pull request from review.
+- A draft (while drafts are skipped) or a `no-qa` pull request is taken out before stacks are formed, so it is never reviewed and never part of a stack. The pull requests above it become a stack that starts on its branch. The same goes for a stack whose bottom is on a branch of someone else's.
+- When a stack is due: like a single pull request, counted by its top. It is due when the top has no review at this head over these pull requests at these heads, so a push to any pull request in the stack brings it due again. It is the first review of the top unless every push is reviewed, it is within the reviews a day of the top, and every pull request in the stack has stood still for 3 minutes.
+- Turning the setting on or off re-reviews the top once, because a review of a stack and a review of one pull request are different reviews of the same head.
+- The review says in its first lines that it covers the whole stack and lists the pull requests in it. The reviewer's first prompt says so too. The Info panel adds "(stack of N)" to the line of such a review, and the pull requests below the top have no row of their own (TODO OB-432).
+
+Not seen in the installed app yet (TODO OB-430, HUMAN_TODO OB-433).
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.

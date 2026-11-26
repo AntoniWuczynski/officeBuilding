@@ -148,6 +148,13 @@ sessions as an **office building**:
   request labelled `no-qa` is left alone. A stamp on the desk's tag and on the
   floor's nameplate says "QA passed" or "QA notes". The Info panel lists the
   last reviews, each of which opens on GitHub, and has a Check now button.
+  Settings has "Review a stack as one", off until you switch it on. Pull
+  requests of yours that are built on one another (one's base branch is the
+  other's branch) are then reviewed once, on the top one, with the change of
+  the whole stack, and the review says it covers the whole stack and lists
+  the pull requests in it. A push to any of them brings the stack due again.
+  A draft or a `no-qa` pull request cuts a stack, and the part above it is
+  reviewed as a stack of its own.
 - **A manager on each floor hands work to its desks.** A floor has no manager
   until you hire one. The "Hire a manager" sign on the desk in the manager's
   office, and the Manager section on the rail, open the Manager panel, which
