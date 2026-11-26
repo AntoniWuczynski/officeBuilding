@@ -7,7 +7,7 @@ describe("the look legend", () => {
     render(<LookLegend />);
     const legend = screen.getByTestId("look-legend");
     expect(legend).not.toHaveAttribute("open");
-    for (const line of ["Claude Code: pale maple", "Codex: wenge", "Cursor: oak", "opencode: walnut", "Antigravity: cherry", "Unknown tool: pine"]) expect(legend).toHaveTextContent(line);
+    for (const line of ["Claude Code: walnut", "Codex: oak", "Cursor: wenge", "opencode: pale maple", "Antigravity: cherry", "Unknown tool: pine"]) expect(legend).toHaveTextContent(line);
   });
   it("names both families of each tier", () => {
     render(<LookLegend />);

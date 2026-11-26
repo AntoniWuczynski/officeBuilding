@@ -835,6 +835,8 @@ A Human on 2026-11-20, from the options offered, on top of the decisions already
 - The art run: "All 24, unattended". Every parts sheet is generated with Codex image generation on A Human's own ChatGPT plan, failures are generated again, with a cap of about 60 images.
 - The woods: "Accept, with grain swatches". Claude Code pale maple, Codex wenge, Cursor oak, opencode walnut, Antigravity cherry and pine for an unknown tool, with one generated seamless grain swatch for each and the flat colour as the fallback.
 
+Amended by A Human on 2026-11-23 in the issue: walnut for Claude Code and oak for Codex. The build swapped the two pairs, so opencode takes pale maple and Cursor wenge (TODO OB-405). That pairing of the other four tools is the build's call, and A Human can veto it.
+
 Still open in the issue: whether the fixed manager also takes its effort build. The build's call until A Human says otherwise is that it does not.
 
 A Human's earlier decisions, written in the issue on 2026-11-19, which the two answers above build on:

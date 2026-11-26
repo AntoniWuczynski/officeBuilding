@@ -275,10 +275,10 @@ sessions as an **office building**:
   published source and the schema of codex-cli 0.161.0, and has not yet been run
   against a live Codex session.
 - **A desk's look says what runs there.** The wood of a desk is the tool,
-  pale maple for Claude Code, wenge for Codex, oak for Cursor, walnut for
+  walnut for Claude Code, oak for Codex, wenge for Cursor, pale maple for
   opencode, cherry for Antigravity and pine for a tool the building does not
-  know. The two main tools are the lightest and the darkest wood, so they do
-  not rely on hue alone. The worker is the model. Haiku and Luna share one
+  know. Walnut is dark and oak is light, so the two main tools do not rely on
+  hue alone. The worker is the model. Haiku and Luna share one
   person, and so do Sonnet and Terra, Opus and Sol, and Fable and Astra. Any
   other model, or one the tool does not report, is drawn as one of the six
   older workers, picked by the session's id as before. The worker's build is

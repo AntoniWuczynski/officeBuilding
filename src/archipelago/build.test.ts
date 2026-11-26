@@ -20,8 +20,8 @@ const hex = (w: Wood): number => new THREE.Color(WOODS[w].top).getHex();
 
 describe("a hut's counter", () => {
   it("takes the tool's wood", () => {
-    expect(counterColor("codex")).toBe(hex("wenge"));
-    expect(counterColor("claude-code")).toBe(hex("maple"));
-    expect(counterColor("cursor")).toBe(hex("oak"));
+    expect(counterColor("codex")).toBe(hex("oak"));
+    expect(counterColor("claude-code")).toBe(hex("walnut"));
+    expect(counterColor("cursor")).toBe(hex("wenge"));
   });
 });

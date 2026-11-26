@@ -33,7 +33,7 @@ describe("a storey's seats", () => {
     const seats = screen.getAllByTestId("storey-seat");
     expect(seats.map((s) => s.querySelector("[data-look]")?.getAttribute("data-look"))).toEqual(["otto-high", "vera-xhigh", expect.stringMatching(/^(theo|mara|walt|ayo|dev|fern)$/)]);
     const woods = [...container.querySelectorAll("[class*='wood-']")].flatMap((e) => [...e.classList].filter((c) => c.startsWith("wood-")));
-    expect(woods.sort()).toEqual(["wood-maple", "wood-walnut", "wood-wenge"]);
+    expect(woods.sort()).toEqual(["wood-maple", "wood-oak", "wood-walnut"]);
     expect(container.querySelectorAll(".iso-box").length).toBeGreaterThan(woods.length);
   });
 });

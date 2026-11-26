@@ -13,14 +13,14 @@ const luma = (hex: string): number => {
 describe("Desk wood per ToolKind", () => {
   it("gives each tool its wood", () => {
     expect(TOOLS.map((t) => [t, woodFor(t)])).toEqual([
-      ["claude-code", "maple"],
-      ["codex", "wenge"],
-      ["cursor", "oak"],
-      ["opencode", "walnut"],
+      ["claude-code", "walnut"],
+      ["codex", "oak"],
+      ["cursor", "wenge"],
+      ["opencode", "maple"],
       ["antigravity", "cherry"],
       ["unknown", "pine"],
     ]);
-    expect(TOOL_WOOD["claude-code"]).toBe("maple");
+    expect(TOOL_WOOD["claude-code"]).toBe("walnut");
   });
 
   it("keeps the flat colours of the table", () => {
@@ -35,12 +35,11 @@ describe("Desk wood per ToolKind", () => {
     ]);
   });
 
-  it("orders the tops by lightness, Claude Code lightest and Codex darkest", () => {
+  it("orders the tops by lightness and keeps Claude Code and Codex far apart in it", () => {
     const order: readonly Wood[] = ["maple", "pine", "oak", "cherry", "walnut", "wenge"];
     const lumas = order.map((w) => luma(WOODS[w].top));
     expect([...lumas].sort((a, b) => b - a)).toEqual(lumas);
-    expect(Math.max(...lumas)).toBe(luma(WOODS[woodFor("claude-code")].top));
-    expect(Math.min(...lumas)).toBe(luma(WOODS[woodFor("codex")].top));
+    expect(luma(WOODS[woodFor("codex")].top) - luma(WOODS[woodFor("claude-code")].top)).toBeGreaterThan(60);
   });
 
   it("names a tile for every wood", () => {

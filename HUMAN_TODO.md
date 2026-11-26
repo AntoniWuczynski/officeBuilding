@@ -1074,12 +1074,12 @@ here.
       window. It was tested with fixtures only, and no agent may start the app.
       Checks 1 to 9 are in the app, and check 10 is in a terminal.
       1. The woods. Hire a Claude Code desk and a Codex desk on one floor. The
-         first should be pale maple and the second wenge, and you should tell
+         first should be walnut and the second oak, and you should tell
          them apart at a glance. Look on the floor, in the building cutaway,
          on the Islands (the colour of the hut's counter) and inside an island
          (the crates).
       2. The grain. It should show on desk tops without being noisy, at the
-         default zoom and zoomed in. Look at the wenge desk and say whether it
+         default zoom and zoomed in. Look at the wenge desk (Cursor) and say whether it
          reads as one black block and should be made lighter (TODO OB-398).
       3. The workers. A Haiku desk and a Luna desk should show the same
          person. So should Sonnet and Terra, Opus and Sol, and Fable and

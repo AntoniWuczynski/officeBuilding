@@ -2,12 +2,12 @@ import type { ToolKind } from "../types";
 
 export type Wood = "maple" | "wenge" | "oak" | "walnut" | "cherry" | "pine";
 
-/** The desk wood of each tool (HUMAN_DECISIONS OB-335). Claude Code and Codex stand at the two ends of lightness. */
+/** The desk wood of each tool (HUMAN_DECISIONS OB-335): walnut for Claude Code and oak for Codex (A Human, 2026-11-23). */
 export const TOOL_WOOD: Readonly<Record<ToolKind, Wood>> = {
-  "claude-code": "maple",
-  codex: "wenge",
-  cursor: "oak",
-  opencode: "walnut",
+  "claude-code": "walnut",
+  codex: "oak",
+  cursor: "wenge",
+  opencode: "maple",
   antigravity: "cherry",
   unknown: "pine",
 };

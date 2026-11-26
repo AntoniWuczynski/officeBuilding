@@ -23,7 +23,7 @@ describe("desk wood on a floor", () => {
   it("gives each session's desk its tool's wood", () => {
     render(floor(makeSeedSnapshot(), "p-shop"));
     const woods = woodsOf(".iso-box:not(.pod-desk)");
-    expect(woods.sort()).toEqual(["wood-maple", "wood-walnut", "wood-wenge"].sort());
+    expect(woods.sort()).toEqual(["wood-maple", "wood-oak", "wood-walnut"].sort());
   });
 
   it("leaves the manager's desk plain", () => {
@@ -38,12 +38,12 @@ describe("desk wood on a floor", () => {
     const codexPod = screen.getAllByTestId("pod").find((p) => within(p).queryAllByTestId("pod-helper").length === 2);
     expect(codexPod).toBeDefined();
     expect(woodsOf(".pod-desk").length).toBeGreaterThan(0);
-    for (const c of (codexPod as HTMLElement).querySelectorAll(".pod-desk")) expect(c).toHaveClass("wood-wenge");
+    for (const c of (codexPod as HTMLElement).querySelectorAll(".pod-desk")) expect(c).toHaveClass("wood-oak");
   });
 
   it("gives an island's crates the wood too", () => {
     render(floor(makeSeedSnapshot(), "p-shop", { look: "island" }));
-    expect(woodsOf(".iso-box")).toEqual(expect.arrayContaining(["wood-maple", "wood-wenge", "wood-walnut"]));
+    expect(woodsOf(".iso-box")).toEqual(expect.arrayContaining(["wood-maple", "wood-oak", "wood-walnut"]));
   });
 });
 
