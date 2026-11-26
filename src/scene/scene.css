@@ -886,6 +886,10 @@ button.roof-sign:hover {
 }
 
 /* The manager's team zone: a low glass partition that never takes a click from the desks behind it. */
+.zone-sign {
+  pointer-events: none;
+  cursor: default;
+}
 .zone-partition {
   pointer-events: none;
 }

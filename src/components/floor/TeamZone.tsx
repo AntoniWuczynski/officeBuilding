@@ -1,5 +1,5 @@
 import { ROOM, ZONE, partitionY } from "../../lib/layout";
-import { IsoBox, Wall } from "../../scene/Iso";
+import { Billboard, IsoBox, Wall } from "../../scene/Iso";
 
 interface Props {
   /** How many desks the manager hired. */
@@ -17,11 +17,12 @@ export function TeamZone({ count, children }: Props): React.ReactElement | null 
     <div className="group manager-zone" role="group" aria-label="Manager's team: the desks the floor's manager hired">
       <IsoBox x={inset} y={inset} z={ROOM.slab} w={ROOM.managerX - 2 * inset} d={line - 2 * inset} h={1} top="var(--plaster)" front="var(--plaster-shade)" side="var(--plaster-shade)" />
       {children}
-      <Wall axis="back" x={0} y={line} z={ROOM.slab} length={ROOM.width} height={ZONE.partitionHeight} background="var(--glass)" className="glass zone-partition">
-        <span className="glass-label" data-testid="manager-zone">
+      <Wall axis="back" x={0} y={line} z={ROOM.slab} length={ROOM.width} height={ZONE.partitionHeight} background="var(--glass)" className="glass zone-partition" />
+      <Billboard x={ROOM.colX0} y={line + 6} z={ROOM.slab + 16}>
+        <span className="memo-tag zone-sign" data-testid="manager-zone">
           Manager&apos;s team
         </span>
-      </Wall>
+      </Billboard>
     </div>
   );
 }
