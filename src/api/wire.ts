@@ -118,6 +118,7 @@ const managerFloorSchema = z.object({
   mayHire: z.boolean(),
   escalated: z.boolean(),
   managed: z.array(z.string()),
+  hired: z.array(z.string()),
   caps: z.object({ maxDesks: z.number(), hiredNow: z.number(), spendCeilingUsd: z.number(), spentUsd: z.number(), unpricedDesks: z.number() }),
   queue: z.array(queuedNoteSchema),
   log: z.array(

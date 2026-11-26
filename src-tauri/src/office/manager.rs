@@ -355,16 +355,20 @@ impl Office {
             .map(|floor| {
                 let record = Self::manager_record(inner, floor);
                 let seat = inner.seats.get(floor);
-                let mut managed: Vec<String> = Vec::new();
-                let sent_to = seat.into_iter().flat_map(|s| s.sent_to.iter().cloned());
-                for id in Self::hired_sessions(inner, floor)
-                    .into_iter()
-                    .chain(sent_to)
-                {
-                    let here = sessions
+                let here = |id: &String| {
+                    sessions
                         .iter()
-                        .any(|s| s.id == id && s.project_id == *floor);
-                    if here && !managed.contains(&id) {
+                        .any(|s| s.id == *id && s.project_id == *floor)
+                };
+                let mut hired: Vec<String> = Vec::new();
+                for id in Self::hired_sessions(inner, floor) {
+                    if here(&id) && !hired.contains(&id) {
+                        hired.push(id);
+                    }
+                }
+                let mut managed = hired.clone();
+                for id in seat.into_iter().flat_map(|s| s.sent_to.iter().cloned()) {
+                    if here(&id) && !managed.contains(&id) {
                         managed.push(id);
                     }
                 }
@@ -407,6 +411,7 @@ impl Office {
                     may_hire: record.may_hire,
                     escalated,
                     managed,
+                    hired,
                     caps: self.manager_caps(inner, floor),
                     queue,
                     log: record.log.iter().rev().take(LOG_SHOWN).cloned().collect(),
@@ -865,6 +870,11 @@ pub(super) mod tests {
             .spawn(CommandBuilder::new("/bin/cat"), &dir.join("home/code/app"))
             .unwrap();
         bind(&office, &running, "s-hired", &floor.id);
+        let noted = office
+            .terminals
+            .spawn(CommandBuilder::new("/bin/cat"), &dir.join("home/code/app"))
+            .unwrap();
+        bind(&office, &noted, "s-noted", &floor.id);
         {
             let mut inner = office.lock();
             let seat = inner.seats.get_mut(&floor.id).unwrap();
@@ -880,12 +890,16 @@ pub(super) mod tests {
             });
             seat.sent_to.insert("s-hired".to_string());
             seat.sent_to.insert("s-elsewhere".to_string());
+            seat.sent_to.insert("s-noted".to_string());
         }
         let caps = entry(&office, &floor.id).caps;
         assert_eq!(caps.hired_now, 1);
         assert!((caps.spent_usd - 1.75).abs() < f64::EPSILON);
         assert_eq!(caps.unpriced_desks, 1);
-        assert_eq!(entry(&office, &floor.id).managed, vec!["s-hired"]);
+        let floor_entry = entry(&office, &floor.id);
+        // A note makes a desk managed, but only a hire makes it the manager's own.
+        assert_eq!(floor_entry.managed, vec!["s-hired", "s-noted"]);
+        assert_eq!(floor_entry.hired, vec!["s-hired"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

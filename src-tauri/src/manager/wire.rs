@@ -143,6 +143,8 @@ pub struct ManagerFloor {
     pub escalated: bool,
     /// Desks it hired or has sent a note to, by session id.
     pub managed: Vec<String>,
+    /// Only the desks it hired, by session id: a note to a desk does not make it one of these.
+    pub hired: Vec<String>,
     pub caps: ManagerCaps,
     /// Oldest first.
     pub queue: Vec<QueuedNote>,
@@ -187,6 +189,7 @@ mod tests {
             may_hire: true,
             escalated: false,
             managed: vec![DESK.into()],
+            hired: vec![DESK.into()],
             caps: ManagerCaps {
                 max_desks: 3,
                 hired_now: 1,
@@ -223,6 +226,7 @@ mod tests {
           "status": { "kind": "hired", "sessionId": "0f1e2d3c-0000-4000-8000-000000000001", "startedAt": "2026-11-12T10:00:00Z", "lastCallAt": "2026-11-12T10:04:10Z" },
           "paused": false, "mayHire": true, "escalated": false,
           "managed": ["0f1e2d3c-0000-4000-8000-000000000002"],
+          "hired": ["0f1e2d3c-0000-4000-8000-000000000002"],
           "caps": { "maxDesks": 3, "hiredNow": 1, "spendCeilingUsd": 20, "spentUsd": 1.25, "unpricedDesks": 0 },
           "queue": [{ "id": "n-41", "toSessionId": "0f1e2d3c-0000-4000-8000-000000000002", "text": "Take the first three items of TODO.md.", "queuedAt": "2026-11-12T10:04:10Z", "hold": "busy" }],
           "log": [{ "id": "g-42", "at": "2026-11-12T10:04:10Z",
@@ -244,6 +248,7 @@ mod tests {
             may_hire: false,
             escalated: false,
             managed: Vec::new(),
+            hired: Vec::new(),
             caps: ManagerCaps {
                 max_desks: 3,
                 hired_now: 0,
@@ -256,7 +261,7 @@ mod tests {
             ended: Vec::new(),
         };
         let want = json!({ "projectId": "p", "status": { "kind": "absent" }, "paused": false,
-            "mayHire": false, "escalated": false, "managed": [],
+            "mayHire": false, "escalated": false, "managed": [], "hired": [],
             "caps": { "maxDesks": 3, "hiredNow": 0, "spendCeilingUsd": 20, "spentUsd": 0.0, "unpricedDesks": 0 },
             "queue": [], "log": [], "ended": [] });
         assert_eq!(value(&floor), want);

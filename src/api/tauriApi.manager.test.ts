@@ -41,6 +41,17 @@ describe("wire manager shapes", () => {
     expect(parseWire(snapshotSchema, "snapshot", snapshot)).toEqual(snapshot);
   });
 
+  it("carries the desks the manager hired apart from the ones it only messaged, and rejects an entry without them", () => {
+    const base = makeSeedSnapshot();
+    const [first] = base.managers;
+    if (first === undefined) throw new Error("no manager");
+    const parsed = parseWire(snapshotSchema, "snapshot", { ...base, managers: [{ ...first, managed: ["s-1", "s-2"], hired: ["s-1"] }] });
+    expect(parsed.managers[0]?.managed).toEqual(["s-1", "s-2"]);
+    expect(parsed.managers[0]?.hired).toEqual(["s-1"]);
+    const { hired: _hired, ...without } = first;
+    expect(() => parseWire(snapshotSchema, "snapshot", { ...base, managers: [without] })).toThrow();
+  });
+
   it("parses each log event kind", () => {
     const base = makeSeedSnapshot();
     const [first] = base.managers;

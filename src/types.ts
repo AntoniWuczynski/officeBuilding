@@ -853,6 +853,8 @@ export interface ManagerFloor {
   readonly escalated: boolean;
   /** Desks it hired or has sent a note to, by session id. */
   readonly managed: readonly string[];
+  /** Only the desks it hired, by session id: a note to a desk does not add it here. */
+  readonly hired: readonly string[];
   readonly caps: ManagerCaps;
   /** Oldest first. */
   readonly queue: readonly QueuedNote[];
