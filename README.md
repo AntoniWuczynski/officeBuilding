@@ -599,7 +599,7 @@ Requires Rust (`rustup`) and Xcode's command line tools.
 
 ```bash
 pnpm tauri:dev                                # native window on real data
-pnpm tauri:build                              # bundle .app / .dmg
+pnpm tauri:build                              # bundle .app / .dmg, signed for updates (needs the signing key, see below)
 cd src-tauri && cargo test                    # Rust unit tests
 cd src-tauri && cargo run --example scan      # print what discovery sees
 ```
@@ -609,6 +609,36 @@ To launch it from an icon, run `pnpm app:install`. This builds a release
 Launchpad and the Dock can find it (to pin it, open the app and choose Options →
 Keep in Dock). Run it again after pulling changes. The installed app does not
 rebuild itself.
+
+### Cutting a release
+
+The version lives in `package.json`. `src-tauri/tauri.conf.json` reads it from
+there, and the release script keeps `src-tauri/Cargo.toml` in step. Every build
+also embeds the git commit it was made from.
+
+1. Check out `main` with a clean working tree. The release is built from the
+   commit you are on.
+2. Keep the updater's signing key at `~/.tauri/office-building.key`, or point
+   `TAURI_SIGNING_PRIVATE_KEY_PATH` at it. Back it up. An installed app can only
+   verify an update signed with this key. The key's password is empty.
+3. Make sure `gh auth status` is signed in.
+4. Run `pnpm release 0.2.0`. It refuses a dirty tree, a version that is not a
+   plain `X.Y.Z` higher than the current one and a tag that already exists. It
+   then bumps the version, commits "Release v0.2.0", tags `v0.2.0`, builds and
+   signs the app, writes `latest.json`, pushes the commit and tag, and creates
+   the GitHub release with the `.app.tar.gz`, its `.sig`, the `.dmg` and
+   `latest.json`. Only the Mac it runs on is built, so an Apple silicon Mac
+   publishes `darwin-aarch64` only.
+
+Installed apps read `latest.json` from the latest release (Settings, Updates,
+Check for updates). `pnpm app:install` builds without the key and without update
+files, so it keeps working on a Mac that does not hold the key.
+
+To find a version, select the app in Finder and choose Get Info, or open
+Settings, where the Updates group reads "Version 0.2.0 (abc1234)". The number
+is the release tag, `v0.2.0`, and the seven characters are the start of the
+commit it was built from, so `git show abc1234` shows that exact code. A build
+made from an uncommitted tree still shows the commit it started from.
 
 ### Sensitive-information hooks
 

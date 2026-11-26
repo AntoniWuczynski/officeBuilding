@@ -993,6 +993,22 @@ One finding of the review of Stage M2b is not fixed: the rule for what a collabo
 
 **Recommendation.** Let them stand until the checks have been run with a real Codex session. Each call can be changed alone.
 
+## OB-410 — Releases and in-app updates (GitHub issues #16 and #17): calls the build made, not yet seen by A Human
+
+The issues fixed what is wanted. These are the points they left open, and what the build chose.
+
+- One source of truth: `package.json`. `tauri.conf.json` reads it (`"version": "../package.json"`, which the config schema documents) and the release script copies it into `Cargo.toml` and `Cargo.lock`.
+- The tag is `vX.Y.Z` and the version is plain `X.Y.Z`. A pre-release suffix is refused, because the updater compares versions and nothing in the building needs one.
+- The release is built from the commit it tags, after the "Release vX.Y.Z" commit, so the commit shown in Settings is the release commit. If the build fails, nothing is pushed and the script prints the two commands that undo the local commit and tag. It does not undo them itself.
+- The script does not insist on `main`, because a release from another branch is a choice A Human can make. The README says to run it from `main`.
+- Only the Mac that runs the script is built (TODO OB-413). Asset names have no spaces (`Office-Building_0.2.0_aarch64.app.tar.gz`), because GitHub turns a space in an upload's name into a dot and the manifest's URLs must match.
+- Release notes are the commit subjects since the previous tag, or the last twenty before the first one. They go into `latest.json` and the release page.
+- The plugins are `tauri-plugin-updater` 2.12 and `tauri-plugin-process` 2.3, with their JavaScript bindings at the same lines. Later releases of both need Tauri 2.12 or newer, which this app does not use yet, as with the notification plugin. Both Rust releases are more than 7 days old.
+- The capability grants `updater:default` and `process:allow-restart` only, not the whole process plugin.
+- The app looks for an update only when the button is pressed (TODO OB-415). It never relaunches by itself, so open in-app terminals can be finished first.
+- `pnpm app:install` passes a config that switches the updater files off, so it works without the signing key. A plain `pnpm tauri:build` needs the key.
+- The signing key's password is empty, and the key stays at `~/.tauri/office-building.key` outside the repository. Losing it strands installed copies (HUMAN_TODO OB-410, step 1).
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.

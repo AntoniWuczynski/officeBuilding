@@ -1113,6 +1113,30 @@ here.
           wenge desk should be lighter, and whether 43.2 MB of raw art may
           stay in plain git. It also lists the other calls the build made
           while you were away. Say which you veto.
+- [ ] OB-410 — Cut the first release and try the in-app update (TODO OB-410
+      to OB-416, GitHub issues #16 and #17). Nothing here has run. The release
+      script was never executed and the updater never met a real release.
+      1. Back up `~/.tauri/office-building.key` somewhere that is not this Mac.
+         If it is lost, no installed copy can ever verify an update, and you
+         would have to reinstall by hand with a new key in the config.
+      2. From `main`, with a clean tree and `gh auth status` signed in, run
+         `pnpm release 0.2.0`. It builds, signs and publishes the release, which
+         takes several minutes. Check the GitHub release page lists the
+         `.app.tar.gz`, its `.sig`, the `.dmg` and `latest.json`.
+      3. Install that release's app (`.dmg`, or `pnpm app:install` from the
+         tagged commit). Open Settings with Cmd+, and read the Updates group:
+         it should say "Version 0.2.0" and a seven-character commit that matches
+         `git rev-parse --short v0.2.0`. Press Check for updates. It should say
+         you have the latest version.
+      4. Cut a second release, `pnpm release 0.2.1`, then press Check for
+         updates in the installed 0.2.0. It should offer 0.2.1 with its notes.
+         Press Install, watch the percentage, and check it waits for you at
+         "Relaunch now" and does not relaunch by itself. Open an in-app
+         terminal first to see that. Relaunch and confirm the version. Note
+         whether macOS asks anything the first time the updated app opens
+         (TODO OB-414).
+      5. Say if an update should also be looked for at launch, and if Intel
+         Macs matter (TODO OB-413, OB-415).
 
 - [x] OB-051 — Put the launch video in the README with an inline player. Done
       2026-10-11: Claude uploaded `brag-output/brag.mp4` through a new-issue
