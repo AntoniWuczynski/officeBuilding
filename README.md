@@ -158,7 +158,11 @@ sessions as an **office building**:
 - **A manager on each floor hands work to its desks.** A floor has no manager
   until you hire one. The "Hire a manager" sign on the desk in the manager's
   office, and the Manager section on the rail, open the Manager panel, which
-  has the button. Hiring pins the floor. The manager is an ordinary Claude
+  has the button. Hiring pins the floor. The desks it hires sit in
+  their own fenced "Manager's team" block at the back of the floor, beside its
+  glass office, behind a low glass partition, so your own desks keep the main
+  grid at the front. A desk you hired stays yours even when the manager sends
+  it a note. With no hires the floor has no block. The manager is an ordinary Claude
   Code session on your plan, in one of the app's terminals. It can read and
   search the floor's folder and use eight tools the building gives it: list
   the desks, read a desk, read the TODO lists, send a desk a note, wait for a

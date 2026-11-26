@@ -1025,6 +1025,23 @@ A Human's issue #18: "Add option for QA to review the stack instead of every sin
 
 Not seen in the installed app yet (TODO OB-430, HUMAN_TODO OB-433).
 
+## OB-440 — The manager's hires sit in a team zone (GitHub issue #19) — DECIDED 2026-11-26: a fenced block at the back for the desks the manager hired, A Human's own desks in the main grid
+
+A Human's issue #19: "The desks a manager hires currently crowd the floor, they should be somehow contained so that human-managed desks are not lost in the sauce". From the options offered, A Human chose:
+
+- **A team zone.** A Human's own desks keep the main grid at the front of the floor. The desks the floor's manager hired sit in their own fenced block at the back, next to the manager's glass office, behind a low glass partition, at full size. Every desk stays visible and clickable. The floor only gets deeper as needed.
+- **Only desks the manager hired** count as the manager's, meaning those started by its hire tool. A desk A Human hired stays A Human's even if the manager sends it notes. With no manager hires, the floor looks exactly as before, with no zone and no partition.
+
+The build's own calls, which A Human has not yet seen:
+
+- The snapshot's manager entry has a new `hired` list beside `managed` (hired or messaged). The zone reads `hired`, because `managed` also holds desks that were only sent a note.
+- The zone is the three columns that fit left of the manager's office, with the grid's own column and row spacing, starting at the back wall and wrapping to more rows as the team grows. The partition stands 42px past the last zone desk, and never closer than 8px to the office's front glass. A Human's grid starts 36px past the partition, and the hire slot stays in that grid.
+- The partition is 22px high translucent glass, labelled "Manager's team", and takes no clicks. The zone has a plaster rug under it and is a named group ("Manager's team") for screen readers.
+- Helpers' tiny desks beside a zone desk stay left of the office and short of the partition, so they may be a little smaller than in the main grid.
+- The building cutaway and the island map are unchanged, and an island's inside draws the same zone.
+
+Not seen in the installed app yet (TODO OB-440, HUMAN_TODO OB-441).
+
 ## OB-011 — How should assistant agents reach the building (MCP transport and auth)? — DECIDED 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen…
 
 Decided in Office Building on 2026-10-01: Defer for now, later a proper server deployment of the app itself might happen and then we’ll come back to this.

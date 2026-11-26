@@ -1162,3 +1162,17 @@ here.
          "(stack of 3)".
       5. Switch the setting off. Each pull request should then be reviewed on
          its own, as before.
+
+- [ ] OB-441 — Look at the manager's team zone (TODO OB-440, GitHub issue #19) in
+      the installed app. The build never saw it drawn.
+      1. Open a floor whose manager has hired two or three desks, with a desk
+         of your own as well.
+      2. The manager's desks should stand in a fenced block at the back, left
+         of its glass office, behind a low glass partition labelled "Manager's
+         team". Your desks, the "Hire an agent" desk and the QA desk should be
+         in front of it.
+      3. Every desk should be fully visible and clickable, including any
+         helpers beside the manager's desks.
+      4. Send a note from the manager to one of your own desks. It should
+         stay in front of the partition, with its "managed" tag.
+      5. A floor whose manager hired nothing should look as it did before.
