@@ -96,6 +96,7 @@ const reviewSchema = z.object({
   title: z.string(),
   head: z.string(),
   at: z.string(),
+  covers: z.array(z.object({ number: z.number(), head: z.string() })).optional(),
   outcome: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("posted"), verdict, findings: z.number(), reviewId: z.number() }),
     z.object({ kind: z.literal("clean") }),
@@ -376,6 +377,7 @@ export const settingsSchema = z.object({
     postWhenClean: z.boolean(),
     maxConcurrent: z.number(),
     reviewsPerDay: z.number(),
+    reviewStacks: z.boolean(),
     tool: z.enum(["claude-code"]),
     model: z.string().nullable(),
     effort: z.string().nullable(),

@@ -35,6 +35,7 @@ describe("QaGroup", () => {
     ["settings-qa-every-push", "everyPush", false],
     ["settings-qa-skip-drafts", "skipDrafts", false],
     ["settings-qa-post-clean", "postWhenClean", false],
+    ["settings-qa-stacks", "reviewStacks", true],
   ])("%s changes only %s", async (id, field, next) => {
     const user = userEvent.setup();
     const onChange = show();
@@ -45,6 +46,18 @@ describe("QaGroup", () => {
   it("explains first-push-only when every push is off", () => {
     show({ ...makeQaSettings(), everyPush: false });
     expect(screen.getByText("Only the first commit of each pull request is reviewed.")).toBeInTheDocument();
+  });
+
+  it("is off by default and says a stack is reviewed once, on its top pull request", () => {
+    show();
+    const row = screen.getByTestId("settings-qa-stacks");
+    expect(within(row).getByRole("switch", { name: "Review a stack as one" })).not.toBeChecked();
+    expect(within(row).getByText(/reviewed once, on the top one, with the change of the whole stack/)).toBeInTheDocument();
+  });
+
+  it("shows the switch on when stacks are reviewed as one", () => {
+    show({ ...makeQaSettings(), reviewStacks: true });
+    expect(within(screen.getByTestId("settings-qa-stacks")).getByRole("switch")).toBeChecked();
   });
 
   it.each([

@@ -337,6 +337,13 @@ describe("QA selectors", () => {
     expect(reviewLine(review(outcome))).toBe(sentence);
   });
 
+  it("says when a review covers a stack", () => {
+    const covers = [1, 2, 3].map((number) => ({ number, head: "a".repeat(40) }));
+    const outcome: Review["outcome"] = { kind: "posted", verdict: "concerns", findings: 2, reviewId: 1 };
+    expect(reviewLine({ ...review(outcome), covers })).toBe("2 findings (stack of 3)");
+    expect(reviewLine({ ...review(outcome), covers: covers.slice(0, 1) })).toBe("2 findings");
+  });
+
   it("words the stamps", () => {
     expect(STAMP_WORDS).toEqual({ pass: { label: "QA passed", spoken: "QA passed" }, concerns: { label: "QA notes", spoken: "QA found problems" } });
   });

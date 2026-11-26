@@ -588,6 +588,8 @@ export interface Review {
   readonly head: string;
   readonly at: string;
   readonly outcome: ReviewOutcome;
+  /** A review of a whole stack, posted on its top (`number`): every pull request it covers, bottom first. Absent for one pull request. */
+  readonly covers?: readonly { readonly number: number; readonly head: string }[] | undefined;
 }
 
 /** What a floor's QA desk is doing (`QaStatus` in model.rs). */
@@ -632,6 +634,8 @@ export interface QaSettings {
   readonly maxConcurrent: number;
   /** 1 to 20. */
   readonly reviewsPerDay: number;
+  /** Review a stack of pull requests as one, on its top pull request. */
+  readonly reviewStacks: boolean;
   readonly tool: ReviewerTool;
   /** Null: the tool's default model. */
   readonly model: string | null;

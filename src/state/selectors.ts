@@ -404,7 +404,11 @@ export function qaLine(floor: QaFloor, now: Date): string {
 
 /** How a review ended, in words. */
 export function reviewLine(review: Review): string {
-  const { outcome } = review;
+  const stack = review.covers === undefined || review.covers.length < 2 ? "" : ` (stack of ${review.covers.length})`;
+  return `${outcomeLine(review.outcome)}${stack}`;
+}
+
+function outcomeLine(outcome: Review["outcome"]): string {
   switch (outcome.kind) {
     case "posted":
       return outcome.findings === 0 ? "No issues found" : plural(outcome.findings, "finding", "findings");

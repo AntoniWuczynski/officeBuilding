@@ -10,7 +10,7 @@ interface Props {
   readonly onChange: (next: QaSettings) => void;
 }
 
-type Switch = "defaultOn" | "everyPush" | "skipDrafts" | "postWhenClean";
+type Switch = "defaultOn" | "everyPush" | "skipDrafts" | "postWhenClean" | "reviewStacks";
 type Count = "pollMinutes" | "maxConcurrent" | "reviewsPerDay";
 
 const SWITCHES: readonly { readonly key: Switch; readonly label: string; readonly id: string }[] = [
@@ -18,6 +18,7 @@ const SWITCHES: readonly { readonly key: Switch; readonly label: string; readonl
   { key: "everyPush", label: "Review every push", id: "settings-qa-every-push" },
   { key: "skipDrafts", label: "Skip drafts", id: "settings-qa-skip-drafts" },
   { key: "postWhenClean", label: "Post when nothing is found", id: "settings-qa-post-clean" },
+  { key: "reviewStacks", label: "Review a stack as one", id: "settings-qa-stacks" },
 ];
 
 const COUNTS: readonly (CountSpec & { readonly key: Count })[] = [
@@ -34,6 +35,7 @@ export function QaGroup({ value, loadOptions, onChange }: Props): React.ReactEle
         <div key={row.key} data-testid={row.id}>
           <Toggle label={row.label} checked={value[row.key]} disabled={false} onChange={(on) => onChange({ ...value, [row.key]: on })} />
           {row.key === "everyPush" && !value.everyPush ? <p className="panel-hint">Only the first commit of each pull request is reviewed.</p> : null}
+          {row.key === "reviewStacks" ? <p className="panel-hint">Pull requests built on one another are reviewed once, on the top one, with the change of the whole stack. The review lists the pull requests it covers.</p> : null}
         </div>
       ))}
       {COUNTS.map((spec) => (

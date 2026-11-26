@@ -60,6 +60,7 @@ export function makeQaSettings(): QaSettings {
     postWhenClean: true,
     maxConcurrent: 1,
     reviewsPerDay: 3,
+    reviewStacks: false,
     tool: "claude-code",
     model: null,
     effort: null,
