@@ -133,6 +133,11 @@ struct Script {
     /// By repository. One not here lists nothing.
     lists: BTreeMap<String, Captured>,
     diff: Captured,
+    /// What the compare endpoint answers for a stack's diff. When none, the same as `diff`.
+    compare: Option<Captured>,
+    /// What the compare endpoint answers to `--jq .status`, by the compared pair's lower head.
+    /// One not here is `ahead`.
+    statuses: BTreeMap<String, String>,
     fetch: Captured,
     has_commit: bool,
     add: Captured,
@@ -151,6 +156,8 @@ impl Default for Script {
             origins: BTreeMap::new(),
             lists: BTreeMap::new(),
             diff: ok(DIFF),
+            compare: None,
+            statuses: BTreeMap::new(),
             fetch: ok(""),
             has_commit: true,
             add: ok(""),
@@ -176,7 +183,19 @@ fn answer(script: &Mutex<Script>, call: &Call) -> Captured {
                 .cloned()
                 .unwrap_or_else(|| ok("[]")),
             ("pr", "diff") => script.diff.clone(),
-            ("api", path) if path.contains("/compare/") => script.diff.clone(),
+            ("api", path) if path.contains("/compare/") && args.iter().any(|a| a == "--jq") => {
+                let lower = path
+                    .split("/compare/")
+                    .nth(1)
+                    .and_then(|p| p.split("...").next());
+                ok(lower
+                    .and_then(|l| script.statuses.get(l))
+                    .map_or("ahead", String::as_str))
+            }
+            ("api", path) if path.contains("/compare/") => script
+                .compare
+                .clone()
+                .unwrap_or_else(|| script.diff.clone()),
             ("api", _) if !args.iter().any(|a| a == "--method") => script.reviews.clone(),
             ("api", _) => {
                 let body = fs::read_to_string(arg(5)).expect("payload");
@@ -217,7 +236,9 @@ fn name(call: &Call) -> String {
         "probe".into()
     } else if call.program == Path::new(GH) {
         if args[0] == "api" {
-            if args[1].contains("/compare/") {
+            if args[1].contains("/compare/") && args.iter().any(|a| a == "--jq") {
+                "api ancestor".into()
+            } else if args[1].contains("/compare/") {
                 "api compare".into()
             } else if args.iter().any(|a| a == "--method") {
                 "api".into()
@@ -243,7 +264,7 @@ fn assert_gh_only_posts_reviews(calls: &[Call]) -> usize {
             continue;
         }
         if args[0] == "api" && args[1].contains("/compare/") {
-            // Reading a stack's diff writes nothing.
+            // Reading a stack's diff or whether one commit is in another writes nothing.
             continue;
         }
         if args.len() == 5 && args[2] == "--paginate" {

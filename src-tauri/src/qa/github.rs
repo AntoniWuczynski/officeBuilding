@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use super::review::HEADER;
+use super::stack::COVERS_LINE;
 use crate::process::{Call, Captured, Runner, login_paths};
 
 const LIST_LIMIT: Duration = Duration::from_secs(30);
@@ -253,6 +254,19 @@ impl GitHub {
         self.run(&args, DIFF_LIMIT)
     }
 
+    /// Whether `ancestor` is `head` or in its history, by GitHub's compare of the two: `head` is
+    /// `ahead` of it or `identical`. `diverged` and `behind` are no.
+    pub fn is_ancestor(&self, repo: &Repo, ancestor: &str, head: &str) -> Result<bool, GhError> {
+        let args = strings(&[
+            "api",
+            &format!("repos/{repo}/compare/{ancestor}...{head}"),
+            "--jq",
+            ".status",
+        ]);
+        let out = self.run(&args, LIST_LIMIT)?;
+        Ok(matches!(out.trim(), "ahead" | "identical"))
+    }
+
     /// Post the review in `payload` (a JSON file). Returns the new review's id.
     pub fn post(&self, repo: &Repo, number: u64, payload: &Path) -> Result<u64, GhError> {
         let mut args = strings(&[
@@ -268,10 +282,17 @@ impl GitHub {
         Ok(posted.id)
     }
 
-    /// The id of a review this app already posted on `head` of the pull request, if any.
+    /// The id of a review this app already posted on `head` of the pull request, if any: one of
+    /// a stack (`stacked`) or one of the pull request alone, which differ by what the body says.
     /// Asked before a post is repeated, because a post that failed on this side may have
     /// reached GitHub.
-    pub fn review_of(&self, repo: &Repo, number: u64, head: &str) -> Result<Option<u64>, GhError> {
+    pub fn review_of(
+        &self,
+        repo: &Repo,
+        number: u64,
+        head: &str,
+        stacked: bool,
+    ) -> Result<Option<u64>, GhError> {
         let args = strings(&[
             "api",
             &format!("repos/{repo}/pulls/{number}/reviews"),
@@ -283,7 +304,7 @@ impl GitHub {
         Ok(out.lines().find_map(|line| {
             let mut fields = line.splitn(3, '\t');
             let (id, commit, body) = (fields.next()?, fields.next()?, fields.next()?);
-            (commit == head && body.starts_with(HEADER))
+            (commit == head && body.starts_with(HEADER) && body.contains(COVERS_LINE) == stacked)
                 .then(|| id.parse().ok())
                 .flatten()
         }))
@@ -507,7 +528,9 @@ mod tests {
              13\t{head}\t{HEADER}\\n\\nNo issues found.\n"
         );
         let fake = answering(Some(0), &listing, "");
-        let got = client(&fake).review_of(&repo(), 12, &head).expect("listed");
+        let got = client(&fake)
+            .review_of(&repo(), 12, &head, false)
+            .expect("listed");
         assert_eq!(got, Some(13));
         assert_eq!(
             args(&fake.calls()[0])[..3],
@@ -518,7 +541,49 @@ mod tests {
             ])
         );
         let none = answering(Some(0), "", "");
-        assert_eq!(client(&none).review_of(&repo(), 12, &head), Ok(None));
+        assert_eq!(client(&none).review_of(&repo(), 12, &head, false), Ok(None));
+    }
+
+    #[test]
+    fn review_of_tells_a_stack_review_from_one_of_the_pull_request_alone() {
+        let head = "a".repeat(40);
+        let listing = format!(
+            "21\t{head}\t{HEADER}\\n\\nNo issues found.\n\
+             22\t{head}\t{HEADER}\\n\\n{COVERS_LINE} 2 pull requests, #1 and #2, not one pull request.\n"
+        );
+        let fake = answering(Some(0), &listing, "");
+        let github = client(&fake);
+        assert_eq!(github.review_of(&repo(), 12, &head, true), Ok(Some(22)));
+        assert_eq!(github.review_of(&repo(), 12, &head, false), Ok(Some(21)));
+        let alone = answering(
+            Some(0),
+            &format!("21\t{head}\t{HEADER}\\n\\nNo issues found.\n"),
+            "",
+        );
+        assert_eq!(client(&alone).review_of(&repo(), 12, &head, true), Ok(None));
+    }
+
+    #[test]
+    fn is_ancestor_asks_the_compare_endpoint_for_the_status() {
+        let (low, top) = ("a".repeat(40), "b".repeat(40));
+        for (status, want) in [
+            ("ahead\n", true),
+            ("identical\n", true),
+            ("diverged\n", false),
+            ("behind\n", false),
+        ] {
+            let fake = answering(Some(0), status, "");
+            assert_eq!(client(&fake).is_ancestor(&repo(), &low, &top), Ok(want));
+            assert_eq!(
+                args(&fake.calls()[0]),
+                strings(&[
+                    "api",
+                    &format!("repos/example-org/widgets/compare/{low}...{top}"),
+                    "--jq",
+                    ".status",
+                ])
+            );
+        }
     }
 
     #[test]

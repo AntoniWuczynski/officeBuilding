@@ -6,9 +6,14 @@
 //! top). Two pull requests stacked on one parent are two stacks that share their lower part.
 
 use super::brief::Job;
-use super::github::PullRequest;
+use super::github::{GhError, GitHub, PullRequest, Repo};
 use super::record::Covered;
 use super::review::{HEADER, ReviewPayload};
+use std::collections::BTreeSet;
+
+/// What `announce` writes right under the header: how a review of a stack is told from one of a
+/// single pull request.
+pub const COVERS_LINE: &str = "This review covers the whole stack of";
 
 /// The stacks among `prs` as indices into it, bottom first, one per top, in the order of the
 /// tops. A pull request nothing is stacked on or under is a stack of one.
@@ -66,6 +71,35 @@ pub fn group(prs: &[&PullRequest]) -> Vec<Vec<usize>> {
         .collect()
 }
 
+/// The pairs (lower pull request, top) of the chains in `prs` where the lower one's head is not
+/// part of the top's history. The top's head then lacks that pull request's newest commits (it
+/// was pushed to and the stack not rebased), so the stack's diff and checkout would leave them
+/// out: such a chain is not reviewed as a stack. A question GitHub cannot answer counts as a no,
+/// the safe way round. Signed out and rate limited are not answers, and end the check.
+pub fn diverged(
+    github: &GitHub,
+    repo: &Repo,
+    prs: &[PullRequest],
+) -> Result<BTreeSet<(u64, u64)>, GhError> {
+    let refs: Vec<&PullRequest> = prs.iter().collect();
+    let mut found = BTreeSet::new();
+    for chain in group(&refs) {
+        let Some((top, lower)) = chain.split_last() else {
+            continue;
+        };
+        for below in lower {
+            match github.is_ancestor(repo, &prs[*below].head, &prs[*top].head) {
+                Ok(true) => {}
+                Ok(false) | Err(GhError::Failed(_)) => {
+                    found.insert((prs[*below].number, prs[*top].number));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(found)
+}
+
 /// What a review of `members` (bottom first) covers. Empty for one pull request: that is no
 /// stack.
 #[must_use]
@@ -97,7 +131,7 @@ fn numbers(covers: &[Covered]) -> String {
 pub fn announce(mut payload: ReviewPayload, covers: &[Covered]) -> ReviewPayload {
     if let (false, Some(rest)) = (covers.is_empty(), payload.body.strip_prefix(HEADER)) {
         payload.body = format!(
-            "{HEADER}\n\nThis review covers the whole stack of {} pull requests, {}, not one \
+            "{HEADER}\n\n{COVERS_LINE} {} pull requests, {}, not one \
              pull request. It is posted on the top of the stack.{rest}",
             covers.len(),
             numbers(covers)

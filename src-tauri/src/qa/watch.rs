@@ -22,6 +22,7 @@ use crate::store::write_json_atomic;
 use crate::sync::lock;
 use chrono::{DateTime, Utc};
 use clock::{later, since, timestamp};
+use due::left_out;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -108,6 +109,9 @@ struct Pull {
     base: String,
 }
 
+/// A floor's good check: its repository, its open pull requests and the diverged pairs.
+type Checked = (Repo, Vec<PullRequest>, BTreeSet<(u64, u64)>);
+
 /// A listed pull request, with when its current head was first seen.
 struct Open {
     pr: PullRequest,
@@ -139,6 +143,9 @@ struct Desk {
     /// The repo and pull requests of the last good check, and when it was.
     repo: Option<Repo>,
     open: Vec<Open>,
+    /// Pairs of (lower pull request, top) of listed chains where the top's head lacks the lower
+    /// one's newest commits: those chains are not reviewed as stacks.
+    diverged: BTreeSet<(u64, u64)>,
     checked: Option<DateTime<Utc>>,
     stamp: Option<Verdict>,
     /// Start nothing until the next check.
@@ -156,6 +163,7 @@ impl Desk {
             status: QaStatus::Waiting,
             repo: None,
             open: Vec::new(),
+            diverged: BTreeSet::new(),
             checked: None,
             stamp: None,
             hold: false,
@@ -571,13 +579,13 @@ impl Watch {
         let mut failed = false;
         let mut limited = false;
         for floor in floors {
-            let checked = self.check_floor(&tools, floor, pass.qa.review_stacks);
+            let checked = self.check_floor(&tools, floor, &pass.qa);
             let mut state = lock(&self.state);
             let Some(desk) = state.floors.get_mut(&floor.root) else {
                 continue;
             };
             match checked {
-                Ok((repo, listed)) => {
+                Ok((repo, listed, diverged)) => {
                     desk.status = QaStatus::Watching {
                         repo: repo.to_string(),
                         checked_at: timestamp(pass.now),
@@ -594,6 +602,7 @@ impl Watch {
                             Open { pr, since }
                         })
                         .collect();
+                    desk.diverged = diverged;
                     desk.repo = Some(repo);
                     desk.checked = Some(pass.now);
                 }
@@ -653,8 +662,8 @@ impl Watch {
         &self,
         tools: &Found,
         floor: &Floor,
-        stacks: bool,
-    ) -> Result<(Repo, Vec<PullRequest>), (String, Fault)> {
+        qa: &QaSettings,
+    ) -> Result<Checked, (String, Fault)> {
         let (Some(gh), Some(git)) = (&tools.gh, &tools.git) else {
             let missing = if tools.gh.is_none() { NO_GH } else { NO_GIT };
             return Err((missing.to_string(), Fault::Failed));
@@ -667,19 +676,28 @@ impl Watch {
             .and_then(Repo::from_remote)
             .ok_or_else(|| (NO_ORIGIN.to_string(), Fault::Lasting))?;
         let github = GitHub::new(Arc::clone(&self.runner), gh.clone());
-        let mine = if stacks {
-            github.mine_stacked(&repo)
-        } else {
-            github.mine(&repo)
-        };
-        mine.map(|listed| (repo, listed)).map_err(|e| {
+        let fault = |e: GhError| {
             let fault = if e == GhError::RateLimited {
                 Fault::RateLimited
             } else {
                 Fault::Failed
             };
             (e.words(), fault)
-        })
+        };
+        if !qa.review_stacks {
+            return github
+                .mine(&repo)
+                .map(|l| (repo, l, BTreeSet::new()))
+                .map_err(fault);
+        }
+        let listed = github.mine_stacked(&repo).map_err(fault)?;
+        let kept: Vec<PullRequest> = listed
+            .iter()
+            .filter(|pr| !left_out(qa, pr))
+            .cloned()
+            .collect();
+        let diverged = stack::diverged(&github, &repo, &kept).map_err(fault)?;
+        Ok((repo, listed, diverged))
     }
 
     /// Start the due pull request of each free floor, in project id order, up to the cap.
@@ -819,10 +837,7 @@ impl Watch {
         } else {
             github.diff_stack(&pull.repo, &pull.base, &pull.head)
         }
-        .map_err(|e| match e {
-            GhError::Failed(_) => Unstarted::Head(e.words()),
-            GhError::SignedOut | GhError::RateLimited => Unstarted::Desk(e.words()),
-        })?;
+        .map_err(|e| unstarted(&e))?;
         if diff.trim().is_empty() {
             return Ok(Begun::Recorded(ReviewOutcome::Clean));
         }
@@ -831,6 +846,17 @@ impl Watch {
                 reason: TOO_LARGE.to_string(),
             }));
         }
+        // GitHub rejects a whole review that has an inline comment outside the diff of the pull
+        // request it is posted on, so a stack's inline lines are its top's own, not the stack's.
+        let lines = if pull.covers.is_empty() {
+            ChangedLines::parse(&diff)
+        } else {
+            ChangedLines::parse(
+                &github
+                    .diff(&pull.repo, pull.number)
+                    .map_err(|e| unstarted(&e))?,
+            )
+        };
         let worktree = self.worktree(project_id);
         git.add(root, &worktree, &pull.head)?;
         brief::hand_over(&worktree, &diff)
@@ -847,7 +873,7 @@ impl Watch {
         let terminal = pass.building.hire_reviewer(project_id, &job)?;
         Ok(Begun::Running(Run {
             pull: pull.clone(),
-            lines: ChangedLines::parse(&diff),
+            lines,
             terminal,
             started: pass.now,
         }))
@@ -874,7 +900,7 @@ impl Watch {
                 // A post that failed on this side may have reached GitHub: look before repeating it.
                 if queued.tries > 1
                     && let Some(id) = gh
-                        .review_of(&pull.repo, pull.number, &pull.head)
+                        .review_of(&pull.repo, pull.number, &pull.head, !pull.covers.is_empty())
                         .map_err(|e| e.words())?
                 {
                     return Ok(id);
@@ -905,6 +931,14 @@ impl Watch {
                 pass.record(root, &queued.pull, ReviewOutcome::Failed { reason });
             }
         }
+    }
+}
+
+/// Why a pull request could not be started: its own trouble, or the desk's.
+fn unstarted(e: &GhError) -> Unstarted {
+    match e {
+        GhError::Failed(_) => Unstarted::Head(e.words()),
+        GhError::SignedOut | GhError::RateLimited => Unstarted::Desk(e.words()),
     }
 }
 

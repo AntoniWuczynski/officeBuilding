@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 
 /// Whether `pr` is one A Human has put outside QA: a draft (when drafts are skipped) or one
 /// labelled `no-qa`.
-fn left_out(qa: &QaSettings, pr: &PullRequest) -> bool {
+pub(super) fn left_out(qa: &QaSettings, pr: &PullRequest) -> bool {
     (pr.draft && qa.skip_drafts)
         || pr
             .labels
@@ -31,7 +31,20 @@ impl Desk {
         let prs: Vec<&PullRequest> = kept.iter().map(|o| &o.pr).collect();
         stack::group(&prs)
             .into_iter()
-            .map(|chain| chain.into_iter().map(|i| kept[i]).collect())
+            .flat_map(|chain| {
+                let unit: Vec<&Open> = chain.into_iter().map(|i| kept[i]).collect();
+                // A chain whose top lacks a lower pull request's commits is reviewed one by one.
+                let diverged = unit.split_last().is_some_and(|(top, lower)| {
+                    lower
+                        .iter()
+                        .any(|o| self.diverged.contains(&(o.pr.number, top.pr.number)))
+                });
+                if diverged {
+                    unit.into_iter().map(|o| vec![o]).collect()
+                } else {
+                    vec![unit]
+                }
+            })
             .collect()
     }
 
@@ -69,7 +82,8 @@ impl Desk {
                     return false;
                 };
                 let pr = &top.pr;
-                !of(pr.number).any(|r| r.head == pr.head && r.covers == *covers)
+                !of(pr.number)
+                    .any(|r| r.head == pr.head && (!qa.review_stacks || r.covers == *covers))
                     && (qa.every_push || of(pr.number).next().is_none())
                     && of(pr.number).filter(|r| within_day(&r.at, now)).count()
                         < usize::try_from(qa.reviews_per_day).unwrap_or(usize::MAX)
