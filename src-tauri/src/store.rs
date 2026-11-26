@@ -268,6 +268,7 @@ mod tests {
                 head: "a".repeat(40),
                 at: "2026-11-12T10:00:00Z".into(),
                 outcome: ReviewOutcome::Clean,
+                covers: Vec::new(),
             }],
         };
         store.records.qa.insert("/r".into(), record.clone());

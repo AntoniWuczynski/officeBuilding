@@ -840,6 +840,7 @@ mod tests {
                     findings: 2,
                     review_id: 90210,
                 },
+                covers: Vec::new(),
             }],
             stamp: Some(Verdict::Concerns),
         };

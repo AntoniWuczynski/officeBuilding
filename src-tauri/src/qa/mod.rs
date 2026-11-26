@@ -6,6 +6,7 @@ pub mod findings;
 pub mod github;
 pub mod record;
 pub mod review;
+pub mod stack;
 pub mod watch;
 pub mod worktree;
 

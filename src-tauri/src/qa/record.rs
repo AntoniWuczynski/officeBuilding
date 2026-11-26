@@ -36,6 +36,14 @@ pub enum ReviewOutcome {
     Failed { reason: String },
 }
 
+/// One pull request a stack review covers, at the head that was reviewed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Covered {
+    pub number: u64,
+    /// 40 hex characters.
+    pub head: String,
+}
+
 /// One review the desk attempted. Kept so a commit is never reviewed twice.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +57,10 @@ pub struct Review {
     /// When it ended (ISO 8601, UTC, seconds).
     pub at: String,
     pub outcome: ReviewOutcome,
+    /// A review of a whole stack (`number` is its top): every pull request it covers, bottom
+    /// first. Empty for a review of one pull request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub covers: Vec<Covered>,
 }
 
 /// A floor's QA record in `store.json`, under its absolute repo root.
@@ -73,6 +85,7 @@ pub(crate) mod fixtures {
             head: head.into(),
             at: "2026-11-12T10:05:00Z".into(),
             outcome,
+            covers: Vec::new(),
         }
     }
 }
@@ -120,6 +133,25 @@ mod tests {
             serde_json::to_value(&r).expect("value")["at"],
             "2026-11-12T10:05:00Z"
         );
+    }
+
+    #[test]
+    fn a_stack_review_keeps_what_it_covers_and_a_single_review_writes_nothing() {
+        let single = review(12, &"0".repeat(40), ReviewOutcome::Clean);
+        assert!(
+            serde_json::to_value(&single)
+                .expect("value")
+                .get("covers")
+                .is_none()
+        );
+        let mut stack = single;
+        stack.covers = vec![Covered {
+            number: 11,
+            head: "1".repeat(40),
+        }];
+        let text = serde_json::to_string(&stack).expect("json");
+        assert!(text.contains(r#""covers":[{"number":11,"head":"1111"#));
+        assert_eq!(serde_json::from_str::<Review>(&text).expect("back"), stack);
     }
 
     #[test]

@@ -69,6 +69,9 @@ struct Pr {
     head: String,
     draft: bool,
     labels: Vec<&'static str>,
+    /// The branch it merges into and the branch it is made on.
+    base: String,
+    branch: String,
 }
 
 fn pr(number: u64, head: char) -> Pr {
@@ -77,6 +80,8 @@ fn pr(number: u64, head: char) -> Pr {
         head: sha(head),
         draft: false,
         labels: Vec::new(),
+        base: "main".into(),
+        branch: format!("branch-{number}"),
     }
 }
 
@@ -93,6 +98,9 @@ fn listing(prs: &[Pr]) -> Captured {
                 "title": title(p.number),
                 "headRefOid": p.head,
                 "isDraft": p.draft,
+                "baseRefName": p.base,
+                "headRefName": p.branch,
+                "isCrossRepository": false,
                 "labels": p.labels.iter().map(|l| json!({ "name": l })).collect::<Vec<_>>(),
             })
         })
@@ -168,6 +176,7 @@ fn answer(script: &Mutex<Script>, call: &Call) -> Captured {
                 .cloned()
                 .unwrap_or_else(|| ok("[]")),
             ("pr", "diff") => script.diff.clone(),
+            ("api", path) if path.contains("/compare/") => script.diff.clone(),
             ("api", _) if !args.iter().any(|a| a == "--method") => script.reviews.clone(),
             ("api", _) => {
                 let body = fs::read_to_string(arg(5)).expect("payload");
@@ -208,7 +217,9 @@ fn name(call: &Call) -> String {
         "probe".into()
     } else if call.program == Path::new(GH) {
         if args[0] == "api" {
-            if args.iter().any(|a| a == "--method") {
+            if args[1].contains("/compare/") {
+                "api compare".into()
+            } else if args.iter().any(|a| a == "--method") {
                 "api".into()
             } else {
                 "api list".into()
@@ -229,6 +240,10 @@ fn assert_gh_only_posts_reviews(calls: &[Call]) -> usize {
     for call in calls.iter().filter(|c| c.program == Path::new(GH)) {
         let args = strings(call);
         if args[0] == "pr" && matches!(args[1].as_str(), "list" | "diff") {
+            continue;
+        }
+        if args[0] == "api" && args[1].contains("/compare/") {
+            // Reading a stack's diff writes nothing.
             continue;
         }
         if args.len() == 5 && args[2] == "--paginate" {
@@ -576,6 +591,7 @@ fn reviews_per_day_holds_a_third_head_until_the_oldest_is_a_day_old() {
         head: sha(head),
         at: timestamp(at),
         outcome: ReviewOutcome::Clean,
+        covers: Vec::new(),
     };
     lock(&rig.building.floors)[0].reviews = vec![
         old('a', t0() - TimeDelta::hours(23)),
@@ -675,6 +691,7 @@ fn a_run_that_ends_without_findings_is_a_failure_and_posts_nothing() {
 }
 
 mod repeats;
+mod stacks;
 
 #[test]
 fn a_post_that_fails_is_retried_after_the_next_check_in_the_summary_form() {

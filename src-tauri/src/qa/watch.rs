@@ -9,8 +9,9 @@ use super::brief;
 use super::diff::ChangedLines;
 use super::findings::{self, Report};
 use super::github::{self, Found, GhError, GitHub, PullRequest, Repo};
-use super::record::{Review, ReviewOutcome, Verdict};
+use super::record::{Covered, Review, ReviewOutcome, Verdict};
 use super::review::{self, Placement};
+use super::stack;
 use super::worktree::Git;
 use super::{runs_dir, worktrees_dir};
 use crate::model::{QaRun, QaStatus};
@@ -20,7 +21,7 @@ use crate::settings::{QaSettings, SettingsStore};
 use crate::store::write_json_atomic;
 use crate::sync::lock;
 use chrono::{DateTime, Utc};
-use clock::{delta, later, since, timestamp, within_day};
+use clock::{later, since, timestamp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -101,6 +102,10 @@ struct Pull {
     number: u64,
     title: String,
     head: String,
+    /// The pull requests of a stack this reviews as one, bottom first. Empty for one pull request.
+    covers: Vec<Covered>,
+    /// The branch the bottom of a stack merges into.
+    base: String,
 }
 
 /// A listed pull request, with when its current head was first seen.
@@ -208,59 +213,6 @@ impl Desk {
         }
         self.stamp = pass.then_some(Verdict::Pass);
     }
-
-    /// The listed pull request with the lowest number that is due.
-    /// `taken` says whether another floor on the same repository has the head in hand.
-    fn due(
-        &self,
-        qa: &QaSettings,
-        stored: &[Review],
-        now: DateTime<Utc>,
-        taken: &dyn Fn(u64, &str) -> bool,
-    ) -> Option<Pull> {
-        let repo = self.repo.as_ref()?;
-        let checked = self.checked?;
-        let slug = repo.to_string();
-        let slug = slug.as_str();
-        let of = |number: u64| {
-            stored
-                .iter()
-                .filter(move |r| r.repo == slug && r.number == number)
-        };
-        self.open
-            .iter()
-            .filter(|o| {
-                let pr = &o.pr;
-                (!pr.draft || !qa.skip_drafts)
-                    && !pr
-                        .labels
-                        .iter()
-                        .any(|l| l.eq_ignore_ascii_case(NO_QA_LABEL))
-                    && !of(pr.number).any(|r| r.head == pr.head)
-                    && (qa.every_push || of(pr.number).next().is_none())
-                    && of(pr.number).filter(|r| within_day(&r.at, now)).count()
-                        < usize::try_from(qa.reviews_per_day).unwrap_or(usize::MAX)
-                    && o.since + delta(QUIET) <= checked
-                    && !taken(pr.number, &pr.head)
-                    && !self
-                        .queue
-                        .iter()
-                        .any(|q| q.pull.repo == *repo && q.pull.number == pr.number)
-            })
-            .min_by_key(|o| {
-                let failed = self
-                    .start_failures
-                    .get(&(o.pr.number, o.pr.head.clone()))
-                    .copied();
-                (failed.unwrap_or(0), o.pr.number)
-            })
-            .map(|o| Pull {
-                repo: repo.clone(),
-                number: o.pr.number,
-                title: o.pr.title.clone(),
-                head: o.pr.head.clone(),
-            })
-    }
 }
 
 #[derive(Default)]
@@ -302,6 +254,7 @@ impl Pass<'_> {
             head: pull.head.clone(),
             at: timestamp(self.now),
             outcome,
+            covers: pull.covers.clone(),
         };
         // A store that cannot be saved still holds the review in memory, which is what
         // keeps the commit from being reviewed twice while the app runs.
@@ -618,7 +571,7 @@ impl Watch {
         let mut failed = false;
         let mut limited = false;
         for floor in floors {
-            let checked = self.check_floor(&tools, floor);
+            let checked = self.check_floor(&tools, floor, pass.qa.review_stacks);
             let mut state = lock(&self.state);
             let Some(desk) = state.floors.get_mut(&floor.root) else {
                 continue;
@@ -700,6 +653,7 @@ impl Watch {
         &self,
         tools: &Found,
         floor: &Floor,
+        stacks: bool,
     ) -> Result<(Repo, Vec<PullRequest>), (String, Fault)> {
         let (Some(gh), Some(git)) = (&tools.gh, &tools.git) else {
             let missing = if tools.gh.is_none() { NO_GH } else { NO_GIT };
@@ -712,17 +666,20 @@ impl Watch {
             .as_deref()
             .and_then(Repo::from_remote)
             .ok_or_else(|| (NO_ORIGIN.to_string(), Fault::Lasting))?;
-        GitHub::new(Arc::clone(&self.runner), gh.clone())
-            .mine(&repo)
-            .map(|listed| (repo, listed))
-            .map_err(|e| {
-                let fault = if e == GhError::RateLimited {
-                    Fault::RateLimited
-                } else {
-                    Fault::Failed
-                };
-                (e.words(), fault)
-            })
+        let github = GitHub::new(Arc::clone(&self.runner), gh.clone());
+        let mine = if stacks {
+            github.mine_stacked(&repo)
+        } else {
+            github.mine(&repo)
+        };
+        mine.map(|listed| (repo, listed)).map_err(|e| {
+            let fault = if e == GhError::RateLimited {
+                Fault::RateLimited
+            } else {
+                Fault::Failed
+            };
+            (e.words(), fault)
+        })
     }
 
     /// Start the due pull request of each free floor, in project id order, up to the cap.
@@ -857,7 +814,12 @@ impl Watch {
         if !git.has_commit(root, &pull.head) {
             return Ok(Begun::Moved);
         }
-        let diff = github.diff(&pull.repo, pull.number).map_err(|e| match e {
+        let diff = if pull.covers.is_empty() {
+            github.diff(&pull.repo, pull.number)
+        } else {
+            github.diff_stack(&pull.repo, &pull.base, &pull.head)
+        }
+        .map_err(|e| match e {
             GhError::Failed(_) => Unstarted::Head(e.words()),
             GhError::SignedOut | GhError::RateLimited => Unstarted::Desk(e.words()),
         })?;
@@ -881,6 +843,7 @@ impl Watch {
             _ => {}
         }
         let job = brief::job(worktree, report, pull.number, &pull.title);
+        let job = stack::brief(job, &pull.covers);
         let terminal = pass.building.hire_reviewer(project_id, &job)?;
         Ok(Begun::Running(Run {
             pull: pull.clone(),
@@ -898,7 +861,8 @@ impl Watch {
         } else {
             Placement::Summary
         };
-        let payload = review::build(&queued.report, &queued.lines, &queued.pull.head, placement);
+        let built = review::build(&queued.report, &queued.lines, &queued.pull.head, placement);
+        let payload = stack::announce(built, &queued.pull.covers);
         let file = runs_dir(&self.data)
             .join(project_id)
             .join(format!("review-{}.json", queued.pull.number));
@@ -984,6 +948,7 @@ pub fn start(watch: &Arc<Watch>, building: Arc<dyn Building>) -> Result<(), Stri
 }
 
 mod clock;
+mod due;
 
 #[cfg(test)]
 mod tests;

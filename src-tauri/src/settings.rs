@@ -140,6 +140,8 @@ pub struct QaSettings {
     pub max_concurrent: u32,
     /// Reviews of one pull request in 24 hours: 1 to 20.
     pub reviews_per_day: u32,
+    /// Review a stack of pull requests as one, on its top pull request.
+    pub review_stacks: bool,
     pub tool: ReviewerTool,
     /// None: the tool's default model.
     pub model: Option<String>,
@@ -157,6 +159,7 @@ impl Default for QaSettings {
             post_when_clean: true,
             max_concurrent: 1,
             reviews_per_day: 3,
+            review_stacks: false,
             tool: ReviewerTool::ClaudeCode,
             model: None,
             effort: None,
@@ -589,7 +592,7 @@ mod tests {
             "connectors": { "linearAgentLabel": "agent" },
             "qa": { "defaultOn": false, "pollMinutes": 5, "everyPush": true, "skipDrafts": true,
             "postWhenClean": true, "maxConcurrent": 1, "reviewsPerDay": 3,
-            "tool": "claude-code", "model": null, "effort": null },
+            "reviewStacks": false, "tool": "claude-code", "model": null, "effort": null },
             "manager": { "tool": "claude-code", "model": null, "effort": null,
             "maxDesks": 3, "spendCeilingUsd": 20 },
             "agents": { "view": "terminal" },

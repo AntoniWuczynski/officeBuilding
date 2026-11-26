@@ -86,6 +86,7 @@ fn a_head_another_floor_reviewed_is_skipped_while_that_floor_cannot_check() {
         head: sha('a'),
         at: timestamp(mins(0)),
         outcome: ReviewOutcome::Clean,
+        covers: Vec::new(),
     };
     rig.add_floor("p-b", vec![done]);
     let failing = rig.root("p-b");

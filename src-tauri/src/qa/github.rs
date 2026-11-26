@@ -76,6 +76,12 @@ pub struct PullRequest {
     pub head: String,
     pub draft: bool,
     pub labels: Vec<String>,
+    /// The branch it merges into. Empty unless listed with `mine_stacked`.
+    pub base_ref: String,
+    /// The branch it is made on. Empty unless listed with `mine_stacked`.
+    pub head_ref: String,
+    /// Made on a fork, so its branch name is not a branch of this repository.
+    pub from_fork: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +144,12 @@ struct Listed {
     is_draft: bool,
     #[serde(default)]
     labels: Vec<Label>,
+    #[serde(default)]
+    base_ref_name: String,
+    #[serde(default)]
+    head_ref_name: String,
+    #[serde(default)]
+    is_cross_repository: bool,
 }
 
 #[derive(Deserialize)]
@@ -168,6 +180,18 @@ impl GitHub {
 
     /// The signed-in user's open pull requests on `repo`.
     pub fn mine(&self, repo: &Repo) -> Result<Vec<PullRequest>, GhError> {
+        self.listed(repo, "number,title,headRefOid,isDraft,labels")
+    }
+
+    /// Like `mine`, with the branch names that tell which pull requests are stacked.
+    pub fn mine_stacked(&self, repo: &Repo) -> Result<Vec<PullRequest>, GhError> {
+        self.listed(
+            repo,
+            "number,title,headRefOid,isDraft,labels,baseRefName,headRefName,isCrossRepository",
+        )
+    }
+
+    fn listed(&self, repo: &Repo, fields: &str) -> Result<Vec<PullRequest>, GhError> {
         let args = strings(&[
             "pr",
             "list",
@@ -180,7 +204,7 @@ impl GitHub {
             "--limit",
             "100",
             "--json",
-            "number,title,headRefOid,isDraft,labels",
+            fields,
         ]);
         let out = self.run(&args, LIST_LIMIT)?;
         let listed: Vec<Listed> = serde_json::from_str(&out).map_err(|_| unreadable())?;
@@ -195,6 +219,9 @@ impl GitHub {
                 head: l.head_ref_oid,
                 draft: l.is_draft,
                 labels: l.labels.into_iter().map(|label| label.name).collect(),
+                base_ref: l.base_ref_name,
+                head_ref: l.head_ref_name,
+                from_fork: l.is_cross_repository,
             })
             .collect())
     }
@@ -209,6 +236,19 @@ impl GitHub {
             &repo.to_string(),
             "--color",
             "never",
+        ]);
+        self.run(&args, DIFF_LIMIT)
+    }
+
+    /// What a stack of pull requests changes as a whole: the diff from `base` (the branch its
+    /// bottom pull request merges into) to `head` (its top), the way a pull request shows it.
+    /// The compare endpoint, because the stack is not a pull request of its own.
+    pub fn diff_stack(&self, repo: &Repo, base: &str, head: &str) -> Result<String, GhError> {
+        let args = strings(&[
+            "api",
+            &format!("repos/{repo}/compare/{}...{head}", encoded(base)),
+            "-H",
+            "Accept: application/vnd.github.diff",
         ]);
         self.run(&args, DIFF_LIMIT)
     }
@@ -248,6 +288,19 @@ impl GitHub {
                 .flatten()
         }))
     }
+}
+
+/// `branch` for a URL path: everything but letters, digits and `-_.~/` as `%XX`.
+fn encoded(branch: &str) -> String {
+    branch
+        .bytes()
+        .map(|b| match b {
+            b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                char::from(b).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 fn strings(args: &[&str]) -> Vec<String> {
@@ -340,6 +393,68 @@ mod tests {
         assert!(!got[0].draft && got[1].draft);
         assert_eq!(got[1].labels, vec!["wip"]);
         assert_eq!(got[2].labels, vec!["no-qa"]);
+    }
+
+    #[test]
+    fn mine_stacked_asks_for_the_branch_names_and_reads_them() {
+        let listing = r#"[
+          {"number": 1, "title": "Base", "headRefOid": "0123456789abcdef0123456789abcdef01234567",
+           "isDraft": false, "labels": [], "baseRefName": "main", "headRefName": "feat/a",
+           "isCrossRepository": false},
+          {"number": 2, "title": "Forked", "headRefOid": "fedcba9876543210fedcba9876543210fedcba98",
+           "isDraft": false, "labels": [], "baseRefName": "feat/a", "headRefName": "main",
+           "isCrossRepository": true}
+        ]"#;
+        let fake = answering(Some(0), listing, "");
+        let got = client(&fake).mine_stacked(&repo()).expect("mine");
+        assert_eq!(
+            args(&fake.calls()[0])[10..],
+            strings(&[
+                "--json",
+                "number,title,headRefOid,isDraft,labels,baseRefName,headRefName,isCrossRepository"
+            ])
+        );
+        assert_eq!(
+            (&got[0].base_ref[..], &got[0].head_ref[..], got[0].from_fork),
+            ("main", "feat/a", false)
+        );
+        assert_eq!(
+            (&got[1].base_ref[..], &got[1].head_ref[..], got[1].from_fork),
+            ("feat/a", "main", true)
+        );
+    }
+
+    #[test]
+    fn the_plain_list_leaves_the_branch_names_empty() {
+        let fake = answering(Some(0), LIST, "");
+        let got = client(&fake).mine(&repo()).expect("mine");
+        assert!(got.iter().all(|p| p.base_ref.is_empty() && !p.from_fork));
+    }
+
+    #[test]
+    fn diff_stack_asks_the_compare_endpoint_for_a_diff_with_the_exact_arguments() {
+        let head = "a".repeat(40);
+        let fake = answering(Some(0), "diff --git a/x b/x\n", "");
+        let got = client(&fake)
+            .diff_stack(&repo(), "release/1.x", &head)
+            .expect("diff");
+        assert_eq!(got, "diff --git a/x b/x\n");
+        assert_eq!(
+            args(&fake.calls()[0]),
+            strings(&[
+                "api",
+                &format!("repos/example-org/widgets/compare/release/1.x...{head}"),
+                "-H",
+                "Accept: application/vnd.github.diff",
+            ])
+        );
+        assert_eq!(fake.limits(), vec![DIFF_LIMIT]);
+    }
+
+    #[test]
+    fn a_branch_name_is_escaped_for_the_compare_path() {
+        assert_eq!(encoded("feat/a-b_c.d~1"), "feat/a-b_c.d~1");
+        assert_eq!(encoded("a b#c?d%"), "a%20b%23c%3Fd%25");
     }
 
     #[test]
