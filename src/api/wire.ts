@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, ProjectRule, QueuedNote, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
+import type { AppInfo, ConversationBacklog, Editor, LinearKeyStatus, LinearTeam, EditorList, ConversationUpdate, OfficeSnapshot, Project, ProjectRule, QueuedNote, Session, Settings, SetupView, Shell, ToolOptions, ToolUsage } from "../types";
 import type { HireFailure } from "./DiscoveryApi";
 import { handoverSettingsSchema, handoverViewSchema } from "./handoverWire";
 import { routingSettingsSchema } from "./routingWire";
@@ -361,6 +361,8 @@ export const editorListSchema = z.object({
   editors: z.array(z.object({ editor: editorSchema, label: z.string(), installed: z.boolean() })),
   defaultEditor: editorSchema.nullable(),
 }) satisfies z.ZodType<EditorList>;
+
+export const appInfoSchema = z.object({ version: z.string(), commit: z.string() }) satisfies z.ZodType<AppInfo>;
 
 export const settingsSchema = z.object({
   notifications: notificationSettingsSchema,

@@ -240,6 +240,8 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .setup(set_up)
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .on_window_event(|window, event| {
             // Focus is followed from events, never asked for: `is_focused` blocks on the main thread.
             if let tauri::WindowEvent::Focused(focused) = event
@@ -282,6 +284,7 @@ pub fn run() -> tauri::Result<()> {
             commands::update_settings,
             commands::set_open_desk,
             commands::test_alert,
+            commands::app_info,
             commands::editors,
             commands::open_in_editor,
             commands::linear_key_status,

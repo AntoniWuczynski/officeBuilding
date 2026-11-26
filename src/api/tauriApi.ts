@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { ConnectorKind, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { AppInfo, ConnectorKind, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 import type { z } from "zod";
 import type { DiscoveryApi, FileDrop, HireFailure, HireRequest, ProjectChoice, ProjectTarget, QuestionAnswer, TerminalHandlers } from "./DiscoveryApi";
 import {
+  appInfoSchema,
   folderSchema,
   hireFailureSchema,
   hireOptionsSchema,
@@ -95,6 +96,10 @@ export class TauriApi implements DiscoveryApi {
 
   async setOpenDesk(sessionId: string | null): Promise<void> {
     await call("set_open_desk", { sessionId });
+  }
+
+  async appInfo(): Promise<AppInfo> {
+    return parseWire(appInfoSchema, "app info", await call("app_info"));
   }
 
   async testAlert(): Promise<void> {

@@ -20,13 +20,16 @@
     "test:coverage": "vitest run --coverage",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "app:install": "tauri build --bundles app && rm -rf \"$HOME/Applications/Office Building.app\" && mkdir -p \"$HOME/Applications\" && cp -R \"src-tauri/target/release/bundle/macos/Office Building.app\" \"$HOME/Applications/\"",
+    "app:install": "tauri build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}' && rm -rf \"$HOME/Applications/Office Building.app\" && mkdir -p \"$HOME/Applications\" && cp -R \"src-tauri/target/release/bundle/macos/Office Building.app\" \"$HOME/Applications/\"",
     "prepare": "git config core.hooksPath .githooks",
+    "release": "node --no-warnings scripts/release.ts",
     "check:sensitive": "node --no-warnings scripts/check-sensitive.ts --all",
     "check:art": "uv run --script art/cast/cut.py --check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.12.0",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "framer-motion": "^13.3.0",

@@ -1,4 +1,4 @@
-import type { ConnectorKind, DeskView, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
+import type { AppInfo, ConnectorKind, DeskView, ConversationBacklog, Editor, FloorLink, LinearKeyStatus, LinearTeam, EditorList, Place, ConversationUpdate, OfficeSnapshot, Project, Session, Settings, SettingsPatch, SetupItemKind, SetupView, Shell, Targets, ToolKind, ToolOptions, ToolUsage } from "../types";
 
 /** A human's answer to a queued question: a chosen option or free text. */
 export type QuestionAnswer =
@@ -108,6 +108,9 @@ export interface DiscoveryApi {
 
   /** Tell the backend which desk's panel is open (null: none), so it does not alert for it. */
   setOpenDesk(sessionId: string | null): Promise<void>;
+
+  /** The version this app was built as and the commit it came from. */
+  appInfo(): Promise<AppInfo>;
 
   /** Send a test alert in three seconds, by the methods switched on. */
   testAlert(): Promise<void>;

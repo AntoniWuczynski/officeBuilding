@@ -1,5 +1,6 @@
 import type {
   AgentMessage,
+  AppInfo,
   ConversationBacklog,
   ConversationUpdate,
   Decision,
@@ -203,6 +204,10 @@ export class MockApi implements DiscoveryApi {
   setOpenDesk(sessionId: string | null): Promise<void> {
     this.openDeskId = sessionId;
     return Promise.resolve();
+  }
+
+  appInfo(): Promise<AppInfo> {
+    return Promise.resolve({ version: "0.1.0", commit: "0000000000000000000000000000000000000000" });
   }
 
   testAlert(): Promise<void> {

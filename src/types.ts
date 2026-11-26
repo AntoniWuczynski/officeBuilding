@@ -545,6 +545,12 @@ export interface EditorList {
   readonly defaultEditor: Editor | null;
 }
 
+/** The version the app was built as and the commit it was built from. */
+export interface AppInfo {
+  readonly version: string;
+  readonly commit: string;
+}
+
 /** Something in the building that has a folder. The backend finds the folder: a path is never sent. */
 export type Place =
   | { readonly kind: "session"; readonly sessionId: string }

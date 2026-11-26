@@ -434,6 +434,22 @@ pub async fn set_open_desk(
         .map_err(|e| format!("the open desk could not be set: {e}"))
 }
 
+/// The version the app was built as and the commit it was built from.
+#[derive(serde::Serialize)]
+pub struct AppInfo {
+    version: String,
+    commit: String,
+}
+
+#[tauri::command]
+#[must_use]
+pub fn app_info(app: AppHandle) -> AppInfo {
+    AppInfo {
+        version: app.package_info().version.to_string(),
+        commit: env!("OB_GIT_COMMIT").to_owned(),
+    }
+}
+
 /// A test alert in three seconds, by the methods switched on.
 #[tauri::command]
 pub fn test_alert(app: AppHandle, alerts: State<'_, Arc<Alerts>>) -> Result<(), String> {
