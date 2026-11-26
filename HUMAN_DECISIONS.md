@@ -1039,6 +1039,7 @@ The build's own calls, which A Human has not yet seen:
 - The partition is 22px high translucent glass, labelled "Manager's team", and takes no clicks. The zone has a plaster rug under it and is a named group ("Manager's team") for screen readers.
 - Helpers' tiny desks beside a zone desk stay left of the office and short of the partition, so they may be a little smaller than in the main grid.
 - The building cutaway and the island map are unchanged, and an island's inside draws the same zone.
+- A manager restart keeps its hired desks in the zone and marked managed, because the desks keep running: the building keeps each floor's hires apart from the manager's seat, counts them in the caps for the next manager, and forgets one only when its terminal has gone and no desk that ran in it is left. Helpers' pods in the zone are held short of the office only where they reach down beside it, so pods below the office keep their full width.
 
 Not seen in the installed app yet (TODO OB-440, HUMAN_TODO OB-441).
 

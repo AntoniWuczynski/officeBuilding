@@ -196,11 +196,26 @@ describe("the manager's team zone", () => {
         const desk = zoneDeskSlot(i);
         const pod = podFor(desk, 9, bounds);
         for (const slot of pod.slots) {
-          expect(slot.x + pod.cell).toBeLessThanOrEqual(ROOM.managerX - 6 + 1e-9);
+          // Left of the office only where the pod reaches down beside it; below it the pod keeps the grid's width.
+          const reach = pod.region.y < ROOM.managerDepth ? ROOM.managerX - 6 : desk.x + ROOM.colGap - 6;
+          expect(slot.x + pod.cell).toBeLessThanOrEqual(reach + 1e-9);
           expect(slot.y + pod.cell).toBeLessThanOrEqual(line - ZONE.podGap + 1e-9);
         }
       }
     }
+  });
+
+  it("gives a zone desk below the office's depth the same pod width as in the grid, and caps one beside the office", () => {
+    const bounds = zoneBounds(9);
+    if (bounds === undefined) throw new Error("no zone");
+    for (let i = 0; i < 9; i++) {
+      const desk = zoneDeskSlot(i);
+      const pod = podFor(desk, 1, bounds);
+      if (desk.y - 22 >= ROOM.managerDepth) expect(pod.region.w).toBe(podFor(desk, 1).region.w);
+      else expect(pod.region.x + pod.region.w).toBeLessThanOrEqual(ROOM.managerX - 6);
+    }
+    const below = podFor(zoneDeskSlot(6), 1, bounds).region;
+    expect(below.w).toBeGreaterThan(40);
   });
 
   it("grows the room deeper than the same human desks without a zone", () => {

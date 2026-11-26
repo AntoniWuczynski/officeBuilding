@@ -138,7 +138,8 @@ function podRegion(desk: Slot, bounds: PodBounds | undefined): Region {
   const x = desk.x + DESK.w + 8;
   const y = desk.y - 22;
   const natural = y < ROOM.managerDepth ? Math.min(desk.x + ROOM.colGap - 6, ROOM.managerX - 6) : desk.x + ROOM.colGap - 6;
-  const right = bounds === undefined ? natural : Math.min(natural, bounds.right);
+  // The office's edge only matters where the pod reaches down beside the office.
+  const right = bounds === undefined || y >= ROOM.managerDepth ? natural : Math.min(natural, bounds.right);
   const h = bounds === undefined ? 92 : Math.min(92, bounds.bottom - y);
   return { x, y, w: right - x, h };
 }

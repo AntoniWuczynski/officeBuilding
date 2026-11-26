@@ -49,6 +49,12 @@ describe("the manager's team zone on a floor", () => {
     expect(slot.x + 36).toBeLessThanOrEqual(ROOM.width);
   });
 
+  it("puts the zone's desks before A Human's in document order, so focus runs back to front", () => {
+    render(floor(crowded(), "p-notes"));
+    const order = screen.getAllByTestId("worker").map((w) => w.getAttribute("data-session"));
+    expect(order).toEqual([...hired, ...own]);
+  });
+
   it("keeps a desk the manager only sent a note to among A Human's, still marked managed", () => {
     render(floor(crowded(), "p-notes"));
     expect(within(screen.getByRole("group", { name: /^Manager's team/ })).queryByText("h-2")).not.toBeInTheDocument();

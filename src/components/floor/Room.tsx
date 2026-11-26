@@ -351,8 +351,9 @@ export function Room({ sessions, team = [], qa, reviewer, manager, depth, query,
 
       {qa === null ? null : <QaDesk qa={qa} depth={depth} occupied={reviewer !== undefined} now={now} onOpen={() => onOpenSection("info")} look={look} />}
 
-      {placements.filter((p) => !teamIds.has(p.session.id)).map(deskView)}
+      {/* The zone comes first so focus runs back to front, as the floor reads from top to bottom. */}
       {team.length === 0 ? null : <TeamZone count={team.length}>{placements.filter((p) => teamIds.has(p.session.id)).map(deskView)}</TeamZone>}
+      {placements.filter((p) => !teamIds.has(p.session.id)).map(deskView)}
 
       <IsoBox
         x={hireSlot.x}
